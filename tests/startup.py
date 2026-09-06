@@ -44,9 +44,16 @@ class Workspace(unittest.TestCase):
                     complete_setup(app)
                     settings = tomllib.loads(app.settings.read_text())
                     self.assertEqual(settings["trusted_workspaces"], [str(app.workspace.resolve())])
+                    (app.workspace / "tool-cycle").touch()
+                    (app.workspace / "seed.txt").write_text("41\n")
                     os.write(app.master, b"workspace-check\r")
                     app.wait("RECEIVED-workspace-check")
                     self.assertEqual(json.loads((app.workspace / "received-prompt.json").read_text()), "workspace-check")
+                    self.assertEqual((app.workspace / "answer.py").read_text(), "value = 42\n")
+                    events = [json.loads(line)["event"] for line in app.log.read_text().splitlines()]
+                    results = [event["result"] for event in events if event["type"] == "tool_finished"]
+                    self.assertEqual([result["tool"] for result in results], ["read", "write", "edit", "bash"])
+                    self.assertTrue(all(result["success"] for result in results))
                     app.finish()
                 finally:
                     app.close()
@@ -72,6 +79,30 @@ class Directory(unittest.TestCase):
             finally:
                 app.close()
 
+    def test_saved_connections_survive_directory_repair_and_new_project_trust(self):
+        with tempfile.TemporaryDirectory(prefix="demoncoder-saved-directory-") as directory:
+            root = Path(directory)
+            parent = root / "home/.demoncoder"
+            parent.mkdir(parents=True)
+            parent.chmod(0o775)
+            config = parent / "settings.toml"
+            config.write_text('onboarding_complete=true\ndefault_connection="codex"\n[connections.codex]\nadapter="codex"\nmodel="fixture-model"\n[connections.api]\nadapter="openai-api"\nmodel="fixture-model"\napi_key="synthetic-saved-key"\n')
+            config.chmod(0o600)
+            before = tomllib.loads(config.read_text())
+            app = App(root)
+            try:
+                app.answer("Trust this project for coding tools? [N]:", "y")
+                app.wait("Prompt")
+                after = tomllib.loads(config.read_text())
+                self.assertEqual(after["connections"], before["connections"])
+                self.assertEqual(after["default_connection"], before["default_connection"])
+                self.assertEqual(parent.stat().st_mode & 0o777, 0o700)
+                self.assertNotIn(b"synthetic-saved-key", app.output)
+                self.assertNotIn("synthetic-saved-key", app.log.read_text())
+                app.finish()
+            finally:
+                app.close()
+
     def test_symlinked_default_directory_is_rejected_without_chmod(self):
         with tempfile.TemporaryDirectory(prefix="demoncoder-directory-link-") as directory:
             root = Path(directory)
@@ -79,13 +110,13 @@ class Directory(unittest.TestCase):
             home.mkdir()
             outside = root / "outside"
             outside.mkdir()
-            outside.chmod(0o775)
+            outside.chmod(0o700)
             (home / ".demoncoder").symlink_to(outside, target_is_directory=True)
             app = App(root)
             try:
                 app.process.wait(timeout=5)
                 self.assertNotEqual(app.process.returncode, 0)
-                self.assertEqual(outside.stat().st_mode & 0o777, 0o775)
+                self.assertEqual(outside.stat().st_mode & 0o777, 0o700)
                 self.assertEqual(list(outside.iterdir()), [])
                 self.assertFalse(app.log.exists())
             finally:

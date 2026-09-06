@@ -35,6 +35,7 @@ responsible for choosing sound requirements and meaningful checks.
 | [glossary.md](glossary.md) | — | Terms used in this project. |
 | [coding-session.md](coding-session.md) | CODE | The first usable coding session and its execution boundaries. |
 | [connections.md](connections.md) | CONN | Provider selection, authentication, adapter boundaries, and extensibility. |
+| [startup.md](startup.md) | START | Help, version, launch-directory selection, and safe settings-directory repair. |
 | [roadmap.md](roadmap.md) | — | The selected commitment and intended delivery sequence. |
 
 The broader [design narrative](../spec.md) retains product direction,

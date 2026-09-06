@@ -32,7 +32,7 @@ pub fn prepare(args: &Args) -> Result<()> {
     let path = args
         .config_path()
         .context("set HOME or select --config for private settings")?;
-    let _lock = settings_lock(&path)?;
+    let _lock = settings_lock(&path, args.config.is_none())?;
     // Another setup may have completed before we obtained its lock.
     let mut config = args.load_config()?;
     println!("DemonCoder setup");
@@ -366,7 +366,7 @@ fn secret(label: &str) -> Result<String> {
     }
 }
 
-fn settings_lock(path: &Path) -> Result<File> {
+fn settings_lock(path: &Path, private_home: bool) -> Result<File> {
     let parent = path
         .parent()
         .filter(|parent| !parent.as_os_str().is_empty())
@@ -375,11 +375,28 @@ fn settings_lock(path: &Path) -> Result<File> {
         std::fs::create_dir_all(parent).context("create private settings directory")?;
         std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700))?;
     }
-    let meta = parent.metadata()?;
+    let directory = OpenOptions::new()
+        .read(true)
+        .custom_flags((rustix::fs::OFlags::DIRECTORY | rustix::fs::OFlags::NOFOLLOW).bits() as i32)
+        .open(parent)
+        .context("open settings directory without following a symlink")?;
+    let meta = directory.metadata()?;
     ensure!(
-        meta.uid() == rustix::process::getuid().as_raw() && meta.mode() & 0o022 == 0,
-        "settings directory must belong to the current user and exclude group/other writes"
+        meta.uid() == rustix::process::getuid().as_raw(),
+        "settings directory must belong to the current user"
     );
+    if private_home {
+        // Repair only our owned default directory. Use its opened descriptor
+        // so a path replacement cannot redirect the permission change.
+        directory
+            .set_permissions(std::fs::Permissions::from_mode(0o700))
+            .context("secure the private home settings directory")?;
+    } else {
+        ensure!(
+            meta.mode() & 0o022 == 0,
+            "custom settings directory allows group/other writes; remove those write permissions before retrying"
+        );
+    }
     let name = path
         .file_name()
         .context("settings path needs a file name")?;

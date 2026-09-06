@@ -9,8 +9,11 @@ use clap::Parser;
 use serde::{Deserialize, Serialize};
 
 #[derive(Parser)]
-#[command(version, about, mut_arg("version", |arg| arg.short('v').visible_short_alias('V')))]
+#[command(version, about, disable_version_flag = true)]
 pub struct Args {
+    /// Print the application version.
+    #[arg(short = 'v', long = "version", visible_short_alias = 'V', action = clap::ArgAction::Version)]
+    pub version: Option<bool>,
     /// Workspace authorized for this session.
     #[arg(long, default_value = ".")]
     pub workspace: PathBuf,

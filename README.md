@@ -79,7 +79,9 @@ DemonCoder guides you through setup:
 
 API-key entry is masked. A nonempty environment key takes precedence over a saved
 key. Setup saves to `~/.demoncoder/settings.toml` by default. Saved settings files
-use mode `0600`; newly created settings directories use `0700`.
+use mode `0600`; settings directories use `0700`. During setup or a trust update,
+an existing user-owned default `~/.demoncoder` directory is secured to `0700`
+without deleting its contents. Symlinked or foreign-owned directories are rejected.
 
 Reopen setup with:
 
@@ -462,8 +464,9 @@ chmod 600 ~/.demoncoder/settings.toml
 ```
 
 The file is plaintext. Setup takes an exclusive lock, writes a private temporary
-file, synchronizes it, and atomically replaces the settings file. A second setup
-reports that the lock is held rather than overwriting the first process's work.
+file, synchronizes it, and atomically replaces the settings file. Custom
+configuration parents must exclude group/other writes; DemonCoder does not
+automatically chmod a custom shared directory. A second setup reports that the lock is held rather than overwriting the first process's work.
 Cancelling setup before saving does not apply its settings changes.
 
 ## Coding tools
@@ -749,6 +752,10 @@ outcome; it does not provide transactional multi-file edits or automatic rollbac
 
 ### Troubleshooting
 
+If an older installed binary reports a writable home settings directory,
+`chmod 700 ~/.demoncoder` repairs the directory without deleting saved settings.
+The updated startup performs this repair for its owned default directory.
+
 | Symptom | Explanation and action |
 |---|---|
 | `DemonCoder requires an interactive terminal` | Launch in a terminal. Explicit configuration does not enable batch/piped operation. |
@@ -809,6 +816,7 @@ excluded. Cairn itself is separate development tooling and is not vendored here.
 cargo fmt --check
 cargo clippy --locked --all-targets -- -D warnings
 cargo test --locked --all-targets
+bash scripts/check-startup.sh
 bash scripts/check-coding-session.sh
 bash scripts/check-connections.sh
 ```
@@ -874,8 +882,10 @@ specified by [AGENTS.md](AGENTS.md).
 | [terminal.rs](src/terminal.rs) | Responsive editor, transcript, tool results, usage display. |
 
 The [first coding-session commitment](docs/commitments/first-coding-session.md)
-completed on 2026-09-06 with current passing evidence for all sixteen CODE/CONN
-requirements and live two-turn records for all four initial connections. The
+completed on 2026-09-06 with passing evidence for all sixteen CODE/CONN requirements
+at that revision and live two-turn records for all four initial connections. The
+[startup-fixes commitment](docs/commitments/startup-fixes.md) records the subsequent
+CLI and settings-directory corrections. The
 [final implementation review](.cairn/reviews/first-coding-session.md) records what
 was challenged and what the checks do not establish. Installed-backend evidence
 covers Codex 0.153.4 and Claude Code 2.1.263; it is not a compatibility promise for
