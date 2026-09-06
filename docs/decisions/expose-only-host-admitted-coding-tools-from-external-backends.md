@@ -11,4 +11,7 @@ Run Codex threads and turns with an explicitly empty environment selection so it
 
 ## Realized by
 
-(none yet: recorded, not built)
+- ce96807a42d62893171e08642ad3601b5477c88f Enforce host tool admission through installed backends
+
+The installed local backend checks establish tool routing and admission.
+Live authentication and the remaining session checks are still pending.
