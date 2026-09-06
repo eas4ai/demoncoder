@@ -16,3 +16,5 @@ requirements:
   - CONN-004
   - CONN-005
   - CONN-006
+reviewed:
+  - CONN-003 sha256:33cae6d9fdece29965177812edae0860372adae29cdad95ddd4d7838e004a561
