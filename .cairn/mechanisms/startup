@@ -1,0 +1,14 @@
+command: bash scripts/check-startup.sh
+results: per-requirement
+inputs:
+  - docs/spec/startup.md
+  - docs/commitments/startup-fixes.md
+  - Cargo.toml
+  - Cargo.lock
+  - src/
+  - tests/
+  - scripts/check-startup.sh
+requirements:
+  - START-001
+  - START-002
+  - START-003
