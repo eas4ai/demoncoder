@@ -36,6 +36,7 @@ responsible for choosing sound requirements and meaningful checks.
 | [coding-session.md](coding-session.md) | CODE | The first usable coding session and its execution boundaries. |
 | [connections.md](connections.md) | CONN | Provider selection, authentication, adapter boundaries, and extensibility. |
 | [startup.md](startup.md) | START | Help, version, launch-directory selection, and safe settings-directory repair. |
+| [developer-usability.md](developer-usability.md) | USABLE | Scrollable bounded chat and practical read, network, and coding-tool access. |
 | [roadmap.md](roadmap.md) | — | The selected commitment and intended delivery sequence. |
 
 The broader [design narrative](../spec.md) retains product direction,
