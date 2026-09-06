@@ -9,7 +9,7 @@ use clap::Parser;
 use serde::{Deserialize, Serialize};
 
 #[derive(Parser)]
-#[command(version, about)]
+#[command(version, about, mut_arg("version", |arg| arg.short('v').visible_short_alias('V')))]
 pub struct Args {
     /// Workspace authorized for this session.
     #[arg(long, default_value = ".")]

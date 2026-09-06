@@ -18,7 +18,7 @@ from terminal_session import BINARY, FIXTURE, until
 
 
 class App:
-    def __init__(self, root, workspace="project", setup=False):
+    def __init__(self, root, workspace="project", setup=False, omit_workspace=False, config=None):
         self.root = root
         self.home = root / "home"
         self.home.mkdir(exist_ok=True)
@@ -34,8 +34,9 @@ class App:
         fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 40, 180, 0, 0))
         self.initial_flags = termios.tcgetattr(slave)
         self.log = root / (workspace + "-" + str(len(list(root.glob("*.jsonl")))) + ".jsonl")
-        self.process = subprocess.Popen([str(BINARY), *(["--setup"] if setup else []), "--workspace", str(self.workspace), "--event-log", str(self.log)],
+        self.process = subprocess.Popen([str(BINARY), *(["--setup"] if setup else []), * ([] if omit_workspace else ["--workspace", str(self.workspace)]), * ([] if config is None else ["--config", str(config)]), "--event-log", str(self.log)],
             stdin=slave, stdout=slave, stderr=slave, start_new_session=True,
+            cwd=self.workspace if omit_workspace else root,
             env={"PATH":str(binary_dir) + ":/usr/bin:/bin", "HOME":str(self.home), "TERM":"xterm-256color", "LANG":"C.UTF-8"})
         os.close(slave)
         self.output = bytearray()

@@ -300,7 +300,7 @@ with explicit configuration still requires a terminal for the session UI.
 | `--trust-workspace` | Off | Authorize the selected workspace for this invocation without saving permanent trust. It does not enable host execution. |
 | `--event-log <EVENT_LOG>` | No file | Create a new JSONL session-event file. An existing destination is rejected. |
 | `-h`, `--help` | — | Print help and exit. |
-| `-V`, `--version` | — | Print the application version and exit. |
+| `-v`, `-V`, `--version` | — | Print the application version and exit. |
 
 Normal model/effort flags are invocation overrides. When supplied with `--setup`,
 they also seed the coding connection choices being saved. They do not override

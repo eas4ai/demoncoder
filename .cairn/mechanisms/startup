@@ -3,6 +3,7 @@ results: per-requirement
 inputs:
   - docs/spec/startup.md
   - docs/commitments/startup-fixes.md
+  - README.md
   - Cargo.toml
   - Cargo.lock
   - src/
