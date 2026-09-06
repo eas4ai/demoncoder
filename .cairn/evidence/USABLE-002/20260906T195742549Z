@@ -1,0 +1,17 @@
+requirement: USABLE-002
+requirement_digest: sha256:91ed86a518436e1db99ea7c4139c219024f4de5bc0fe1af6204658fb1add7ad7
+mechanism: developer-usability
+commit: 9451a27
+inputs_digest: sha256:d69c2f8c620c372a4d8e077c16a57249a544bdd11d5be168b2d9028ac9d4720a
+mechanism_digest: sha256:85d7a56249f4396ec9cfe5d6305e4a48fa5d3e42192d66245bdd6ac9dda7c75c
+command: bash scripts/check-developer-usability.sh
+cwd: .
+exit: 0
+output_digest: sha256:ecaaa9aa74e3c97b0288405f7e7767cf90fc545164c0071bc0383c19143d330f
+output: .cairn/evidence/USABLE-001/20260906T195738911Z-1077665.out
+stderr_output: .cairn/evidence/USABLE-001/20260906T195738911Z-1077665.err
+signal: none
+execution_error: null
+result: pass
+source: line
+recorded: 2026-09-06T19:57:42.549Z
