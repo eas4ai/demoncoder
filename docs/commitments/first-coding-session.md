@@ -1,12 +1,14 @@
 # First coding session
 
 Status: Agreed 2026-09-06
-Requirements: CODE-001, CODE-002, CODE-003, CODE-004, CODE-005, CODE-006, CODE-007, CODE-008, CONN-001, CONN-002, CONN-003, CONN-004, CONN-005, CONN-006
+Requirements: CODE-001, CODE-002, CODE-003, CODE-004, CODE-005, CODE-006, CODE-007, CODE-008, CODE-009, CODE-010, CONN-001, CONN-002, CONN-003, CONN-004, CONN-005, CONN-006
 
 ## Deliverable
 
 The developer opens DemonCoder in a selected workspace, selects a supported
-connection, and completes coding work through a responsive terminal session.
+connection, and completes coding work through a responsive terminal session. First start
+guides setup and project trust. Explicit --yolo selects host execution with
+an Oracle guard for outside access and approved temporary scratch space.
 The session streams text and tools, accepts a correction, cancels running
 work, and continues with the preceding turn's context and changes.
 

@@ -50,6 +50,31 @@ that cannot provide it has not met this requirement.
 Falsifier: A failed verification command is recorded as successful, a presentation hook replaces its original evidence, or a tool result is attributed to the wrong call.
 Mechanism: coding-session; execute a meaningful failing repository check followed by a correction and passing check, then compare the original results, identifiers, and visible outcome.
 
+
+[CODE-009] First interactive startup MUST guide the developer through connection/authentication, model, effort, and project trust settings and save the choices privately. The developer MUST be able to reopen setup. An explicit trusted configuration may supply these choices for an automated invocation.
+Falsifier: A first-time developer must author a configuration file before submitting a prompt, a saved choice is ignored on the next start, an untrusted project starts tools without authorization, or credential input/persistence exposes a key.
+Mechanism: coding-session; drive first startup and repeated startup through a pseudo-terminal, inspect private saved settings, exercise cancelled setup and denied project trust, and submit a coding prompt with the saved connection.
+
+[CODE-010] An explicit --yolo invocation MUST run tools with host access without sandboxing or routine permission prompts, while retaining a blocking Oracle guard for access outside the selected project and session-owned temporary scratch directory.
+Falsifier: Host access is silently sandboxed, an outside file operation or unrestricted shell command executes without its required final-request review, a failed/uncertain Oracle allows execution, the Oracle itself can execute tools, or ordinary session scratch work is denied merely for being under /tmp.
+Mechanism: coding-session; use temporary projects, scratch directories, outside canaries, controlled Oracle responses and at least one retained live Oracle verdict pair. Verify allowed effects, denied effects, fail-closed errors and cancellation, final hook arguments, explicit access-mode display, and actual host execution. Destructive home/system examples are verdict-only and are never executed.
+
+The confined default authorizes only a trusted project. --yolo is an explicit
+invocation choice; repository text cannot enable it. Host execution still
+retains typed tools, bounded outputs, cancellation, and original results.
+All unrestricted shell requests receive Oracle screening because their
+outside effects cannot reliably be inferred from their working directory.
+The Oracle sees the developer task, final request, and authorized paths as
+separate evidence. It has no tools. Its judgment reduces mistakes and is not
+a filesystem isolation boundary. Denial or unavailable review stops the
+request and displays a reason.
+
+Session-owned scratch space under /tmp is approved for normal temporary
+work and is exposed through TMPDIR. An outside source does not become
+approved merely because its destination is scratch space. Setup must not
+automatically enable unrecognized plugins or hooks. External extension
+loading remains pending; the current build exposes no dynamic loader.
+
 These checks do not establish arbitrary coding-task correctness. Crash
 recovery, complete review policy, cumulative task budgets, and advanced
 orchestration have separate later commitments. The first session still
