@@ -75,7 +75,7 @@ impl Model for OpenAi {
             })
             .collect();
         let request = self.client.post(self.endpoint.clone()).bearer_auth(&self.key)
-            .json(&json!({"model":self.model,"input":self.history,"stream":true,"store":false,"tools":tools}));
+            .json(&json!({"model":self.model,"input":self.history,"stream":true,"store":false,"include":["reasoning.encrypted_content"],"tools":tools}));
         let stream = http::json_events(http::response(request).await?);
         tokio::pin!(stream);
         while let Some(event) = stream.next().await {

@@ -8,6 +8,7 @@ inputs:
   - src/
   - tests/
   - scripts/check-coding-session.sh
+  - scripts/check-connections.sh
 requirements:
   - CONN-001
   - CONN-002

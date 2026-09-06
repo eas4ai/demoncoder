@@ -114,3 +114,27 @@ interrupts that delivery, the native session supplies the known result to
 its model before closing any remaining calls as uncertain. The receipt is
 cleared after delivery and cannot be delivered twice. This handles in-process
 interruption; durable crash recovery remains later scope.
+
+The connection smoke driver is `tests/live_connections.py`. After committing
+and building the current inputs, run it with `--run <connection>` and an
+explicit `--model <model>` for API connections. It uses the default live
+endpoint and current selected authentication. It opens a temporary repository
+through the real terminal, creates and verifies one simple function, then
+extends and verifies it in a second turn. It parses the resulting source
+without executing generated code on the host. All executed checks go through
+the application's isolated Bash tool.
+
+Redacted records live under `.cairn/evidence/live/`. They contain the two
+turns' events and final source, selected connection, backend version, and a
+digest of committed source, tests, build, scripts, and contract inputs. The
+ordinary connection check validates these records without making additional
+provider calls. A missing, unsuccessful, or stale record remains unverified.
+Current live results are reported by Cairn; the existence of the driver
+does not establish a successful connection.
+
+The OpenAI adapter explicitly requests encrypted reasoning items while
+using `store: false`, and retains them with the rest of the response for
+subsequent tool decisions and turns. This follows the official
+[Responses API contract](https://developers.openai.com/api/reference/cli/resources/responses/methods/create).
+The controlled tool-cycle test checks both the requested inclusion and
+the returned item's presence in the next request.

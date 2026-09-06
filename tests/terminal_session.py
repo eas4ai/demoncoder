@@ -30,6 +30,8 @@ class Provider(http.server.BaseHTTPRequestHandler):
 
     def do_POST(self):
         body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+        if self.path == "/responses":
+            assert body["store"] is False and "reasoning.encrypted_content" in body["include"]
         call_events = None
         if self.server.tool_cycles:
             assert len(body["tools"]) == 4
@@ -38,10 +40,14 @@ class Provider(http.server.BaseHTTPRequestHandler):
             cycle = self.server.cycles.setdefault(prompt, Cycle(prompt, self.server.wrong_edit))
             result = None
             if len(history) > 1:
+                if self.path == "/responses":
+                    assert any(item.get("encrypted_content") == "synthetic-reasoning" for item in history)
                 result = json.loads(history[-1]["output"] if self.path == "/responses" else history[-1]["content"][0]["content"])
             call = cycle.next(result)
             if call:
                 call_events = sse_call(self.path, call)
+                if self.path == "/responses":
+                    call_events[0]["response"]["output"].insert(0, {"id":"rs_" + call["id"], "type":"reasoning", "summary":[], "encrypted_content":"synthetic-reasoning"})
             body = {**body, "input": [{"content": prompt}], "messages": [{"content": prompt}]}
         if self.path == "/responses":
             assert self.headers["Authorization"] == "Bearer synthetic-openai-key"
