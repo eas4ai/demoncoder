@@ -48,8 +48,9 @@ impl View {
             }
             Event::Text { text } => self.append(&text),
             Event::ToolStarted { call } => self.append(&format!("\n[{} {}]\n", call.name, call.id)),
-            Event::ToolOutput { text, .. } | Event::ToolPresentation { text, .. } => {
-                self.append(&text)
+            Event::ToolOutput { text, .. } => self.append(&text),
+            Event::ToolPresentation { call_id, text } => {
+                self.append(&format!("\n[Presentation for {call_id}]\n{text}\n"))
             }
             Event::ToolFinished { result } => self.append(&format!(
                 "\n[{}: {}]\n{}\n",

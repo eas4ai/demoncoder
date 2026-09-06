@@ -17,3 +17,6 @@ python3 tests/cancellation.py
 python3 tests/continuation.py
 
 python3 tests/installed_backends.py
+
+cargo test --locked --lib native::tests
+python3 tests/installed_backends.py --results

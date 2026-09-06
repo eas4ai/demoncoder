@@ -5,7 +5,7 @@ use std::{
     os::{fd::AsRawFd, unix::fs::MetadataExt},
     path::{Component, Path},
     process::Stdio,
-    sync::Arc,
+    sync::{Arc, Mutex},
     time::Duration,
 };
 
@@ -71,6 +71,10 @@ pub trait ToolHook: Send + Sync {
 pub struct ToolExecutor {
     root: Arc<File>,
     hooks: Vec<Box<dyn ToolHook>>,
+    // Execution is sequential. Keep the current receipt across cancellation
+    // during event delivery or a presentation error; never retain a full copy
+    // of the session history here.
+    completed: Mutex<Option<ToolResult>>,
 }
 
 impl ToolExecutor {
@@ -90,6 +94,7 @@ impl ToolExecutor {
         Ok(Self {
             root: Arc::new(root),
             hooks: Vec::new(),
+            completed: Mutex::new(None),
         })
     }
 
@@ -97,7 +102,15 @@ impl ToolExecutor {
         self.hooks.push(hook);
     }
 
+    pub(crate) fn take_completed(&self) -> Option<ToolResult> {
+        self.completed
+            .lock()
+            .expect("tool receipt lock poisoned")
+            .take()
+    }
+
     pub async fn execute(&self, mut call: ToolCall, events: &EventSink) -> Result<ToolResult> {
+        self.take_completed();
         let identity = (call.id.clone(), call.name.clone());
         let execution = async {
             for hook in &self.hooks {
@@ -172,6 +185,9 @@ impl ToolExecutor {
                 exit_code: None,
             },
         };
+        // No await separates completion from this receipt. The session can
+        // recover it even if event delivery is cancelled or presentation fails.
+        *self.completed.lock().expect("tool receipt lock poisoned") = Some(result.clone());
         // The actual result is retained first. Presentation never replaces evidence.
         events
             .emit(Event::ToolFinished {

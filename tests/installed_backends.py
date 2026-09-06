@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Exercise installed backend tool routing against a local model peer."""
 import base64
+import argparse
 import datetime
 import fcntl
 import http.server
@@ -23,6 +24,7 @@ from urllib.parse import urlparse
 sys.dont_write_bytecode = True
 from terminal_session import BINARY, ROOT, until
 from boundary_fixture import requests, model_results, check_result
+import result_fixture
 
 
 def fake_codex_auth(home):
@@ -68,8 +70,18 @@ class Model(http.server.BaseHTTPRequestHandler):
             if step:
                 previous = self.server.calls[step - 1]
                 result = model_results(body, openai)[previous["id"]]
-                check_result(previous, result)
+                if self.server.result_cycle and self.server.fault_result and previous["id"] == "result-1":
+                    # A fixture-only lie about the actual failing check. The
+                    # ordinary assertions must reject it; tool code is intact.
+                    forged = json.loads(result)
+                    forged.update(success=True, exit_code=0)
+                    result = json.dumps(forged)
+                checker = result_fixture.check_result if self.server.result_cycle else check_result
+                checker(previous, result)
                 self.server.results.append(result)
+                if self.server.result_cycle and previous["id"] == "result-1":
+                    self.server.failure_ready.set()
+                    assert self.server.failure_rendered.wait(5), "failed verification was not rendered before correction"
         except (AssertionError, ValueError, KeyError, TypeError) as error:
             self.server.errors.append(f"step {step}: {error}")
             self.wfile.write(b'event: error\ndata: {"type":"error"}\n\n')
@@ -128,7 +140,8 @@ def case(adapter, server):
         (parent / "outside/canary.txt").write_text(secret)
         (home / "credential-canary").write_text(secret)
         (workspace / ".git/protected").write_text(secret)
-        server.calls = requests(adapter, parent, secret)
+        server.token = uuid.uuid4().hex
+        server.calls = result_fixture.requests(adapter, server.token) if server.result_cycle else requests(adapter, parent, secret)
         endpoint = f"http://127.0.0.1:{server.server_port}"
         if adapter == "codex":
             fake_codex_auth(codex_home)
@@ -177,6 +190,8 @@ startup_timeout_sec = 1
                 assert process.poll() is None, "application exited before completion"
                 if select.select([master], [], [], .01)[0]:
                     output.extend(os.read(master, 65536))
+                if server.result_cycle and server.failure_ready.is_set() and ("VERIFY-FAILED-" + server.token).encode() in output:
+                    server.failure_rendered.set()
                 records = [json.loads(line)["event"] for line in log.read_text().splitlines(keepends=True) if line.endswith("\n")]
                 finished = [row for row in records if row["type"] == "turn_finished"]
                 if finished:
@@ -191,12 +206,16 @@ startup_timeout_sec = 1
                 assert expected == names, f"backend tool catalog differs from host tools: {names}"
             assert not (parent / "inherited-mcp-started").exists(), "inherited MCP server started outside host admission"
             assert not server.errors and len(server.results) == len(server.calls), server.errors
-            assert (workspace / "allowed.txt").read_text() == "second"
+            if server.result_cycle:
+                result_fixture.validate(workspace, server, records, output)
+            else:
+                assert (workspace / "allowed.txt").read_text() == "second"
             assert (parent / "outside/canary.txt").read_text() == secret
             assert (workspace / ".git/protected").read_text() == secret
             assert not (parent / "outside/bypass.txt").exists()
             assert all(secret not in result for result in server.results), "a tool exposed the outside canary"
-            print("CODE-007", adapter, "allowed operations, denied paths, isolated Bash, and backend routing passed", flush=True)
+            description = "failed check, correction, passing check, and original result identities passed" if server.result_cycle else "allowed operations, denied paths, isolated Bash, and backend routing passed"
+            print("CODE-008" if server.result_cycle else "CODE-007", adapter, description, flush=True)
         except AssertionError as error:
             events = [json.loads(line)["event"] for line in log.read_text().splitlines()] if log.exists() else []
             print(adapter, "diagnostic", str(error), events[-5:], server.errors, flush=True)
@@ -219,6 +238,12 @@ startup_timeout_sec = 1
 
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--results", action="store_true")
+    parser.add_argument("--fault-rewrite-result", action="store_true")
+    args = parser.parse_args()
+    if args.fault_rewrite_result and not args.results:
+        parser.error("--fault-rewrite-result requires --results")
     failed = []
     for adapter in ["openai-api", "anthropic-api", "codex", "claude"]:
         server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Model)
@@ -228,6 +253,10 @@ def main():
         server.errors = []
         server.step = 0
         server.results = []
+        server.result_cycle = args.results
+        server.fault_result = args.fault_rewrite_result
+        server.failure_ready = threading.Event()
+        server.failure_rendered = threading.Event()
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         try:
@@ -239,7 +268,8 @@ def main():
             server.shutdown()
             server.server_close()
             thread.join(timeout=2)
-    print("cairn: CODE-007: " + ("fail" if failed else "pass"), flush=True)
+    requirement = "CODE-008" if args.results else "CODE-007"
+    print("cairn: " + requirement + ": " + ("fail" if failed else "pass"), flush=True)
     return int(bool(failed))
 
 

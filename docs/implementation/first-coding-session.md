@@ -58,7 +58,7 @@ case. The same test with a functioning peer is the corrected case. These
 fixtures do not prove current subscription service compatibility.
 
 After each action is committed and checked, Cairn selects the next one.
-The remaining CODE check exercises retained tool results.
+The CODE checks cover the first session's controlled runtime cases.
 CONN checks include independent registration and live two-turn tasks for
 all four connections. Missing authentication remains unresolved evidence.
 
@@ -99,3 +99,18 @@ compatibility. `tests/installed_backends.py` and `tests/boundary_fixture.py`
 retain the cases; `tests/installed_backend_launcher.py` launches the actual
 binary with local test endpoints. The separate tools tests verify denied
 hooks, final transformed paths and commands, and allowed transformations.
+
+CODE-008 runs a failing Python repository assertion, applies a correction,
+and reruns the same assertion successfully through all four connections.
+The installed-backend driver waits for the failed check to appear in the
+terminal before it supplies the correction. It compares the original event
+receipts with the model's actual tool results, including identity, output,
+success, and exit code. A presentation hook has a separate labeled event;
+it cannot replace the original result.
+
+The executor retains one completed receipt before awaiting event delivery
+or invoking presentation hooks. If cancellation or a presentation error
+interrupts that delivery, the native session supplies the known result to
+its model before closing any remaining calls as uncertain. The receipt is
+cleared after delivery and cannot be delivered twice. This handles in-process
+interruption; durable crash recovery remains later scope.
