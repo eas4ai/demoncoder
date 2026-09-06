@@ -12,3 +12,10 @@ Build one Rust crate with a terminal editor, a versioned session adapter interfa
 ## Realized by
 
 (none yet: recorded, not built)
+
+## Realized by
+
+- bc8892fcf71fb3cc0c48becccd40f0d468489751 Connect terminal prompts to four session transports
+
+This commit implements terminal prompt submission and the session registry.
+Tools and the remaining first-session behavior still await their checks.
