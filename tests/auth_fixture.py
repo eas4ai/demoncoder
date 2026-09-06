@@ -20,6 +20,8 @@ def main():
         assert 'forced_login_method="chatgpt"' in sys.argv
     else:
         assert sys.argv[sys.argv.index("--setting-sources") + 1] == ""
+        if mode == "unsupported-model":
+            assert sys.argv[sys.argv.index("--model") + 1] == "unsupported-fixture-model"
     for raw in sys.stdin:
         message = json.loads(raw)
         with Path("auth-messages.jsonl").open("a") as log:
@@ -37,7 +39,10 @@ def main():
             elif method == "config/read":
                 send({"id":message["id"], "result":{"config":{"mcp_servers":{}}}})
             elif method == "thread/start":
-                send({"id":message["id"], "result":{"thread":{"id":"auth-thread"}}})
+                if mode == "unsupported-model":
+                    send({"id":message["id"], "error":{"code":400,"message":"requested model is unavailable"}})
+                else:
+                    send({"id":message["id"], "result":{"thread":{"id":"auth-thread"}}})
             elif method == "turn/start":
                 send({"id":message["id"], "result":{"turn":{"id":"auth-turn", "status":"inProgress"}}})
                 send({"method":"item/agentMessage/delta", "params":{"threadId":"auth-thread", "turnId":"auth-turn", "delta":"AUTH-OK"}})
@@ -45,7 +50,7 @@ def main():
         elif message.get("type") == "control_request":
             send({"type":"control_response", "response":{"subtype":"success", "request_id":message["request_id"], "response":{}}})
         elif message.get("type") == "user":
-            if mode in ("missing", "expired"):
+            if mode in ("missing", "expired", "unsupported-model"):
                 send({"type":"result", "subtype":"error_during_execution", "is_error":True, "session_id":"auth-session", "errors":["subscription login " + mode]})
                 continue
             init = {"type":"system", "subtype":"init", "session_id":"auth-session"}

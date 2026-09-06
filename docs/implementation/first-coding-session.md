@@ -77,6 +77,13 @@ checks its response and events. Adding an adapter needs a factory and
 registration in the application composition; it needs no provider branch
 in the coding loop or renderer. Runtime plugin loading remains pending.
 
+`register_with_capabilities` declares support for read, write, edit, Bash,
+steering, and cancellation. Selection rejects a missing required control
+before the factory can start a session. The original `register` method
+retains the complete version-1 session contract. Model and effort support
+remains adapter-specific; a provider rejection fails without switching
+models or retrying automatically.
+
 The native HTTP paths require an API key from OPENAI_API_KEY or
 ANTHROPIC_API_KEY, or from private saved connection settings, and a model. The subscription subprocesses do not inherit either API
 key. Codex registers dynamic tools on thread/start. Claude registers an

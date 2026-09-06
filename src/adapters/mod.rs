@@ -5,7 +5,7 @@ mod http;
 mod openai;
 mod process;
 
-use crate::session::{ADAPTER_INTERFACE_VERSION, Registry};
+use crate::session::{ADAPTER_INTERFACE_VERSION, Registry, SessionCapabilities};
 use anyhow::Result;
 
 pub fn builtins() -> Result<Registry> {
@@ -16,7 +16,12 @@ pub fn builtins() -> Result<Registry> {
         ("codex", codex::open),
         ("claude", claude::open),
     ] {
-        registry.register(name, ADAPTER_INTERFACE_VERSION, factory)?;
+        registry.register_with_capabilities(
+            name,
+            ADAPTER_INTERFACE_VERSION,
+            SessionCapabilities::CODING_SESSION,
+            factory,
+        )?;
     }
     Ok(registry)
 }

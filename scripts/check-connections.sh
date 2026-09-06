@@ -11,3 +11,5 @@ python3 tests/live_connections.py
 python3 tests/registry.py
 python3 tests/authentication.py
 python3 tests/continuation.py --ownership
+cargo test --locked --test capabilities
+python3 tests/capability_rejection.py

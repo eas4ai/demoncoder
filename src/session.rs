@@ -40,27 +40,92 @@ pub trait Session: Send {
 
 pub type Factory = fn(&Connection, &Path) -> Result<Box<dyn Session>>;
 
+/// Controls a registered adapter promises to provide for a coding session.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct SessionCapabilities {
+    pub read: bool,
+    pub write: bool,
+    pub edit: bool,
+    pub bash: bool,
+    pub steering: bool,
+    pub cancellation: bool,
+}
+
+impl SessionCapabilities {
+    pub const CODING_SESSION: Self = Self {
+        read: true,
+        write: true,
+        edit: true,
+        bash: true,
+        steering: true,
+        cancellation: true,
+    };
+
+    fn require_coding_session(self) -> Result<()> {
+        for (name, supported) in [
+            ("read", self.read),
+            ("write", self.write),
+            ("edit", self.edit),
+            ("Bash", self.bash),
+            ("steering", self.steering),
+            ("cancellation", self.cancellation),
+        ] {
+            if !supported {
+                bail!(
+                    "selected adapter does not support {name}, which this coding session requires"
+                );
+            }
+        }
+        Ok(())
+    }
+}
+
+struct RegisteredAdapter {
+    factory: Factory,
+    capabilities: SessionCapabilities,
+}
+
 #[derive(Default)]
 pub struct Registry {
-    adapters: BTreeMap<String, Factory>,
+    adapters: BTreeMap<String, RegisteredAdapter>,
 }
 
 impl Registry {
     pub fn register(&mut self, name: &str, version: u32, factory: Factory) -> Result<()> {
+        // The original version-1 registration promises the entire session contract.
+        self.register_with_capabilities(name, version, SessionCapabilities::CODING_SESSION, factory)
+    }
+
+    pub fn register_with_capabilities(
+        &mut self,
+        name: &str,
+        version: u32,
+        capabilities: SessionCapabilities,
+        factory: Factory,
+    ) -> Result<()> {
         if version != ADAPTER_INTERFACE_VERSION {
             bail!("unsupported adapter interface version");
         }
         if self.adapters.contains_key(name) {
             bail!("adapter is already registered");
         }
-        self.adapters.insert(name.to_owned(), factory);
+        self.adapters.insert(
+            name.to_owned(),
+            RegisteredAdapter {
+                factory,
+                capabilities,
+            },
+        );
         Ok(())
     }
 
     pub fn open(&self, config: &Connection, workspace: &Path) -> Result<Box<dyn Session>> {
-        self.adapters
+        let adapter = self
+            .adapters
             .get(&config.adapter)
-            .context("unknown adapter")?(config, workspace)
+            .context("unknown adapter")?;
+        adapter.capabilities.require_coding_session()?;
+        (adapter.factory)(config, workspace)
     }
 }
 

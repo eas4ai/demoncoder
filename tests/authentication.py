@@ -25,11 +25,12 @@ class Provider(http.server.BaseHTTPRequestHandler):
         pass
 
     def do_POST(self):
-        self.rfile.read(int(self.headers["Content-Length"]))
+        body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+        self.server.models.append(body["model"])
         key = self.headers.get("x-api-key") if self.path == "/messages" else self.headers.get("Authorization", "").removeprefix("Bearer ")
         self.server.keys.append(key)
-        if self.server.expired:
-            self.send_response(401)
+        if self.server.expired or self.server.model_rejected:
+            self.send_response(401 if self.server.expired else 400)
             self.end_headers()
             return
         events = ([{"type":"message_start","message":{}}, {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"AUTH-OK"}}, {"type":"message_stop"}]
@@ -47,7 +48,8 @@ def run_case(adapter, mode, peer=None):
         root = Path(directory)
         native = adapter.endswith("-api")
         config = root / "settings.toml"
-        text = f'default_connection="selected"\n[connections.selected]\nadapter="{adapter}"\nmodel="fixture-model"\n'
+        model = "unsupported-fixture-model" if mode == "unsupported-model" else "fixture-model"
+        text = f'default_connection="selected"\n[connections.selected]\nadapter="{adapter}"\nmodel="{model}"\n'
         env = {"PATH":"/usr/bin:/bin", "HOME":str(root), "TERM":"xterm-256color", "LANG":"C.UTF-8",
             "OPENAI_API_KEY":"synthetic-openai-env", "ANTHROPIC_API_KEY":"synthetic-anthropic-env", "CLAUDE_CODE_OAUTH_TOKEN":"synthetic-subscription-login"}
         if native:
@@ -60,7 +62,9 @@ def run_case(adapter, mode, peer=None):
                 env.pop(variable)
             expected_key = env.get(variable, "synthetic-saved-key")
             peer.keys = []
+            peer.models = []
             peer.expired = mode == "expired"
+            peer.model_rejected = mode == "unsupported-model"
             # These login-shaped files must not become an API credential source.
             for folder in (".codex", ".claude"):
                 (root / folder).mkdir()
@@ -106,11 +110,14 @@ def run_case(adapter, mode, peer=None):
                 assert not any(event["type"] == "text" and "AUTH-OK" in event["text"] for event in events)
             if native:
                 assert peer.keys == [expected_key], "wrong credential or an automatic retry/fallback"
+                assert peer.models == [model], "model changed or was silently retried"
             else:
                 requests = [json.loads(line) for line in (root / "auth-messages.jsonl").read_text().splitlines()]
                 if adapter == "codex":
                     assert sum(row.get("method") == "account/read" for row in requests) == 1
                     assert sum(row.get("method") == "turn/start" for row in requests) == int(good)
+                    if mode == "unsupported-model":
+                        assert [row["params"]["model"] for row in requests if row.get("method") == "thread/start"] == [model]
                 else:
                     assert sum(row.get("type") == "user" for row in requests) == 1
             for secret in ("synthetic-openai-env", "synthetic-anthropic-env", "synthetic-saved-key", "synthetic-subscription-login"):
