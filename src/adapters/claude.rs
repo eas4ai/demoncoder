@@ -18,6 +18,7 @@ struct Claude {
     effort: Option<String>,
     process: Option<BackendProcess>,
     session: Option<String>,
+    subscription_confirmed: bool,
     tools: ToolExecutor,
     next_control_id: u64,
 }
@@ -34,6 +35,7 @@ pub fn open(config: &Connection, workspace: &Path) -> Result<Box<dyn Session>> {
         effort: config.effort.clone(),
         process: None,
         session: None,
+        subscription_confirmed: false,
         tools: ToolExecutor::with_policy(workspace, &config.access)?,
         next_control_id: 1,
     }))
@@ -167,15 +169,17 @@ impl Claude {
                 }
                 match message["type"].as_str() {
                     Some("system") if message["subtype"] == "init" => {
-                        if let Some(source) = message["apiKeySource"].as_str()
-                            && source != "none"
-                        {
-                            bail!(
-                                "Claude selected API-key authentication for a subscription connection"
-                            );
-                        }
+                        anyhow::ensure!(
+                            message["apiKeySource"].as_str() == Some("none"),
+                            "Claude did not confirm subscription authentication; an API-key or unknown route is not accepted"
+                        );
+                        self.subscription_confirmed = true;
                     }
                     Some("stream_event") => {
+                        anyhow::ensure!(
+                            self.subscription_confirmed,
+                            "Claude returned model output before confirming subscription authentication"
+                        );
                         let delta = &message["event"]["delta"];
                         if delta["type"] == "text_delta" && corrections.is_empty() {
                             events
@@ -196,6 +200,10 @@ impl Claude {
                                 "Claude turn failed; check subscription login and model availability"
                             );
                         }
+                        anyhow::ensure!(
+                            self.subscription_confirmed,
+                            "Claude completed a turn before confirming subscription authentication"
+                        );
                         let usage = &message["usage"];
                         events
                             .emit(Event::Usage {
@@ -212,12 +220,17 @@ impl Claude {
                         }
                     }
                     Some("control_request") => {
+                        anyhow::ensure!(
+                            self.subscription_confirmed
+                                || message["request"]["message"]["method"] != "tools/call",
+                            "Claude requested a tool before confirming subscription authentication"
+                        );
                         handle_control(
                             &self.tools,
                             process,
                             &message,
                             events,
-                            corrections.is_empty(),
+                            corrections.is_empty() && self.subscription_confirmed,
                         )
                         .await?;
                     }
@@ -338,6 +351,7 @@ impl Session for Claude {
     }
 
     async fn close(&mut self) -> Result<()> {
+        self.subscription_confirmed = false;
         if let Some(mut process) = self.process.take() {
             process.stop().await?;
         }

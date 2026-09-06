@@ -221,6 +221,14 @@ Use `codex login` or `claude auth login` for those connections. `CODEX_HOME`
 and `CLAUDE_CONFIG_DIR` select their existing backend login directories;
 DemonCoder leaves HOME intact.
 
+Subscription admission requires the backend to confirm its route. Codex
+must report a ChatGPT account before a thread starts. Claude must report
+`apiKeySource: none` before model output, successful completion, or a tool
+call is accepted. Missing or mismatched route information fails closed.
+Closing Claude's backend clears that confirmation; a resumed process must
+confirm it again. Missing and expired authentication never trigger an
+automatic credential, account, model, or billing fallback.
+
 Effort goes to OpenAI Responses `reasoning.effort`, Anthropic Messages
 `output_config.effort`, Codex `turn/start.effort`, or Claude `--effort`.
 Omission leaves the backend/provider default. Anthropic effort controls
