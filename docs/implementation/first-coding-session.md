@@ -6,6 +6,10 @@ seed from an actual file, creates a Python file, edits its value, and runs
 a Python assertion through isolated Bash. Live authentication and the
 remaining session controls still await their required checks.
 
+The responsiveness driver holds each provider and then a real Bash command
+open. It observes incremental output and typed editor text before releasing
+either operation for all four adapters.
+
 | Path | Responsibility |
 |---|---|
 | src/main.rs | Construct the selected session and own application shutdown. |
@@ -18,6 +22,7 @@ remaining session controls still await their required checks.
 | src/adapters/ | HTTP and backend protocol boundaries. |
 | tests/terminal_session.py | Drive the actual binary through a pseudo-terminal. |
 | tests/backend_fixture.py | Controlled Codex and Claude protocol peers. |
+| tests/responsiveness.py | Observe output and editor input before provider and tool release. |
 | scripts/check-coding-session.sh | Build and report only requirements actually checked. |
 
 The first check submits an unpredictable prompt through the real editor,

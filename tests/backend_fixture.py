@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import sys
+import time
 sys.dont_write_bytecode = True
 from tool_cycle_fixture import Cycle
 
@@ -40,8 +41,29 @@ def main():
             send({"type": "stream_event", "session_id": "fixture-session", "event": {"type": "content_block_delta", "delta": {"type": "text_delta", "text": response}}})
             send({"type": "result", "subtype": "success", "is_error": False, "session_id": "fixture-session", "usage": {"input_tokens": 12, "output_tokens": 8}})
 
+    def start_responsive(token):
+        nonlocal response
+        def wait_release():
+            deadline = time.monotonic() + 10
+            while not Path("release-provider").exists():
+                assert time.monotonic() < deadline, "provider release timed out"
+                time.sleep(0.01)
+        if Path("buffer-assistant").exists(): wait_release()
+        if codex:
+            send({"method":"item/agentMessage/delta", "params":{"threadId":"fixture-thread", "turnId":turn, "delta":"ASSISTANT-WAIT-" + token}})
+        else:
+            send({"type":"stream_event", "session_id":"fixture-session", "event":{"type":"content_block_delta", "delta":{"type":"text_delta", "text":"ASSISTANT-WAIT-" + token}}})
+        wait_release()
+        response = "SESSION-DONE"
+        request_call({"id":token + "-bash", "name":"bash", "arguments":{"command": f"printf 'TOOL-WAIT-{token}\\n'; while ! test -f release-tool; do sleep 0.01; done; printf 'TOOL-DONE\\n'"}})
+
     for raw in sys.stdin:
         message = json.loads(raw)
+        if Path("responsiveness").exists() and ((codex and "result" in message) or (not codex and message.get("type") == "control_response")):
+            result = json.loads(message["result"]["contentItems"][0]["text"] if codex else message["response"]["response"]["mcp_response"]["result"]["content"][0]["text"])
+            assert result["success"] and "TOOL-DONE" in result["output"]
+            complete()
+            continue
         if cycle and ((codex and "result" in message) or (not codex and message.get("type") == "control_response")):
             result = json.loads(message["result"]["contentItems"][0]["text"] if codex else message["response"]["response"]["mcp_response"]["result"]["content"][0]["text"])
             call = cycle.next(result)
@@ -73,7 +95,8 @@ def main():
                 response = record(prompt)
                 send({"id": message["id"], "result": {"turn": {"id": turn, "status": "inProgress"}}})
                 send({"method": "turn/started", "params": {"threadId": "fixture-thread", "turn": {"id": turn}}})
-                if Path("tool-cycle").exists():
+                if Path("responsiveness").exists(): start_responsive(prompt)
+                elif Path("tool-cycle").exists():
                     cycle = Cycle(prompt, Path("wrong-edit").exists())
                     request_call(cycle.next())
                 else: complete()
@@ -85,7 +108,8 @@ def main():
             prompt = message["message"]["content"]
             response = record(prompt)
             send({"type": "system", "subtype": "init", "session_id": "fixture-session", "apiKeySource": "none"})
-            if Path("tool-cycle").exists():
+            if Path("responsiveness").exists(): start_responsive(prompt)
+            elif Path("tool-cycle").exists():
                 cycle = Cycle(prompt, Path("wrong-edit").exists())
                 request_call(cycle.next())
             else: complete()
