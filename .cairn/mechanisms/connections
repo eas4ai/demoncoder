@@ -18,3 +18,4 @@ requirements:
   - CONN-006
 reviewed:
   - CONN-003 sha256:33cae6d9fdece29965177812edae0860372adae29cdad95ddd4d7838e004a561
+  - CONN-005 sha256:9644ecd7e315223e9915b002b5dc3b9caef9f78ce797f22f86834208e975b30d
