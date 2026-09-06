@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path
 import pty
+import select
 import struct
 import subprocess
 import sys
@@ -88,6 +89,20 @@ class Provider(ToolProvider):
             self.emit({"type": "error"})
 
 
+def wait_ending(master, process, output, log, status):
+    # Ratatui emits cell differences: a displayed word need not occur contiguously
+    # in the PTY bytes. Continuation depends on the runtime's completed turn.
+    deadline = time.monotonic() + 2
+    while time.monotonic() < deadline:
+        assert process.poll() is None, "application stopped before turn completion"
+        if select.select([master], [], [], .01)[0]:
+            output.extend(os.read(master, 65536))
+        rows = [json.loads(line) for line in log.read_text().splitlines(keepends=True) if line.endswith("\n")]
+        if any(row["event"] == {"type":"turn_finished", "status":status} for row in rows):
+            return
+    raise AssertionError("runtime did not finish its preceding turn")
+
+
 def case(adapter, server):
     with tempfile.TemporaryDirectory(prefix="demoncoder-continue-") as directory:
         workspace = Path(directory)
@@ -119,9 +134,7 @@ def case(adapter, server):
             secret = source.split("function_", 1)[1].split("()", 1)[0]
             if server.state["cancel"]:
                 os.write(master, b"\x1b")
-                until(master, process, output, b"cancelled", timeout=2)
-            else:
-                until(master, process, output, b"complete", timeout=2)
+            wait_ending(master, process, output, log, "cancelled" if server.state["cancel"] else "complete")
             os.write(master, SECOND_PROMPT.encode() + b"\r")
             until(master, process, output, ("CONTINUED-" + secret).encode(), timeout=5)
             assert not server.errors, server.errors

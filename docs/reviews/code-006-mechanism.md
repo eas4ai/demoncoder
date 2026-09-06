@@ -48,3 +48,14 @@ context retention under model-window exhaustion, or provider billing after
 an interrupted response. Live transport remains required separately.
 The cancellation case preserves a result delivered before the next held
 tool; presentation and event-publication edge cases remain CODE-008 work.
+
+
+A later committed check recorded completed turns but failed while searching
+raw PTY bytes for the contiguous status word `complete`. Ratatui sends cell
+differences; displayed words need not appear contiguously in that stream.
+The continuation driver now drains terminal output and waits at most two
+seconds for the recorded terminal turn status before submitting the next
+prompt. It still requires visible first-turn model output, visible continued
+output, preserved provider context, and the actual second-turn file/check.
+All eight corrected cases passed. Deliberately dropping context failed all
+eight, so the change does not allow an unrelated fresh session to pass.
