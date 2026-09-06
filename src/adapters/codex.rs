@@ -141,7 +141,7 @@ impl Codex {
             "type":"function", "name":tool["name"], "description":tool["description"], "inputSchema":tool["input_schema"],
         })).collect();
         let mut params = json!({
-            "model":self.model,"cwd":self.workspace,"sandbox":"read-only","approvalPolicy":"never",
+            "model":self.model,"cwd":self.workspace,"sandbox":"workspace-write","approvalPolicy":"never",
             "config":{"mcp_servers":disabled_servers},
         });
         let method = if let Some(thread) = &self.thread {

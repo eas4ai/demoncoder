@@ -1,0 +1,42 @@
+{
+  "adapter": "codex",
+  "model": "gpt-5.4",
+  "transport": "live-default-endpoint",
+  "auth_method": "subscription",
+  "input_digest": "2ff34ec9bb8f605efd02658bc3c01d0616f36d97a96ccbe49af485f572882bd3",
+  "started_at": "20260906T095918282535Z",
+  "turns": [],
+  "backend_version": "codex-cli 0.153.4",
+  "seed": 1754245,
+  "result": "unverified",
+  "reason": "live turn failed; redacted record retains the runtime error",
+  "observed_events": [
+    {
+      "connection": "codex",
+      "event": {
+        "type": "ready",
+        "owner": "codex"
+      }
+    },
+    {
+      "connection": "codex",
+      "event": {
+        "type": "turn_started"
+      }
+    },
+    {
+      "connection": "codex",
+      "event": {
+        "type": "error",
+        "message": "Codex turn failed"
+      }
+    },
+    {
+      "connection": "codex",
+      "event": {
+        "type": "turn_finished",
+        "status": "failed"
+      }
+    }
+  ]
+}

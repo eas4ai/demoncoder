@@ -126,7 +126,7 @@ the application's isolated Bash tool.
 
 Redacted records live under `.cairn/evidence/live/`. They contain the two
 turns' events and final source, selected connection, backend version, and a
-digest of committed source, tests, build, scripts, and contract inputs. The
+digest of committed source, build, live-driver imports, and contract inputs. The
 ordinary connection check validates these records without making additional
 provider calls. A missing, unsuccessful, or stale record remains unverified.
 Current live results are reported by Cairn; the existence of the driver
@@ -138,3 +138,10 @@ subsequent tool decisions and turns. This follows the official
 [Responses API contract](https://developers.openai.com/api/reference/cli/resources/responses/methods/create).
 The controlled tool-cycle test checks both the requested inclusion and
 the returned item's presence in the next request.
+
+Codex advertises workspace-write permission to match the admitted host
+tools. Its environment selection remains explicitly empty, so its built-in
+filesystem tools remain unavailable. The shared executor owns actual
+workspace access. The installed-backend confinement checks are rerun when
+this policy changes. A live run exposed why this distinction matters: an
+advertised read-only policy caused the model to refuse the permitted edits.

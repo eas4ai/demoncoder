@@ -23,7 +23,7 @@ sys.dont_write_bytecode = True
 from terminal_session import BINARY, ROOT, until
 
 ADAPTERS = ("openai-api", "anthropic-api", "codex", "claude")
-INPUTS = ["Cargo.toml", "Cargo.lock", "src", "tests", "scripts", "docs/spec", "docs/commitments/first-coding-session.md"]
+INPUTS = ["Cargo.toml", "Cargo.lock", "build.rs", "src", "tests/live_connections.py", "tests/terminal_session.py", "tests/tool_cycle_fixture.py", "docs/spec", "docs/commitments/first-coding-session.md"]
 EVIDENCE = ROOT / ".cairn/evidence/live"
 
 
@@ -110,8 +110,9 @@ def run(adapter, model):
         assert model, "select --model for an API smoke session"
     else:
         assert shutil.which(adapter), f"prerequisite missing: {adapter} executable"
+    subprocess.run(["cargo", "build", "--locked"], cwd=ROOT, check=True)
     stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
-    record = {"adapter": adapter, "model": model or "backend-default", "transport": "live-default-endpoint", "auth_method": "api-key" if key else "subscription", "input_digest": digest, "started_at": stamp, "turns": []}
+    record = {"adapter": adapter, "model": model or "backend-default", "transport": "live-default-endpoint", "auth_method": "api-key" if key else "subscription", "input_digest": digest, "binary_sha256": hashlib.sha256(BINARY.read_bytes()).hexdigest(), "started_at": stamp, "turns": []}
     if not key:
         record["backend_version"] = subprocess.check_output([adapter, "--version"], text=True).strip()
     path = EVIDENCE / adapter / (stamp + ".json")
