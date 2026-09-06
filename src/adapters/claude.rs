@@ -3,10 +3,11 @@ use crate::{
     config::Connection,
     events::{Event, EventSink},
     session::{Command, Session, TurnEnd},
+    tools::{ToolCall, ToolExecutor},
 };
 use anyhow::{Context, Result, bail};
 use async_trait::async_trait;
-use serde_json::json;
+use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 use tokio::sync::mpsc;
 
@@ -16,6 +17,7 @@ struct Claude {
     model: Option<String>,
     process: Option<BackendProcess>,
     session: Option<String>,
+    tools: ToolExecutor,
 }
 
 pub fn open(config: &Connection, workspace: &Path) -> Result<Box<dyn Session>> {
@@ -28,6 +30,7 @@ pub fn open(config: &Connection, workspace: &Path) -> Result<Box<dyn Session>> {
         model: config.model.clone(),
         process: None,
         session: None,
+        tools: ToolExecutor::new(workspace)?,
     }))
 }
 
@@ -46,10 +49,11 @@ impl Claude {
                 "",
                 "--strict-mcp-config",
                 "--mcp-config",
-                "{\"mcpServers\":{}}",
+                "{\"mcpServers\":{\"demoncoder\":{\"type\":\"sdk\",\"name\":\"demoncoder\"}}}",
                 "--setting-sources",
                 "",
-                "--safe-mode",
+                "--permission-prompt-tool",
+                "stdio",
             ]
             .into_iter()
             .map(str::to_owned)
@@ -63,6 +67,30 @@ impl Claude {
                 &self.workspace,
                 &["CLAUDE_CODE_OAUTH_TOKEN"],
             )?);
+            let process = self
+                .process
+                .as_mut()
+                .context("Claude process unavailable")?;
+            process.send(json!({"type":"control_request","request_id":"initialize","request":{"subtype":"initialize","hooks":null,"skills":[]}})).await?;
+            tokio::time::timeout(std::time::Duration::from_secs(30), async {
+                loop {
+                    let message = process.receive().await?;
+                    if message["type"] == "control_response"
+                        && message["response"]["request_id"] == "initialize"
+                    {
+                        anyhow::ensure!(
+                            message["response"]["subtype"] == "success",
+                            "Claude initialization failed"
+                        );
+                        return Ok::<(), anyhow::Error>(());
+                    }
+                    if message["type"] == "control_request" {
+                        handle_control(&self.tools, process, &message, events).await?;
+                    }
+                }
+            })
+            .await
+            .context("Claude initialization timed out")??;
         }
         let process = self
             .process
@@ -122,12 +150,78 @@ impl Claude {
                     return Ok(TurnEnd::Complete);
                 }
                 Some("control_request") => {
-                    process.send(json!({"type":"control_response","response":{"subtype":"error","request_id":message["request_id"],"error":"request is not supported by this client"}})).await?;
+                    handle_control(&self.tools, process, &message, events).await?;
                 }
                 _ => {}
             }
         }
     }
+}
+
+async fn handle_control(
+    tools: &ToolExecutor,
+    process: &mut BackendProcess,
+    message: &Value,
+    events: &EventSink,
+) -> Result<()> {
+    let request = &message["request"];
+    let response = match request["subtype"].as_str() {
+        Some("can_use_tool") => {
+            let name = request["tool_name"].as_str().unwrap_or("");
+            let allowed = ["read", "write", "edit", "bash"]
+                .iter()
+                .any(|tool| name == format!("mcp__demoncoder__{tool}"));
+            if allowed {
+                json!({"behavior":"allow", "updatedInput":request["input"]})
+            } else {
+                json!({"behavior":"deny", "message":"Only DemonCoder's four coding tools are authorized."})
+            }
+        }
+        Some("mcp_message") if request["server_name"] == "demoncoder" => {
+            let rpc = &request["message"];
+            let result = match rpc["method"].as_str() {
+                Some("initialize") => {
+                    json!({"protocolVersion":"2025-03-26","capabilities":{"tools":{}},"serverInfo":{"name":"demoncoder","version":env!("CARGO_PKG_VERSION")}})
+                }
+                Some("tools/list") => {
+                    let definitions: Vec<Value> = crate::tools::definitions().into_iter().map(|tool| json!({
+                        "name":tool["name"], "description":tool["description"], "inputSchema":tool["input_schema"],
+                    })).collect();
+                    json!({"tools":definitions})
+                }
+                Some("tools/call") => {
+                    let result = tools
+                        .execute(
+                            ToolCall {
+                                id: format!(
+                                    "claude-mcp-{}",
+                                    message["request_id"]
+                                        .as_str()
+                                        .context("missing Claude control request ID")?
+                                ),
+                                name: rpc["params"]["name"]
+                                    .as_str()
+                                    .context("missing Claude tool name")?
+                                    .into(),
+                                arguments: rpc["params"]["arguments"].clone(),
+                            },
+                            events,
+                        )
+                        .await?;
+                    json!({"content":[{"type":"text", "text":serde_json::to_string(&result)?}],"isError":!result.success})
+                }
+                Some("notifications/initialized" | "ping") => json!({}),
+                _ => {
+                    return process.send(json!({"type":"control_response","response":{"subtype":"error","request_id":message["request_id"],"error":"unsupported MCP method"}})).await;
+                }
+            };
+            json!({"mcp_response":{"jsonrpc":"2.0","id":rpc["id"],"result":result}})
+        }
+        _ => {
+            return process.send(json!({"type":"control_response","response":{"subtype":"error","request_id":message["request_id"],"error":"unsupported control request"}})).await;
+        }
+    };
+    process.send(json!({"type":"control_response","response":{"subtype":"success","request_id":message["request_id"],"response":response}})).await
 }
 
 #[async_trait]

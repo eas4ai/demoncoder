@@ -15,6 +15,9 @@ import termios
 import threading
 import time
 import uuid
+import sys
+sys.dont_write_bytecode = True
+from tool_cycle_fixture import Cycle, sse_call
 
 ROOT = Path(__file__).resolve().parents[1]
 BINARY = ROOT / "target/debug/demoncoder"
@@ -27,6 +30,19 @@ class Provider(http.server.BaseHTTPRequestHandler):
 
     def do_POST(self):
         body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+        call_events = None
+        if self.server.tool_cycles:
+            assert len(body["tools"]) == 4
+            history = body["input"] if self.path == "/responses" else body["messages"]
+            prompt = history[0]["content"]
+            cycle = self.server.cycles.setdefault(prompt, Cycle(prompt, self.server.wrong_edit))
+            result = None
+            if len(history) > 1:
+                result = json.loads(history[-1]["output"] if self.path == "/responses" else history[-1]["content"][0]["content"])
+            call = cycle.next(result)
+            if call:
+                call_events = sse_call(self.path, call)
+            body = {**body, "input": [{"content": prompt}], "messages": [{"content": prompt}]}
         if self.path == "/responses":
             assert self.headers["Authorization"] == "Bearer synthetic-openai-key"
             assert "x-api-key" not in self.headers
@@ -49,7 +65,7 @@ class Provider(http.server.BaseHTTPRequestHandler):
                 {"type": "message_stop"},
             ]
         self.server.received.append(prompt)
-        data = "".join("data: " + json.dumps(event) + "\n\n" for event in events).encode()
+        data = "".join("data: " + json.dumps(event) + "\n\n" for event in (call_events or events)).encode()
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream")
         self.send_header("Content-Length", str(len(data)))
@@ -72,11 +88,17 @@ def until(master, process, output, needle, timeout=8):
                 raise AssertionError("PTY closed before checkpoint") from error
 
 
-def case(adapter, server, fault):
+def case(adapter, server, fault, tool_cycles=False):
     with tempfile.TemporaryDirectory(prefix="demoncoder-terminal-") as directory:
         workspace = Path(directory)
         subprocess.run(["git", "init", "-q", str(workspace)], check=True)
         token = "prompt" + uuid.uuid4().hex[:12]
+        seed = int(uuid.uuid4().hex[:6], 16)
+        if tool_cycles:
+            (workspace / "tool-cycle").touch()
+            if server.wrong_edit:
+                (workspace / "wrong-edit").touch()
+            (workspace / "seed.txt").write_text(str(seed) + "\n")
         config = workspace / "connection.toml"
         settings = f'default_connection = "selected"\n[connections.selected]\nadapter = "{adapter}"\nmodel = "fixture-model"\n'
         if adapter in ("openai-api", "anthropic-api"):
@@ -107,6 +129,14 @@ def case(adapter, server, fault):
             records = [json.loads(line) for line in log.read_text().splitlines()]
             assert all(record["connection"] == "selected" for record in records)
             assert any(record["event"]["type"] == "turn_started" for record in records)
+            if tool_cycles:
+                results = [record["event"]["result"] for record in records if record["event"]["type"] == "tool_finished"]
+                assert [r["tool"] for r in results] == ["read", "write", "edit", "bash"], "missing production tool execution"
+                assert all(r["success"] for r in results), "tool cycle reported a failure"
+                assert len(set(r["call_id"] for r in results)) == 4, "tool call identities were reused"
+                assert results[0]["output"].strip() == str(seed), "read did not obtain actual seed"
+                assert results[-1]["exit_code"] == 0 and "VERIFIED-" + token in results[-1]["output"]
+                assert (workspace / "answer.py").read_text() == f"value = {seed + 1}\n", "actual repository change differs"
             assert "synthetic-openai-key" not in log.read_text()
             assert "synthetic-anthropic-key" not in log.read_text()
             os.write(master, b"\x11")
@@ -122,25 +152,30 @@ def case(adapter, server, fault):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--fault-drop-prompt", action="store_true")
+    parser.add_argument("--tools", action="store_true")
+    parser.add_argument("--fault-wrong-edit", action="store_true")
     args = parser.parse_args()
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Provider)
     server.received = []
+    server.tool_cycles = args.tools
+    server.wrong_edit = args.fault_wrong_edit
+    server.cycles = {}
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     failed = []
     try:
         for adapter in ["openai-api", "anthropic-api", "codex", "claude"]:
             try:
-                case(adapter, server, args.fault_drop_prompt)
-                print("CODE-001", adapter, "terminal prompt reached runtime and response was rendered", flush=True)
+                case(adapter, server, args.fault_drop_prompt, args.tools)
+                print("CODE-002" if args.tools else "CODE-001", adapter, "production tool cycle passed" if args.tools else "terminal prompt reached runtime and response was rendered", flush=True)
             except (AssertionError, OSError, subprocess.SubprocessError) as error:
                 failed.append(adapter)
-                print("CODE-001", adapter, "FAILED:", str(error), flush=True)
+                print("CODE-002" if args.tools else "CODE-001", adapter, "FAILED:", str(error), flush=True)
     finally:
         server.shutdown()
         server.server_close()
         thread.join(timeout=2)
-    print("cairn: CODE-001: " + ("fail" if failed else "pass"))
+    print("cairn: " + ("CODE-002" if args.tools else "CODE-001") + ": " + ("fail" if failed else "pass"))
     return int(bool(failed))
 
 

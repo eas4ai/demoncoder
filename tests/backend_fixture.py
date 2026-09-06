@@ -4,6 +4,8 @@ import json
 import os
 from pathlib import Path
 import sys
+sys.dont_write_bytecode = True
+from tool_cycle_fixture import Cycle
 
 
 def send(value):
@@ -21,8 +23,33 @@ def main():
     assert "OPENAI_API_KEY" not in os.environ
     assert "ANTHROPIC_API_KEY" not in os.environ
     turns = 0
+    cycle = None
+    response = None
+    turn = None
+    def request_call(call):
+        if codex:
+            send({"id": "tool-" + call["id"], "method": "item/tool/call", "params": {"threadId": "fixture-thread", "turnId": turn, "callId": call["id"], "tool": call["name"], "arguments": call["arguments"]}})
+        else:
+            send({"type": "control_request", "request_id": call["id"], "request": {"subtype": "mcp_message", "server_name": "demoncoder", "message": {"jsonrpc": "2.0", "id": call["id"], "method": "tools/call", "params": {"name": call["name"], "arguments": call["arguments"]}}}})
+
+    def complete():
+        if codex:
+            send({"method": "item/agentMessage/delta", "params": {"threadId": "fixture-thread", "turnId": turn, "delta": response}})
+            send({"method": "turn/completed", "params": {"threadId": "fixture-thread", "turn": {"id": turn, "status": "completed"}}})
+        else:
+            send({"type": "stream_event", "session_id": "fixture-session", "event": {"type": "content_block_delta", "delta": {"type": "text_delta", "text": response}}})
+            send({"type": "result", "subtype": "success", "is_error": False, "session_id": "fixture-session", "usage": {"input_tokens": 12, "output_tokens": 8}})
+
     for raw in sys.stdin:
         message = json.loads(raw)
+        if cycle and ((codex and "result" in message) or (not codex and message.get("type") == "control_response")):
+            result = json.loads(message["result"]["contentItems"][0]["text"] if codex else message["response"]["response"]["mcp_response"]["result"]["content"][0]["text"])
+            call = cycle.next(result)
+            if call: request_call(call)
+            else:
+                cycle = None
+                complete()
+            continue
         if codex:
             method = message.get("method")
             result = None
@@ -33,6 +60,7 @@ def main():
             elif method == "thread/start":
                 assert message["params"]["sandbox"] == "read-only"
                 assert message["params"]["approvalPolicy"] == "never"
+                assert {tool["name"] for tool in message["params"]["dynamicTools"]} == {"read", "write", "edit", "bash"}
                 result = {"thread": {"id": "fixture-thread"}}
             elif method == "turn/start":
                 assert message["params"]["threadId"] == "fixture-thread"
@@ -45,16 +73,22 @@ def main():
                 response = record(prompt)
                 send({"id": message["id"], "result": {"turn": {"id": turn, "status": "inProgress"}}})
                 send({"method": "turn/started", "params": {"threadId": "fixture-thread", "turn": {"id": turn}}})
-                send({"method": "item/agentMessage/delta", "params": {"threadId": "fixture-thread", "turnId": turn, "delta": response}})
-                send({"method": "turn/completed", "params": {"threadId": "fixture-thread", "turn": {"id": turn, "status": "completed"}}})
+                if Path("tool-cycle").exists():
+                    cycle = Cycle(prompt, Path("wrong-edit").exists())
+                    request_call(cycle.next())
+                else: complete()
             if result is not None:
                 send({"id": message["id"], "result": result})
+        elif message.get("type") == "control_request" and message["request"]["subtype"] == "initialize":
+            send({"type": "control_response", "response": {"subtype": "success", "request_id": message["request_id"], "response": {}}})
         elif message.get("type") == "user":
             prompt = message["message"]["content"]
             response = record(prompt)
             send({"type": "system", "subtype": "init", "session_id": "fixture-session", "apiKeySource": "none"})
-            send({"type": "stream_event", "session_id": "fixture-session", "event": {"type": "content_block_delta", "delta": {"type": "text_delta", "text": response}}})
-            send({"type": "result", "subtype": "success", "is_error": False, "session_id": "fixture-session", "usage": {"input_tokens": 12, "output_tokens": 8}})
+            if Path("tool-cycle").exists():
+                cycle = Cycle(prompt, Path("wrong-edit").exists())
+                request_call(cycle.next())
+            else: complete()
 
 
 if __name__ == "__main__":

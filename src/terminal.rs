@@ -47,6 +47,16 @@ impl View {
                 self.status = "Working".into();
             }
             Event::Text { text } => self.append(&text),
+            Event::ToolStarted { call } => self.append(&format!("\n[{} {}]\n", call.name, call.id)),
+            Event::ToolOutput { text, .. } | Event::ToolPresentation { text, .. } => {
+                self.append(&text)
+            }
+            Event::ToolFinished { result } => self.append(&format!(
+                "\n[{}: {}]\n{}\n",
+                result.call_id,
+                if result.success { "ok" } else { "failed" },
+                result.output
+            )),
             Event::Usage {
                 input,
                 output,

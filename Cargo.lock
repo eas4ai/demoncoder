@@ -414,6 +414,7 @@ dependencies = [
  "futures-util",
  "ratatui",
  "reqwest",
+ "rustix",
  "serde",
  "serde_json",
  "tempfile",

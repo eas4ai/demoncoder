@@ -19,6 +19,21 @@ pub enum Event {
     Text {
         text: String,
     },
+    ToolStarted {
+        call: crate::tools::ToolCall,
+    },
+    ToolOutput {
+        call_id: String,
+        stream: &'static str,
+        text: String,
+    },
+    ToolFinished {
+        result: crate::tools::ToolResult,
+    },
+    ToolPresentation {
+        call_id: String,
+        text: String,
+    },
     Usage {
         input: Option<u64>,
         output: Option<u64>,

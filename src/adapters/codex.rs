@@ -3,6 +3,7 @@ use crate::{
     config::Connection,
     events::{Event, EventSink},
     session::{Command, Session, TurnEnd},
+    tools::{ToolCall, ToolExecutor},
 };
 use anyhow::{Context, Result, bail};
 use async_trait::async_trait;
@@ -20,6 +21,7 @@ struct Codex {
     process: Option<BackendProcess>,
     thread: Option<String>,
     next_id: u64,
+    tools: ToolExecutor,
 }
 
 pub fn open(config: &Connection, workspace: &Path) -> Result<Box<dyn Session>> {
@@ -33,6 +35,7 @@ pub fn open(config: &Connection, workspace: &Path) -> Result<Box<dyn Session>> {
         process: None,
         thread: None,
         next_id: 1,
+        tools: ToolExecutor::new(workspace)?,
     }))
 }
 
@@ -91,7 +94,7 @@ impl Codex {
         )?);
         self.rpc(
             "initialize",
-            json!({"clientInfo":{"name":"demoncoder","version":env!("CARGO_PKG_VERSION")}}),
+            json!({"clientInfo":{"name":"demoncoder","version":env!("CARGO_PKG_VERSION")},"capabilities":{"experimentalApi":true}}),
         )
         .await?;
         self.process
@@ -105,9 +108,12 @@ impl Codex {
         if account["account"]["type"] != "chatgpt" {
             bail!("Codex subscription connection requires a ChatGPT login; run codex login");
         }
+        let dynamic_tools: Vec<Value> = crate::tools::definitions().into_iter().map(|tool| json!({
+            "type":"function", "name":tool["name"], "description":tool["description"], "inputSchema":tool["input_schema"],
+        })).collect();
         let thread = self.rpc("thread/start", json!({
             "model":self.model,"cwd":self.workspace,"sandbox":"read-only","approvalPolicy":"never",
-            "experimentalRawEvents":false,
+            "experimentalRawEvents":false,"dynamicTools":dynamic_tools,
         })).await?;
         self.thread = Some(
             thread["thread"]["id"]
@@ -144,6 +150,36 @@ impl Codex {
                 bail!("Codex event belongs to a different thread");
             }
             match message["method"].as_str() {
+                Some("item/tool/call") => {
+                    anyhow::ensure!(
+                        params["turnId"].as_str() == turn.as_deref() && turn.is_some(),
+                        "Codex tool belongs to another turn"
+                    );
+                    anyhow::ensure!(
+                        params["namespace"].is_null(),
+                        "unknown Codex tool namespace"
+                    );
+                    let result = self
+                        .tools
+                        .execute(
+                            ToolCall {
+                                id: params["callId"]
+                                    .as_str()
+                                    .context("missing Codex tool call ID")?
+                                    .into(),
+                                name: params["tool"]
+                                    .as_str()
+                                    .context("missing Codex tool name")?
+                                    .into(),
+                                arguments: params["arguments"].clone(),
+                            },
+                            events,
+                        )
+                        .await?;
+                    process.send(json!({"id":message["id"],"result":{
+                        "success":result.success,"contentItems":[{"type":"inputText","text":serde_json::to_string(&result)?}],
+                    }})).await?;
+                }
                 Some("turn/started") => {
                     let started = params["turn"]["id"]
                         .as_str()
