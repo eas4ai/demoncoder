@@ -8,3 +8,4 @@ python3 tests/terminal_session.py --tools --settings home
 python3 tests/terminal_session.py --tools --settings override
 python3 tests/live_evidence.py
 python3 tests/live_connections.py
+python3 tests/registry.py

@@ -64,6 +64,13 @@ The CODE checks cover the first session's controlled runtime cases.
 CONN checks include independent registration and live two-turn tasks for
 all four connections. Missing authentication remains unresolved evidence.
 
+The registration check composes a separately implemented fixture provider
+with the public Registry, normal named configuration selection, unchanged
+native loop, and production terminal. It reads a real fixture file and
+checks its response and events. Adding an adapter needs a factory and
+registration in the application composition; it needs no provider branch
+in the coding loop or renderer. Runtime plugin loading remains pending.
+
 The native HTTP paths require an API key from OPENAI_API_KEY or
 ANTHROPIC_API_KEY, or from private saved connection settings, and a model. The subscription subprocesses do not inherit either API
 key. Codex registers dynamic tools on thread/start. Claude registers an
