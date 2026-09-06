@@ -3,6 +3,11 @@ results: per-requirement
 inputs:
   - docs/spec/
   - docs/commitments/first-coding-session.md
+  - Cargo.toml
+  - Cargo.lock
+  - src/
+  - tests/
+  - scripts/check-coding-session.sh
 requirements:
   - CODE-001
   - CODE-002
