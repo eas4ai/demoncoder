@@ -18,6 +18,7 @@ struct Codex {
     binary: PathBuf,
     workspace: PathBuf,
     model: Option<String>,
+    effort: Option<String>,
     process: Option<BackendProcess>,
     thread: Option<String>,
     next_id: u64,
@@ -25,6 +26,7 @@ struct Codex {
 }
 
 pub fn open(config: &Connection, workspace: &Path) -> Result<Box<dyn Session>> {
+    config.validate()?;
     if config.endpoint.is_some() {
         bail!("Codex subscription connections use the app-server transport, not an API endpoint");
     }
@@ -32,6 +34,7 @@ pub fn open(config: &Connection, workspace: &Path) -> Result<Box<dyn Session>> {
         binary: executable(config.binary.as_deref(), "codex")?,
         workspace: workspace.to_owned(),
         model: config.model.clone(),
+        effort: config.effort.clone(),
         process: None,
         thread: None,
         next_id: 1,
@@ -181,7 +184,7 @@ impl Codex {
             process
                 .send(json!({"id":id,"method":"turn/start","params":{
                     "threadId":self.thread,"input":[{"type":"text","text":prompt}],
-                    "environments":[],
+                    "environments":[],"effort":self.effort,
                 }}))
                 .await?;
             let mut turn: Option<String> = None;

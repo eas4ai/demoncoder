@@ -15,6 +15,7 @@ struct Claude {
     binary: PathBuf,
     workspace: PathBuf,
     model: Option<String>,
+    effort: Option<String>,
     process: Option<BackendProcess>,
     session: Option<String>,
     tools: ToolExecutor,
@@ -22,6 +23,7 @@ struct Claude {
 }
 
 pub fn open(config: &Connection, workspace: &Path) -> Result<Box<dyn Session>> {
+    config.validate()?;
     if config.endpoint.is_some() {
         bail!("Claude subscription connections use the headless transport, not an API endpoint");
     }
@@ -29,6 +31,7 @@ pub fn open(config: &Connection, workspace: &Path) -> Result<Box<dyn Session>> {
         binary: executable(config.binary.as_deref(), "claude")?,
         workspace: workspace.to_owned(),
         model: config.model.clone(),
+        effort: config.effort.clone(),
         process: None,
         session: None,
         tools: ToolExecutor::new(workspace)?,
@@ -68,6 +71,9 @@ impl Claude {
             if let Some(model) = &self.model {
                 args.extend(["--model".into(), model.clone()]);
             }
+            if let Some(effort) = &self.effort {
+                args.extend(["--effort".into(), effort.clone()]);
+            }
             if let Some(session) = &self.session {
                 args.extend(["--resume".into(), session.clone()]);
             }
@@ -75,7 +81,7 @@ impl Claude {
                 &self.binary,
                 &args,
                 &self.workspace,
-                &["CLAUDE_CODE_OAUTH_TOKEN"],
+                &["CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CONFIG_DIR"],
             )?);
             let process = self
                 .process

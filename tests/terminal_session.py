@@ -32,6 +32,10 @@ class Provider(http.server.BaseHTTPRequestHandler):
         body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
         if self.path == "/responses":
             assert body["store"] is False and "reasoning.encrypted_content" in body["include"]
+        if getattr(self.server, "settings_test", None):
+            assert body["model"] == self.server.expected_model
+            control = body["reasoning"] if self.path == "/responses" else body["output_config"]
+            assert control["effort"] == self.server.expected_effort
         call_events = None
         if self.server.tool_cycles:
             assert len(body["tools"]) == 4
@@ -112,7 +116,24 @@ def case(adapter, server, fault, tool_cycles=False):
             settings += f'endpoint = "http://127.0.0.1:{server.server_port}/{route}"\n'
         else:
             settings += f'binary = {json.dumps(str(FIXTURE))}\n'
+        settings_test = getattr(server, "settings_test", None)
+        extra_args = []
+        if settings_test:
+            server.expected_model = "override-model" if settings_test == "override" else "fixture-model"
+            server.expected_effort = "high" if settings_test == "override" else "low"
+            settings += 'effort = "low"\n'
+            if adapter.endswith("-api"):
+                key = "synthetic-" + adapter.removesuffix("-api") + "-key"
+                settings += f'api_key = {json.dumps("unused-saved-key" if settings_test == "override" else key)}\n'
+            (workspace / "settings-expect.json").write_text(json.dumps({"model":server.expected_model, "effort":server.expected_effort}))
+            home_settings = workspace / ".demoncoder/settings.toml"
+            home_settings.parent.mkdir()
+            home_settings.write_text(settings)
+            home_settings.chmod(0o600)
+            if settings_test == "override":
+                extra_args = ["--model", "override-model", "--effort", "high"]
         config.write_text(settings)
+        config.chmod(0o600)
         if fault and adapter == "codex":
             (workspace / "drop-prompt").touch()
         log = workspace / "events.jsonl"
@@ -120,7 +141,14 @@ def case(adapter, server, fault, tool_cycles=False):
         fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 35, 160, 0, 0))
         env = {"PATH": "/usr/bin:/bin", "HOME": str(workspace), "TERM": "xterm-256color", "LANG": "C.UTF-8",
                "OPENAI_API_KEY": "synthetic-openai-key", "ANTHROPIC_API_KEY": "synthetic-anthropic-key"}
-        process = subprocess.Popen([str(BINARY), "--workspace", str(workspace), "--config", str(config), "--event-log", str(log)],
+        if settings_test:
+            env["CODEX_HOME"] = str(workspace / ".codex-selected")
+            env["CLAUDE_CONFIG_DIR"] = str(workspace / ".claude-selected")
+        if settings_test == "home":
+            env.pop("OPENAI_API_KEY")
+            env.pop("ANTHROPIC_API_KEY")
+        config_args = [] if settings_test else ["--config", str(config)]
+        process = subprocess.Popen([str(BINARY), "--workspace", str(workspace), *config_args, *extra_args, "--event-log", str(log)],
                                    stdin=slave, stdout=slave, stderr=slave, env=env, start_new_session=True)
         os.close(slave)
         output = bytearray()
@@ -159,10 +187,12 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--fault-drop-prompt", action="store_true")
     parser.add_argument("--tools", action="store_true")
+    parser.add_argument("--settings", choices=["home", "override"])
     parser.add_argument("--fault-wrong-edit", action="store_true")
     args = parser.parse_args()
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Provider)
     server.received = []
+    server.settings_test = args.settings
     server.tool_cycles = args.tools
     server.wrong_edit = args.fault_wrong_edit
     server.cycles = {}

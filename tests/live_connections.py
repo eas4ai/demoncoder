@@ -18,6 +18,7 @@ import sys
 import tempfile
 import termios
 import time
+import tomllib
 
 sys.dont_write_bytecode = True
 from terminal_session import BINARY, ROOT, until
@@ -93,10 +94,13 @@ def wait_turn(master, process, output, log, count):
     raise AssertionError("live turn exceeded the 180-second smoke-test limit")
 
 
-def redact(value):
+def redact(value, saved_keys=()):
     text = json.dumps(value)
     for name in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"):
         secret = os.environ.get(name)
+        if secret:
+            text = text.replace(secret, "[REDACTED]")
+    for secret in saved_keys:
         if secret:
             text = text.replace(secret, "[REDACTED]")
     return json.loads(text)
@@ -105,14 +109,22 @@ def redact(value):
 def run(adapter, model):
     digest = input_digest()
     key = {"openai-api": "OPENAI_API_KEY", "anthropic-api": "ANTHROPIC_API_KEY"}.get(adapter)
-    assert key is None or os.environ.get(key), f"prerequisite missing: {key}"
+    settings_path = Path.home() / ".demoncoder/settings.toml"
+    settings = tomllib.loads(settings_path.read_text()) if settings_path.exists() else {}
+    connections = settings.get("connections", {})
+    saved_keys = [connection.get("api_key", "") for connection in connections.values()]
+    selected = connections.get(adapter, {})
+    assert selected.get("adapter", adapter) == adapter, "live connection name selects a different adapter"
+    assert not selected.get("endpoint") and not selected.get("binary"), "live smoke requires the default endpoint and installed backend"
+    assert key is None or os.environ.get(key) or selected.get("api_key"), f"prerequisite missing: {key} or private saved api_key"
+    model = model or selected.get("model")
     if key:
         assert model, "select --model for an API smoke session"
     else:
         assert shutil.which(adapter), f"prerequisite missing: {adapter} executable"
     subprocess.run(["cargo", "build", "--locked"], cwd=ROOT, check=True)
     stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
-    record = {"adapter": adapter, "model": model or "backend-default", "transport": "live-default-endpoint", "auth_method": "api-key" if key else "subscription", "input_digest": digest, "binary_sha256": hashlib.sha256(BINARY.read_bytes()).hexdigest(), "started_at": stamp, "turns": []}
+    record = {"adapter": adapter, "model": model or "backend-default", "effort": selected.get("effort"), "transport": "live-default-endpoint", "auth_method": "api-key" if key else "subscription", "input_digest": digest, "binary_sha256": hashlib.sha256(BINARY.read_bytes()).hexdigest(), "started_at": stamp, "turns": []}
     if not key:
         record["backend_version"] = subprocess.check_output([adapter, "--version"], text=True).strip()
     path = EVIDENCE / adapter / (stamp + ".json")
@@ -163,7 +175,7 @@ def run(adapter, model):
                 process.wait(timeout=5)
             os.close(master)
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(json.dumps(redact(record), indent=2) + "\n")
+            path.write_text(json.dumps(redact(record, saved_keys), indent=2) + "\n")
             print("retained", path.relative_to(ROOT), flush=True)
 
 

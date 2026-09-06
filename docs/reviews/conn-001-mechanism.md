@@ -42,7 +42,27 @@ policy was read-only. Changing that policy to workspace-write, while keeping
 the empty environment selection and all confined tool routing, passed the
 installed-backend boundary checks and then the live coding task.
 
-The OpenAI and Anthropic API runs stop at their credential prerequisites:
-OPENAI_API_KEY and ANTHROPIC_API_KEY are absent from this process. Neither
-API path has a live pass. Supplying a trusted environment-file path is the
-outstanding developer input; key values should not be posted in the chat.
+The first API attempts stopped because environment keys were absent. The
+developer then directed normal home settings and environment credentials.
+The older home configuration contained both API keys; each provider accepted
+its key for a model-list request. The new private settings file preserves
+those credentials without copying them into repository fixtures or events.
+The live runner now admits the same normal home configuration path, rejects
+custom endpoints or executables for live evidence, and redacts saved keys
+as well as environment credentials. New live task records remain required
+against this changed implementation.
+
+Configuration checks cover both APIs' saved credentials and environment
+precedence, saved model/effort and CLI overrides for all four transports,
+backend login-directory environment variables, and credential absence in
+events and subscription subprocess environments. Seven invalid-file/settings
+cases, an explicitly blank environment key, and a FIFO reject before terminal
+startup without quoting the synthetic secret. The FIFO check also establishes
+that opening a special file cannot hang configuration loading.
+
+Failure demonstration: temporarily sending OpenAI effort under an ignored
+field made the home-settings tool-cycle case fail at the provider's actual
+request assertion. Restoring the production field passed all four cases.
+The complete CODE-001 through CODE-008 driver passed after the configuration
+changes. The configuration suite and both home/override four-adapter cases
+passed. These editing checks are separate from the committed Cairn receipts.

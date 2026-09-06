@@ -18,6 +18,7 @@ struct Anthropic {
     endpoint: Url,
     model: String,
     key: String,
+    effort: Option<String>,
     history: Vec<Value>,
 }
 
@@ -25,10 +26,8 @@ pub fn open(config: &Connection, workspace: &Path) -> Result<Box<dyn Session>> {
     if config.binary.is_some() {
         bail!("Anthropic API connections do not accept a backend executable");
     }
-    let key = std::env::var("ANTHROPIC_API_KEY")
-        .ok()
-        .filter(|v| !v.trim().is_empty())
-        .context("ANTHROPIC_API_KEY is required for the API connection")?;
+    config.validate()?;
+    let key = config.api_key("ANTHROPIC_API_KEY")?;
     Ok(Box::new(NativeSession::new(
         Box::new(Anthropic {
             client: http::client()?,
@@ -43,6 +42,7 @@ pub fn open(config: &Connection, workspace: &Path) -> Result<Box<dyn Session>> {
                 .clone()
                 .context("select --model for the Anthropic API connection")?,
             key,
+            effort: config.effort.clone(),
             history: Vec::new(),
         }),
         workspace,
@@ -79,15 +79,19 @@ impl Model for Anthropic {
     }
 
     async fn response(&mut self, events: &EventSink) -> Result<Vec<ToolCall>> {
+        let mut body = json!({
+            "model":self.model,"messages":self.history,"stream":true,"max_tokens":4096,
+            "tools":crate::tools::definitions(),
+        });
+        if let Some(effort) = &self.effort {
+            body["output_config"] = json!({"effort":effort});
+        }
         let request = self
             .client
             .post(self.endpoint.clone())
             .header("x-api-key", &self.key)
             .header("anthropic-version", "2023-06-01")
-            .json(&json!({
-                "model":self.model,"messages":self.history,"stream":true,"max_tokens":4096,
-                "tools":crate::tools::definitions(),
-            }));
+            .json(&body);
         let stream = http::json_events(http::response(request).await?);
         tokio::pin!(stream);
         let mut blocks: Vec<Value> = Vec::new();

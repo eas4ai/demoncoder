@@ -18,6 +18,7 @@ struct OpenAi {
     endpoint: Url,
     model: String,
     key: String,
+    effort: Option<String>,
     history: Vec<Value>,
 }
 
@@ -25,10 +26,8 @@ pub fn open(config: &Connection, workspace: &Path) -> Result<Box<dyn Session>> {
     if config.binary.is_some() {
         bail!("OpenAI API connections do not accept a backend executable");
     }
-    let key = std::env::var("OPENAI_API_KEY")
-        .ok()
-        .filter(|v| !v.trim().is_empty())
-        .context("OPENAI_API_KEY is required for the API connection")?;
+    config.validate()?;
+    let key = config.api_key("OPENAI_API_KEY")?;
     Ok(Box::new(NativeSession::new(
         Box::new(OpenAi {
             client: http::client()?,
@@ -43,6 +42,7 @@ pub fn open(config: &Connection, workspace: &Path) -> Result<Box<dyn Session>> {
                 .clone()
                 .context("select --model for the OpenAI API connection")?,
             key,
+            effort: config.effort.clone(),
             history: Vec::new(),
         }),
         workspace,
@@ -74,8 +74,15 @@ impl Model for OpenAi {
                 })
             })
             .collect();
-        let request = self.client.post(self.endpoint.clone()).bearer_auth(&self.key)
-            .json(&json!({"model":self.model,"input":self.history,"stream":true,"store":false,"include":["reasoning.encrypted_content"],"tools":tools}));
+        let mut body = json!({"model":self.model,"input":self.history,"stream":true,"store":false,"include":["reasoning.encrypted_content"],"tools":tools});
+        if let Some(effort) = &self.effort {
+            body["reasoning"] = json!({"effort":effort});
+        }
+        let request = self
+            .client
+            .post(self.endpoint.clone())
+            .bearer_auth(&self.key)
+            .json(&body);
         let stream = http::json_events(http::response(request).await?);
         tokio::pin!(stream);
         while let Some(event) = stream.next().await {

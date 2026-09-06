@@ -30,6 +30,13 @@ def main():
     if Path("steering").exists():
         from steering_fixture import run
         return run(codex)
+    expected = json.loads(Path("settings-expect.json").read_text()) if Path("settings-expect.json").exists() else None
+    if expected:
+        variable, suffix = ("CODEX_HOME", ".codex-selected") if codex else ("CLAUDE_CONFIG_DIR", ".claude-selected")
+        assert os.environ[variable] == str(Path.cwd() / suffix)
+    if expected and not codex:
+        assert sys.argv[sys.argv.index("--model") + 1] == expected["model"]
+        assert sys.argv[sys.argv.index("--effort") + 1] == expected["effort"]
     turns = 0
     cycle = None
     response = None
@@ -106,6 +113,7 @@ def main():
             elif method == "account/read":
                 result = {"account": {"type": "chatgpt", "email": "fixture@example.invalid", "planType": "plus"}}
             elif method in ("thread/start", "thread/resume"):
+                if expected: assert message["params"]["model"] == expected["model"]
                 assert message["params"]["sandbox"] == "workspace-write"
                 assert message["params"]["approvalPolicy"] == "never"
                 if method == "thread/start":
@@ -115,6 +123,7 @@ def main():
                     assert message["params"]["threadId"] == "fixture-thread"
                 result = {"thread": {"id": "fixture-thread"}}
             elif method == "turn/start":
+                if expected: assert message["params"]["effort"] == expected["effort"]
                 assert message["params"]["environments"] == []
                 assert message["params"]["threadId"] == "fixture-thread"
                 prompt = message["params"]["input"][0]["text"]

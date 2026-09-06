@@ -34,7 +34,7 @@ unreported cost remains unknown.
 | Path | Responsibility |
 |---|---|
 | src/main.rs | Construct the selected session and own application shutdown. |
-| src/config.rs | Parse explicit trusted connection configuration. |
+| src/config.rs | Load trusted home or explicit connection settings. |
 | src/session.rs | Versioned adapter registry and session lifecycle. |
 | src/native.rs | Shared direct-provider model/tool loop. |
 | src/tools.rs | Typed requests, final admission, rooted files, isolated Bash, and actual results. |
@@ -62,8 +62,8 @@ The CODE checks cover the first session's controlled runtime cases.
 CONN checks include independent registration and live two-turn tasks for
 all four connections. Missing authentication remains unresolved evidence.
 
-The native HTTP paths require OPENAI_API_KEY or ANTHROPIC_API_KEY and an
-explicit model. The subscription subprocesses do not inherit either API
+The native HTTP paths require an API key from OPENAI_API_KEY or
+ANTHROPIC_API_KEY, or from private saved connection settings, and a model. The subscription subprocesses do not inherit either API
 key. Codex registers dynamic tools on thread/start. Claude registers an
 SDK MCP server and routes MCP messages over its existing control channel;
 no Python or TypeScript runtime is added to the application. Each external
@@ -145,3 +145,65 @@ filesystem tools remain unavailable. The shared executor owns actual
 workspace access. The installed-backend confinement checks are rerun when
 this policy changes. A live run exposed why this distinction matters: an
 advertised read-only policy caused the model to refuse the permitted edits.
+
+
+## Home configuration
+
+DemonCoder loads `~/.demoncoder/settings.toml` automatically. `--config`
+selects a complete alternative file. Repository settings are never loaded
+automatically. The older `~/.demoncoder/config.toml` is preserved and is not
+interpreted as this format.
+
+```toml
+default_connection = "codex"
+
+[connections.codex]
+adapter = "codex"
+model = "gpt-6-astra"
+effort = "medium"
+
+[connections.claude]
+adapter = "claude"
+model = "sonnet"
+effort = "medium"
+
+[connections.openai-api]
+adapter = "openai-api"
+model = "your-openai-model"
+# api_key = "your-key" # optional when OPENAI_API_KEY is set
+
+[connections.anthropic-api]
+adapter = "anthropic-api"
+model = "your-anthropic-model"
+# api_key = "your-key" # optional when ANTHROPIC_API_KEY is set
+```
+
+Use `chmod 600 ~/.demoncoder/settings.toml` when saving credentials.
+Credential files must belong to the current user and exclude all group and
+other permissions. Files are bounded to 64 KiB and must be regular files;
+symlinks are rejected. Configuration parse errors never quote their input.
+This file is plaintext; no custom encryption or keyring integration is claimed.
+
+`--connection`, `--model`, and `--effort` override saved selections.
+Nonempty environment API keys override saved keys. An explicitly empty key
+reports an error rather than selecting a different credential. Subscription
+connections reject saved API keys and do not inherit ambient API credentials.
+Use `codex login` or `claude auth login` for those connections. `CODEX_HOME`
+and `CLAUDE_CONFIG_DIR` select their existing backend login directories;
+DemonCoder leaves HOME intact.
+
+Effort goes to OpenAI Responses `reasoning.effort`, Anthropic Messages
+`output_config.effort`, Codex `turn/start.effort`, or Claude `--effort`.
+Omission leaves the backend/provider default. Anthropic effort controls
+response effort; it does not itself enable an older model's extended-thinking
+mode. Model-specific support remains the provider's responsibility; rejected
+settings produce a failed request with no fallback model or effort.
+Named connections assign settings to a session. Subagent role assignments
+remain in their later commitment.
+
+Reference inspection: T3Code 0.0.38's `docs/user/providers-claude.md` and
+`providers-codex.md` document normal CLI logins and separate configuration
+directories. Its `ClaudeAdapter.ts` passes the installed executable, model,
+effort, and resume identity to the SDK. `CodexSessionRuntime.ts` sends effort
+in `turn/start`. Its relay infrastructure handles remote-environment login.
+These observations informed the adapter checks; no T3Code source was copied.
