@@ -11,4 +11,7 @@ Set the Codex thread policy to workspace-write while retaining explicitly empty 
 
 ## Realized by
 
-(none yet: recorded, not built)
+- eb1a9de4fd27d7254e9b9de567c2870404a34d1e Align Codex permission guidance with confined host tools
+
+All four installed-boundary cases passed after this change. The next live
+run evaluates whether the model can complete the authorized coding task.
