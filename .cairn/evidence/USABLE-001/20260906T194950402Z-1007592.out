@@ -1,0 +1,55 @@
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.11s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s
+     Running unittests src/lib.rs (target/debug/deps/demoncoder-5b2fe83971864227)
+
+running 7 tests
+test transcript::tests::streaming_graphemes_match_a_single_complete_append ... ok
+test transcript::tests::scroll_anchor_survives_new_output_and_resize_until_expiry ... ok
+test transcript::tests::rows_beyond_u16_are_reachable_and_controls_stay_literal ... ok
+test transcript::tests::empty_fragments_and_many_newlines_have_bounded_metadata ... ok
+test transcript::tests::oversized_unicode_retains_a_bounded_valid_tail_and_expires_old_anchors ... ok
+test transcript::tests::idle_layout_and_visible_rows_do_not_scan_the_history ... ok
+test transcript::tests::many_lines_and_resizes_keep_the_index_bounded_and_visit_only_visible_lines ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 6 filtered out; finished in 0.30s
+
+..
+----------------------------------------------------------------------
+Ran 2 tests in 1.524s
+
+OK
+cairn: USABLE-001: pass
+   Compiling demoncoder v0.1.0 (/home/shawn/workspace2/demoncoder)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.52s
+     Running tests/developer_access.rs (target/debug/deps/developer_access-5c435a0741d61daa)
+
+running 10 tests
+test native_read_accepts_outside_documentation_and_git_metadata_but_mutation_stays_rooted ... ok
+test bash_can_reach_a_network_documentation_endpoint ... ok
+test bash_does_not_inherit_a_host_directory_descriptor ... ok
+test selected_private_config_cannot_be_changed_by_native_tools ... ok
+test normal_build_links_and_reference_symlinks_do_not_disable_bash ... ok
+test installed_developer_tools_are_available_without_exposing_provider_environment ... ok
+test git_can_inspect_and_commit_the_selected_repository ... ok
+test nested_private_settings_are_hidden_without_blocking_the_shell ... ok
+test private_workspace_settings_and_their_aliases_are_unreadable ... ok
+test outside_hard_link_and_symlink_writes_are_blocked_without_disabling_other_commands ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.57s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.07s
+     Running unittests src/lib.rs (target/debug/deps/demoncoder-5b2fe83971864227)
+
+running 1 test
+test developer_access::tests::cold_cache_keeps_installed_tools_and_does_not_write_the_host_cache ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 12 filtered out; finished in 0.13s
+
+cairn: USABLE-002: pass
+cairn: USABLE-003: pass
+.
+----------------------------------------------------------------------
+Ran 1 test in 0.619s
+
+OK
+cairn: USABLE-004: pass
