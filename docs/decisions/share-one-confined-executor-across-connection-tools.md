@@ -11,4 +11,8 @@ Expose read, write, edit, and bash through one Rust executor. Native model adapt
 
 ## Realized by
 
-(none yet: recorded, not built)
+- 9d85df10cd0e5c151e23cf29635fb0ce08d60e54 Route four connection tool cycles through the shared executor
+
+This establishes controlled transport and tool-cycle evidence. Complete
+external tool confinement and the remaining session controls await their
+separately named requirement checks.
