@@ -267,3 +267,57 @@ print("NO-HOST-DIRECTORY-FD")'"#
     assert!(result.success, "{}", result.output);
     assert!(result.output.contains("NO-HOST-DIRECTORY-FD"));
 }
+
+/// Explicitly opt in only after the developer selects this real repository.
+#[tokio::test]
+#[ignore = "requires DEMONCODER_ASSESS_WORKSPACE and uses public network services"]
+async fn selected_repository_read_only_assessment() {
+    let workspace = std::env::var_os("DEMONCODER_ASSESS_WORKSPACE")
+        .expect("select the assessment repository explicitly");
+    let executor = ToolExecutor::new(std::path::Path::new(&workspace)).unwrap();
+    for path in [
+        "/home/shawn/.codex/RTK.md",
+        "/home/shawn/.codex/TILTH.md",
+        "/home/shawn/.codex/PARTNERSHIP.md",
+        "/home/shawn/.claude/BEST_PRACTICES.md",
+        ".git/HEAD",
+    ] {
+        let result = tool(&executor, "read", json!({"path": path})).await;
+        println!(
+            "read {path}: success={} bytes={}",
+            result.success,
+            result.output.len()
+        );
+        assert!(result.success, "{}", result.output);
+    }
+    for (name, script) in [
+        (
+            "repository",
+            "pwd; git branch --show-current; git status --short; git diff --stat; git rev-parse HEAD; git ls-remote origin refs/heads/main",
+        ),
+        (
+            "installed-tools",
+            "git --version; cargo --version; rustc --version; rtk --version; cairn wake",
+        ),
+        (
+            "documentation",
+            "curl --fail --silent --show-error --max-time 20 --output /dev/null --write-out 'Rust documentation HTTP %{http_code}\n' https://doc.rust-lang.org/book/",
+        ),
+        (
+            "public-ci",
+            "curl --fail --silent --show-error --max-time 20 https://api.github.com/repos/eas4ai/demoncoder/actions/runs?per_page=5 | python3 -c 'import json,sys; d=json.load(sys.stdin); print(json.dumps({\"total_count\":d.get(\"total_count\"),\"runs\":[{k:r.get(k) for k in (\"name\",\"head_sha\",\"status\",\"conclusion\")} for r in d.get(\"workflow_runs\",[])]}))'",
+        ),
+        ("dependencies", "cargo audit --json"),
+    ] {
+        let result = bash(&executor, script.into()).await;
+        println!(
+            "ASSESSMENT {name} success={} exit={:?}\n{}",
+            result.success, result.exit_code, result.output
+        );
+        assert!(
+            result.exit_code.is_some(),
+            "command could not start: {}",
+            result.output
+        );
+    }
+}

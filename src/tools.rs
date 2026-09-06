@@ -105,7 +105,7 @@ pub struct ToolExecutor {
     workspace: PathBuf,
     scratch: Option<PathBuf>,
     access: AccessPolicy,
-    developer: Option<crate::developer_access::DeveloperAccess>,
+    developer: Option<Arc<crate::developer_access::DeveloperAccess>>,
     intent: Mutex<String>,
     hooks: Vec<Box<dyn ToolHook>>,
     // Execution is sequential. Keep the current receipt across cancellation
@@ -150,12 +150,12 @@ impl ToolExecutor {
             },
             access: access.clone(),
             developer: if !access.unrestricted && access.tools_enabled {
-                Some(crate::developer_access::DeveloperAccess::new(
+                Some(Arc::new(crate::developer_access::DeveloperAccess::new(
                     &workspace
                         .canonicalize()
                         .context("resolve developer workspace")?,
                     &access.credential_paths,
-                )?)
+                )?))
             } else {
                 None
             },
@@ -369,7 +369,8 @@ impl ToolExecutor {
                     .developer
                     .as_ref()
                     .context("developer tools are disabled")?
-                    .read(&self.root, path);
+                    .read(self.root.clone(), path.to_owned())
+                    .await;
             }
             return self.open(path, flags, create);
         }
@@ -565,7 +566,8 @@ impl ToolExecutor {
                 .developer
                 .as_ref()
                 .context("developer tools are disabled")?
-                .command(&self.root, &self.workspace, script)?;
+                .command(self.root.clone(), self.workspace.clone(), script.to_owned())
+                .await?;
             command
                 .env_clear()
                 .stdin(Stdio::from(self.root.try_clone()?))

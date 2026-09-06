@@ -55,3 +55,16 @@ replacing entries while admission inspects them. Cache changes persist for the
 session and are removed on close. Missing service authentication remains distinct
 from network permission. Current remote, CI, vulnerability, and Cairn claims need
 their own observed results; a working shell alone does not establish them.
+
+## Cancellation correction
+
+Review found that synchronous workspace and credential-alias inspection could
+hold the session task before Bash started. Native reads and Bash preparation now
+run on the blocking pool with a cancellation guard; both directory traversals
+check it, and only the awaiting tool can start the prepared command. A
+single-thread async-runtime test holds preparation open, cancels its awaiting
+task, verifies both traversals stop, and verifies launch is never reached. The
+safe violating variant disabled the drop signal: it failed with a timeout; the
+corrected implementation passes. A filesystem call already blocked in the kernel
+cannot be interrupted by this cooperative flag, but it no longer holds the
+session task or permits a cancelled command to launch.

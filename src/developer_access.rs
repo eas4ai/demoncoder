@@ -7,6 +7,10 @@ use std::{
         unix::fs::{MetadataExt, PermissionsExt},
     },
     path::{Path, PathBuf},
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
 };
 
 use anyhow::{Context, Result, ensure};
@@ -65,6 +69,33 @@ struct Cache {
     upper: PathBuf,
     work: PathBuf,
     overlay: bool,
+}
+
+/// Dropping the awaiting tool stops directory traversal as well as preventing
+/// command launch. Blocking inspection never executes the task command itself.
+struct InspectionGuard(Arc<AtomicBool>);
+impl Drop for InspectionGuard {
+    fn drop(&mut self) {
+        self.0.store(true, Ordering::Relaxed);
+    }
+}
+
+async fn inspect<T: Send + 'static>(
+    work: impl FnOnce(&AtomicBool) -> Result<T> + Send + 'static,
+) -> Result<T> {
+    let guard = InspectionGuard(Arc::new(AtomicBool::new(false)));
+    let cancelled = guard.0.clone();
+    tokio::task::spawn_blocking(move || work(&cancelled))
+        .await
+        .context("join developer access inspection")?
+}
+
+fn checkpoint(cancelled: &AtomicBool) -> Result<()> {
+    ensure!(
+        !cancelled.load(Ordering::Relaxed),
+        "developer access inspection cancelled"
+    );
+    Ok(())
 }
 
 impl DeveloperAccess {
@@ -200,7 +231,12 @@ impl DeveloperAccess {
         Ok(())
     }
 
-    pub(crate) fn read(&self, root: &File, path: &str) -> Result<File> {
+    pub(crate) async fn read(self: &Arc<Self>, root: Arc<File>, path: String) -> Result<File> {
+        let access = self.clone();
+        inspect(move |cancelled| access.read_file(&root, &path, cancelled)).await
+    }
+
+    fn read_file(&self, root: &File, path: &str, cancelled: &AtomicBool) -> Result<File> {
         ensure!(!path.is_empty() && path.len() <= 4096, "invalid read path");
         let file = File::from(
             openat2(
@@ -226,10 +262,10 @@ impl DeveloperAccess {
             "read requires a linked regular file: {path:?}"
         );
         if meta.nlink() > 1 {
-            let private = inspect_links(&self.workspace, &mut BTreeMap::new())?;
+            let private = inspect_links(&self.workspace, &mut BTreeMap::new(), cancelled)?;
             ensure!(
                 !self
-                    .private_links(&private)?
+                    .private_links(&private, cancelled)?
                     .contains(&(meta.dev(), meta.ino())),
                 "read is blocked for a credential alias: {path:?}"
             );
@@ -237,23 +273,43 @@ impl DeveloperAccess {
         Ok(file)
     }
 
-    fn private_links(&self, additional: &[PathBuf]) -> Result<BTreeSet<(u64, u64)>> {
+    fn private_links(
+        &self,
+        additional: &[PathBuf],
+        cancelled: &AtomicBool,
+    ) -> Result<BTreeSet<(u64, u64)>> {
         let mut linked = BTreeSet::new();
         for path in self.private.iter().chain(additional) {
-            collect_private_links(path, &mut linked, &|path| self.protected(path))?;
+            collect_private_links(path, &mut linked, &|path| self.protected(path), cancelled)?;
         }
         Ok(linked)
     }
 
-    pub(crate) fn command(&self, root: &File, workspace: &Path, script: &str) -> Result<Command> {
+    pub(crate) async fn command(
+        self: &Arc<Self>,
+        root: Arc<File>,
+        workspace: PathBuf,
+        script: String,
+    ) -> Result<Command> {
+        let access = self.clone();
+        inspect(move |cancelled| access.build_command(&root, &workspace, &script, cancelled)).await
+    }
+
+    fn build_command(
+        &self,
+        root: &File,
+        workspace: &Path,
+        script: &str,
+        cancelled: &AtomicBool,
+    ) -> Result<Command> {
         let physical = std::fs::read_link(format!("/proc/self/fd/{}", root.as_raw_fd()))?;
         ensure!(
             physical == workspace,
             "workspace moved; reopen the session at its current path"
         );
         let mut links = BTreeMap::<(u64, u64), Links>::new();
-        let private = inspect_links(workspace, &mut links)?;
-        let protected_inodes = self.private_links(&private)?;
+        let private = inspect_links(workspace, &mut links, cancelled)?;
+        let protected_inodes = self.private_links(&private, cancelled)?;
 
         let mut command = Command::new("/usr/bin/bwrap");
         command.args([
@@ -319,6 +375,7 @@ impl DeveloperAccess {
             command.arg("--ro-bind").arg(path).arg(path);
         }
         for (identity, group) in links {
+            checkpoint(cancelled)?;
             let secret = protected_inodes.contains(&identity);
             if !secret && group.count == group.paths.len() as u64 {
                 continue;
@@ -371,13 +428,19 @@ impl DeveloperAccess {
     }
 }
 
-fn inspect_links(root: &Path, links: &mut BTreeMap<(u64, u64), Links>) -> Result<Vec<PathBuf>> {
+fn inspect_links(
+    root: &Path,
+    links: &mut BTreeMap<(u64, u64), Links>,
+    cancelled: &AtomicBool,
+) -> Result<Vec<PathBuf>> {
     let mut directories = vec![root.to_path_buf()];
     let mut private = Vec::new();
     while let Some(directory) = directories.pop() {
+        checkpoint(cancelled)?;
         for entry in std::fs::read_dir(&directory)
             .with_context(|| format!("inspect workspace directory {directory:?}"))?
         {
+            checkpoint(cancelled)?;
             let path = entry?.path();
             let meta = path
                 .symlink_metadata()
@@ -410,9 +473,11 @@ fn collect_private_links(
     root: &Path,
     linked: &mut BTreeSet<(u64, u64)>,
     protected: &impl Fn(&Path) -> bool,
+    cancelled: &AtomicBool,
 ) -> Result<()> {
     let mut pending = vec![root.to_path_buf()];
     while let Some(path) = pending.pop() {
+        checkpoint(cancelled)?;
         if !protected(&path) {
             continue;
         }
@@ -425,6 +490,7 @@ fn collect_private_links(
         };
         if meta.is_dir() {
             for entry in std::fs::read_dir(&path)? {
+                checkpoint(cancelled)?;
                 pending.push(entry?.path());
             }
         } else if meta.is_file() && meta.nlink() > 1 {
@@ -438,6 +504,54 @@ fn collect_private_links(
 mod tests {
     use super::*;
     use std::process::Stdio;
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn cancelled_preparation_yields_and_stops_without_starting_a_command() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::write(root.path().join("entry"), "fixture").unwrap();
+        let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+        let (stopped_tx, stopped_rx) = tokio::sync::oneshot::channel();
+        let launched = Arc::new(AtomicBool::new(false));
+        let task_launched = launched.clone();
+        let task = tokio::spawn(async move {
+            let result = inspect(move |cancelled| {
+                let _ = started_tx.send(());
+                let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+                // Hold preparation open until the awaiting tool is cancelled.
+                while !cancelled.load(Ordering::Relaxed) && std::time::Instant::now() < deadline {
+                    std::thread::sleep(std::time::Duration::from_millis(1));
+                }
+                let workspace_stopped =
+                    inspect_links(root.path(), &mut BTreeMap::new(), cancelled).is_err();
+                let private_stopped =
+                    collect_private_links(root.path(), &mut BTreeSet::new(), &|_| true, cancelled)
+                        .is_err();
+                let _ = stopped_tx.send(workspace_stopped && private_stopped);
+                Ok(())
+            })
+            .await;
+            if result.is_ok() {
+                task_launched.store(true, Ordering::Relaxed);
+            }
+        });
+        tokio::time::timeout(std::time::Duration::from_millis(500), started_rx)
+            .await
+            .unwrap()
+            .unwrap();
+        task.abort();
+        assert!(task.await.unwrap_err().is_cancelled());
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(500), stopped_rx)
+                .await
+                .unwrap()
+                .unwrap(),
+            "abandoned inspection continued traversing"
+        );
+        assert!(
+            !launched.load(Ordering::Relaxed),
+            "cancelled preparation reached command launch"
+        );
+    }
 
     #[tokio::test]
     async fn cold_cache_keeps_installed_tools_and_does_not_write_the_host_cache() {
@@ -468,7 +582,7 @@ mod tests {
             cache.display()
         );
         let output = access
-            .command(&directory, &workspace, &script)
+            .build_command(&directory, &workspace, &script, &AtomicBool::new(false))
             .unwrap()
             .stdin(Stdio::from(directory.try_clone().unwrap()))
             .output()
