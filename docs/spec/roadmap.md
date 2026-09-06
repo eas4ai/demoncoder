@@ -3,8 +3,8 @@
 Current: first-coding-session
 
 The developer selected the usable coding session as the first commitment
-and agreed to use Cairn on 2026-09-06. Its detailed requirements and
-falsifiers remain Draft until confirmed together.
+and agreed to use Cairn on 2026-09-06. The developer confirmed its detailed
+requirements and falsifiers together on 2026-09-06.
 
 | Order | Commitment | Intended result |
 |---|---|---|

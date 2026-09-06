@@ -1,6 +1,6 @@
 # Coding session
 
-Status: Draft 2026-09-06
+Status: Agreed 2026-09-06
 Prefix: CODE
 
 This domain specifies the first usable session. The initial platform is

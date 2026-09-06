@@ -1,6 +1,6 @@
 # Glossary
 
-Status: Draft 2026-09-06
+Status: Agreed 2026-09-06
 
 | Term | Meaning in DemonCoder |
 |---|---|

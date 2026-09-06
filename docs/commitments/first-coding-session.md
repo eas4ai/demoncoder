@@ -1,6 +1,6 @@
 # First coding session
 
-Status: Draft 2026-09-06
+Status: Agreed 2026-09-06
 Requirements: CODE-001, CODE-002, CODE-003, CODE-004, CODE-005, CODE-006, CODE-007, CODE-008, CONN-001, CONN-002, CONN-003, CONN-004, CONN-005, CONN-006
 
 ## Deliverable

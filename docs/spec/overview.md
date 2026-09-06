@@ -1,6 +1,6 @@
 # DemonCoder
 
-Status: Draft 2026-09-06
+Status: Agreed 2026-09-06
 
 DemonCoder is a Rust terminal coding assistant with a small pi-style coding
 core, assignable subagents, advanced orchestration, and evidence-based
@@ -40,8 +40,8 @@ responsible for choosing sound requirements and meaningful checks.
 The broader [design narrative](../spec.md) retains product direction,
 reference observations, and proposals that have not yet become requirements.
 Only confirmed requirements marked Agreed authorize implementation under
-Cairn. This keystone, the glossary, and the first requirement set await that
-confirmation together; choosing Cairn did not approve unseen falsifiers.
+Cairn. The developer confirmed this keystone, the glossary, and the first
+requirement set with its falsifiers on 2026-09-06.
 
 Implementation choices such as the terminal toolkit and exact component
 extraction remain to be recorded against the agreed behavior. They do not
