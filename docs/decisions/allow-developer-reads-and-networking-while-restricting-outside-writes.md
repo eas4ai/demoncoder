@@ -11,4 +11,4 @@ Use the host filesystem read-only as the default Bash view, with the selected wo
 
 ## Realized by
 
-(none yet: recorded, not built)
+- 86012e6465ba55050b443677527c341f3edc5ab9 Make default coding reads, networking, and developer tools usable
