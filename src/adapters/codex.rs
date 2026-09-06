@@ -38,7 +38,7 @@ pub fn open(config: &Connection, workspace: &Path) -> Result<Box<dyn Session>> {
         process: None,
         thread: None,
         next_id: 1,
-        tools: ToolExecutor::new(workspace)?,
+        tools: ToolExecutor::with_policy(workspace, &config.access)?,
     }))
 }
 
@@ -140,11 +140,11 @@ impl Codex {
                 disabled_servers.insert(name.clone(), json!({"enabled":false}));
             }
         }
-        let dynamic_tools: Vec<Value> = crate::tools::definitions().into_iter().map(|tool| json!({
+        let dynamic_tools: Vec<Value> = self.tools.definitions().into_iter().map(|tool| json!({
             "type":"function", "name":tool["name"], "description":tool["description"], "inputSchema":tool["input_schema"],
         })).collect();
         let mut params = json!({
-            "model":self.model,"cwd":self.workspace,"sandbox":"workspace-write","approvalPolicy":"never",
+            "model":self.model,"cwd":self.workspace,"sandbox":if self.tools.unrestricted() {"danger-full-access"} else {"workspace-write"},"approvalPolicy":"never",
             "config":{"mcp_servers":disabled_servers},
         });
         let method = if let Some(thread) = &self.thread {
@@ -178,6 +178,7 @@ impl Codex {
     ) -> Result<TurnEnd> {
         self.connect().await?;
         'turns: loop {
+            self.tools.set_intent(&prompt);
             let id = self.next_id;
             self.next_id += 1;
             let process = self.process.as_mut().context("Codex process unavailable")?;

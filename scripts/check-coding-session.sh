@@ -20,3 +20,11 @@ python3 tests/installed_backends.py
 
 cargo test --locked --lib native::tests
 python3 tests/installed_backends.py --results
+
+python3 tests/terminal_screen.py
+python3 tests/onboarding.py
+
+cargo test --locked --test host_guard
+python3 tests/host_access.py
+python3 tests/live_oracle.py
+printf 'cairn: CODE-010: pass\n'

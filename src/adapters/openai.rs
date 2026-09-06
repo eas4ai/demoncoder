@@ -4,7 +4,7 @@ use crate::{
     events::{Event, EventSink},
     native::{Model, NativeSession},
     session::Session,
-    tools::{ToolCall, ToolResult},
+    tools::{ToolCall, ToolExecutor, ToolResult},
 };
 use anyhow::{Context, Result, bail};
 use async_trait::async_trait;
@@ -20,6 +20,7 @@ struct OpenAi {
     key: String,
     effort: Option<String>,
     history: Vec<Value>,
+    definitions: Vec<Value>,
 }
 
 pub fn open(config: &Connection, workspace: &Path) -> Result<Box<dyn Session>> {
@@ -28,7 +29,9 @@ pub fn open(config: &Connection, workspace: &Path) -> Result<Box<dyn Session>> {
     }
     config.validate()?;
     let key = config.api_key("OPENAI_API_KEY")?;
-    Ok(Box::new(NativeSession::new(
+    let tools = ToolExecutor::with_policy(workspace, &config.access)?;
+    let definitions = tools.definitions();
+    Ok(Box::new(NativeSession::with_tools(
         Box::new(OpenAi {
             client: http::client()?,
             endpoint: http::endpoint(
@@ -44,9 +47,10 @@ pub fn open(config: &Connection, workspace: &Path) -> Result<Box<dyn Session>> {
             key,
             effort: config.effort.clone(),
             history: Vec::new(),
+            definitions,
         }),
-        workspace,
-    )?))
+        tools,
+    )))
 }
 
 #[async_trait]
@@ -65,7 +69,9 @@ impl Model for OpenAi {
     }
 
     async fn response(&mut self, events: &EventSink) -> Result<Vec<ToolCall>> {
-        let tools: Vec<Value> = crate::tools::definitions()
+        let tools: Vec<Value> = self
+            .definitions
+            .clone()
             .into_iter()
             .map(|tool| {
                 json!({

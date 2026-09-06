@@ -24,11 +24,15 @@ pub struct NativeSession {
 
 impl NativeSession {
     pub fn new(model: Box<dyn Model>, workspace: &Path) -> Result<Self> {
-        Ok(Self {
+        Ok(Self::with_tools(model, ToolExecutor::new(workspace)?))
+    }
+
+    pub fn with_tools(model: Box<dyn Model>, tools: ToolExecutor) -> Self {
+        Self {
             model,
-            tools: ToolExecutor::new(workspace)?,
+            tools,
             pending: VecDeque::new(),
-        })
+        }
     }
 }
 
@@ -76,6 +80,7 @@ impl NativeSession {
         commands: &mut mpsc::Receiver<Command>,
         events: &EventSink,
     ) -> Result<TurnEnd> {
+        self.tools.set_intent(&prompt);
         self.model.prompt(prompt);
         loop {
             let mut corrections = Vec::new();
@@ -91,6 +96,10 @@ impl NativeSession {
                 }
             };
             let finished = calls.is_empty();
+            anyhow::ensure!(
+                finished || self.tools.tools_enabled(),
+                "Oracle requested a tool; review refused"
+            );
             self.pending = calls.into();
             while let Some(call) = self.pending.front().cloned() {
                 while let Ok(command) = commands.try_recv() {
@@ -124,6 +133,7 @@ impl NativeSession {
             }
             let corrected = !corrections.is_empty();
             for correction in corrections {
+                self.tools.set_intent(&correction);
                 self.model.prompt(correction);
             }
             if finished && !corrected {

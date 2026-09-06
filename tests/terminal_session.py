@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import pty
 import select
+import shlex
 import struct
 import subprocess
 import tempfile
@@ -18,6 +19,7 @@ import uuid
 import sys
 sys.dont_write_bytecode = True
 from tool_cycle_fixture import Cycle, sse_call
+from terminal_screen import screen_text
 
 ROOT = Path(__file__).resolve().parents[1]
 BINARY = ROOT / "target/debug/demoncoder"
@@ -48,6 +50,8 @@ class Provider(http.server.BaseHTTPRequestHandler):
                     assert any(item.get("encrypted_content") == "synthetic-reasoning" for item in history)
                 result = json.loads(history[-1]["output"] if self.path == "/responses" else history[-1]["content"][0]["content"])
             call = cycle.next(result)
+            if call and call["name"] == "bash" and getattr(self.server, "host_workspace", None):
+                call["arguments"]["command"] = 'set -e; test "$PWD" = ' + shlex.quote(self.server.host_workspace) + "; " + call["arguments"]["command"]
             if call:
                 call_events = sse_call(self.path, call)
                 if self.path == "/responses":
@@ -86,7 +90,15 @@ class Provider(http.server.BaseHTTPRequestHandler):
 
 def until(master, process, output, needle, timeout=8):
     deadline = time.monotonic() + timeout
-    while needle not in output:
+    inspected = -1
+    while True:
+        if needle in output:
+            return
+        if len(output) != inspected:
+            inspected = len(output)
+            rows, columns, _, _ = struct.unpack("HHHH", fcntl.ioctl(master, termios.TIOCGWINSZ, b"\0" * 8))
+            if needle.decode() in screen_text(output, max(1, columns), max(1, rows)):
+                return
         if process.poll() is not None:
             raise AssertionError("application exited before terminal checkpoint: " + needle.decode())
         if time.monotonic() >= deadline:
@@ -98,9 +110,10 @@ def until(master, process, output, needle, timeout=8):
                 raise AssertionError("PTY closed before checkpoint") from error
 
 
-def case(adapter, server, fault, tool_cycles=False):
+def case(adapter, server, fault, tool_cycles=False, host_access=False):
     with tempfile.TemporaryDirectory(prefix="demoncoder-terminal-") as directory:
         workspace = Path(directory)
+        server.host_workspace = str(workspace) if host_access else None
         subprocess.run(["git", "init", "-q", str(workspace)], check=True)
         token = "prompt" + uuid.uuid4().hex[:12]
         seed = int(uuid.uuid4().hex[:6], 16)
@@ -110,7 +123,7 @@ def case(adapter, server, fault, tool_cycles=False):
                 (workspace / "wrong-edit").touch()
             (workspace / "seed.txt").write_text(str(seed) + "\n")
         config = workspace / "connection.toml"
-        settings = f'default_connection = "selected"\n[connections.selected]\nadapter = "{adapter}"\nmodel = "fixture-model"\n'
+        settings = f'onboarding_complete=true\ndefault_connection = "selected"\n[connections.selected]\nadapter = "{adapter}"\nmodel = "fixture-model"\n'
         if adapter in ("openai-api", "anthropic-api"):
             route = "responses" if adapter == "openai-api" else "messages"
             settings += f'endpoint = "http://127.0.0.1:{server.server_port}/{route}"\n'
@@ -132,6 +145,11 @@ def case(adapter, server, fault, tool_cycles=False):
             home_settings.chmod(0o600)
             if settings_test == "override":
                 extra_args = ["--model", "override-model", "--effort", "high"]
+        if host_access:
+            (workspace / "host-access").touch()
+            settings = settings.replace("[connections.selected]", '[oracle]\nconnection="reviewer"\n[connections.selected]', 1)
+            settings += f'\n[connections.reviewer]\nadapter="openai-api"\nmodel="oracle-model"\nendpoint="http://127.0.0.1:{server.server_port}/oracle"\n'
+            extra_args.append("--yolo")
         config.write_text(settings)
         config.chmod(0o600)
         if fault and adapter == "codex":
@@ -148,7 +166,7 @@ def case(adapter, server, fault, tool_cycles=False):
             env.pop("OPENAI_API_KEY")
             env.pop("ANTHROPIC_API_KEY")
         config_args = [] if settings_test else ["--config", str(config)]
-        process = subprocess.Popen([str(BINARY), "--workspace", str(workspace), *config_args, *extra_args, "--event-log", str(log)],
+        process = subprocess.Popen([str(BINARY), "--trust-workspace", "--workspace", str(workspace), *config_args, *extra_args, "--event-log", str(log)],
                                    stdin=slave, stdout=slave, stderr=slave, env=env, start_new_session=True)
         os.close(slave)
         output = bytearray()
@@ -171,6 +189,8 @@ def case(adapter, server, fault, tool_cycles=False):
                 assert results[0]["output"].strip() == str(seed), "read did not obtain actual seed"
                 assert results[-1]["exit_code"] == 0 and "VERIFIED-" + token in results[-1]["output"]
                 assert (workspace / "answer.py").read_text() == f"value = {seed + 1}\n", "actual repository change differs"
+            if host_access:
+                assert any(record["event"]["type"] == "tool_review" and record["event"]["decision"] == "allowed" for record in records)
             assert "synthetic-openai-key" not in log.read_text()
             assert "synthetic-anthropic-key" not in log.read_text()
             os.write(master, b"\x11")

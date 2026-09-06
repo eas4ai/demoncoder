@@ -2,8 +2,11 @@
 use std::{
     fs::File,
     io::{Read, Seek, SeekFrom, Write},
-    os::{fd::AsRawFd, unix::fs::MetadataExt},
-    path::{Component, Path},
+    os::{
+        fd::AsRawFd,
+        unix::fs::{MetadataExt, PermissionsExt},
+    },
+    path::{Component, Path, PathBuf},
     process::Stdio,
     sync::{Arc, Mutex},
     time::Duration,
@@ -11,6 +14,7 @@ use std::{
 
 use anyhow::{Context, Result, bail, ensure};
 use rustix::fs::{Mode, OFlags, ResolveFlags, openat2};
+use rustix::process::{Pid, Signal, WaitId, WaitIdOptions, kill_process_group, waitid};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tokio::{io::AsyncReadExt, process::Command};
@@ -19,6 +23,32 @@ use crate::events::{Event, EventSink};
 
 const MAX_BYTES: usize = 1024 * 1024;
 const RESOLVE: ResolveFlags = ResolveFlags::BENEATH.union(ResolveFlags::NO_SYMLINKS);
+
+#[derive(Clone)]
+pub struct AccessPolicy {
+    pub unrestricted: bool,
+    pub tools_enabled: bool,
+    pub oracle: Option<Box<crate::config::Connection>>,
+}
+
+impl Default for AccessPolicy {
+    fn default() -> Self {
+        Self {
+            unrestricted: false,
+            tools_enabled: true,
+            oracle: None,
+        }
+    }
+}
+
+impl AccessPolicy {
+    pub fn review_only() -> Self {
+        Self {
+            tools_enabled: false,
+            ..Self::default()
+        }
+    }
+}
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct ToolCall {
@@ -70,6 +100,10 @@ pub trait ToolHook: Send + Sync {
 
 pub struct ToolExecutor {
     root: Arc<File>,
+    workspace: PathBuf,
+    scratch: Option<PathBuf>,
+    access: AccessPolicy,
+    intent: Mutex<String>,
     hooks: Vec<Box<dyn ToolHook>>,
     // Execution is sequential. Keep the current receipt across cancellation
     // during event delivery or a presentation error; never retain a full copy
@@ -79,6 +113,10 @@ pub struct ToolExecutor {
 
 impl ToolExecutor {
     pub fn new(workspace: &Path) -> Result<Self> {
+        Self::with_policy(workspace, &AccessPolicy::default())
+    }
+
+    pub fn with_policy(workspace: &Path, access: &AccessPolicy) -> Result<Self> {
         ensure!(cfg!(target_os = "linux"), "coding tools require Linux");
         let root = File::open(workspace).context("open authorized workspace")?;
         ensure!(root.metadata()?.is_dir(), "workspace must be a directory");
@@ -93,9 +131,63 @@ impl ToolExecutor {
         .context("workspace requires Linux openat2")?;
         Ok(Self {
             root: Arc::new(root),
+            workspace: workspace.canonicalize().context("resolve tool workspace")?,
+            scratch: if access.unrestricted && access.tools_enabled {
+                // Host tools may put valuable data here. Do not recursively delete
+                // it on session close; ordinary OS temporary-file policy applies.
+                Some(
+                    tempfile::Builder::new()
+                        .prefix("demoncoder-")
+                        .permissions(std::fs::Permissions::from_mode(0o700))
+                        .tempdir_in("/tmp")?
+                        .keep(),
+                )
+            } else {
+                None
+            },
+            access: access.clone(),
+            intent: Mutex::new(String::new()),
             hooks: Vec::new(),
             completed: Mutex::new(None),
         })
+    }
+
+    pub fn definitions(&self) -> Vec<Value> {
+        if !self.access.tools_enabled {
+            return Vec::new();
+        }
+        let mut tools = definitions();
+        if self.access.unrestricted {
+            for tool in &mut tools {
+                let detail = if tool["name"] == "bash" {
+                    format!(
+                        "Run Bash directly on the host in {}. No sandbox. TMPDIR={} is approved session scratch. The Oracle reviews possible outside access before execution. Limit 120 seconds and 1 MiB output.",
+                        self.workspace.display(),
+                        self.scratch.as_ref().expect("host scratch").display()
+                    )
+                } else {
+                    format!(
+                        "{} Host paths may be absolute or relative to {}. Files outside the project or TMPDIR require Oracle approval.",
+                        tool["description"].as_str().unwrap_or(""),
+                        self.workspace.display()
+                    )
+                };
+                tool["description"] = Value::String(detail);
+            }
+        }
+        tools
+    }
+
+    pub fn set_intent(&self, text: &str) {
+        *self.intent.lock().expect("tool intent lock poisoned") = text.to_owned();
+    }
+
+    pub fn unrestricted(&self) -> bool {
+        self.access.unrestricted
+    }
+
+    pub fn tools_enabled(&self) -> bool {
+        self.access.tools_enabled
     }
 
     pub fn add_hook(&mut self, hook: Box<dyn ToolHook>) {
@@ -113,6 +205,7 @@ impl ToolExecutor {
         self.take_completed();
         let identity = (call.id.clone(), call.name.clone());
         let execution = async {
+            ensure!(self.access.tools_enabled, "the Oracle cannot execute tools");
             for hook in &self.hooks {
                 hook.before(&mut call)?;
             }
@@ -134,11 +227,17 @@ impl ToolExecutor {
             match call.name.as_str() {
                 "read" => {
                     let args: ReadArgs = serde_json::from_value(call.arguments.clone())?;
-                    Ok((self.read(&args.path)?, None))
+                    let mut file = self
+                        .admitted_file(&call, &args.path, OFlags::RDONLY, false, events)
+                        .await?;
+                    Ok((read_text(&mut file)?, None))
                 }
                 "write" => {
                     let args: WriteArgs = serde_json::from_value(call.arguments.clone())?;
-                    self.write(&args.path, &args.content)?;
+                    let mut file = self
+                        .admitted_file(&call, &args.path, OFlags::WRONLY, true, events)
+                        .await?;
+                    write_text(&mut file, &args.content)?;
                     Ok((
                         format!("Wrote {} bytes to {}", args.content.len(), args.path),
                         None,
@@ -147,7 +246,9 @@ impl ToolExecutor {
                 "edit" => {
                     let args: EditArgs = serde_json::from_value(call.arguments.clone())?;
                     ensure!(!args.old_text.is_empty(), "old_text must not be empty");
-                    let mut file = self.open(&args.path, OFlags::RDWR, false)?;
+                    let mut file = self
+                        .admitted_file(&call, &args.path, OFlags::RDWR, false, events)
+                        .await?;
                     let old = read_text(&mut file)?;
                     ensure!(
                         old.matches(&args.old_text).count() == 1,
@@ -163,6 +264,9 @@ impl ToolExecutor {
                         !args.command.is_empty() && args.command.len() <= 65536,
                         "invalid Bash command size"
                     );
+                    if self.access.unrestricted {
+                        self.review(&call, None, None, events).await?;
+                    }
                     self.bash(&call.id, &args.command, events).await
                 }
                 _ => bail!("tool is not authorized: {}", call.name),
@@ -234,11 +338,164 @@ impl ToolExecutor {
         Ok(file)
     }
 
-    fn read(&self, path: &str) -> Result<String> {
-        read_text(&mut self.open(path, OFlags::RDONLY, false)?)
+    async fn admitted_file(
+        &self,
+        call: &ToolCall,
+        path: &str,
+        flags: OFlags,
+        create: bool,
+        events: &EventSink,
+    ) -> Result<File> {
+        if !self.access.unrestricted {
+            return self.open(path, flags, create);
+        }
+        ensure!(!path.is_empty() && path.len() <= 4096, "invalid tool path");
+        let flags = flags | OFlags::CLOEXEC | OFlags::NONBLOCK;
+        // Opening without CREATE or TRUNC obtains the real target before any
+        // read/write effect. A symlink cannot change this descriptor afterward.
+        match openat2(
+            &*self.root,
+            path,
+            flags,
+            Mode::empty(),
+            ResolveFlags::empty(),
+        ) {
+            Ok(fd) => {
+                let file = File::from(fd);
+                let meta = file.metadata()?;
+                ensure!(
+                    meta.is_file() && meta.nlink() > 0 && meta.len() <= MAX_BYTES as u64,
+                    "tools require a linked regular file up to 1 MiB"
+                );
+                let target = descriptor_path(&file)?;
+                if !self.approved_path(&target) || meta.nlink() > 1 {
+                    self.review(call, Some(&target), Some(meta.nlink()), events)
+                        .await?;
+                }
+                ensure!(
+                    descriptor_path(&file)? == target,
+                    "tool target moved during admission; retry with its current path"
+                );
+                Ok(file)
+            }
+            Err(rustix::io::Errno::NOENT) if create => {
+                let path = Path::new(path);
+                let name = path.file_name().context("new file needs a name")?;
+                let parent = path
+                    .parent()
+                    .filter(|p| !p.as_os_str().is_empty())
+                    .unwrap_or(Path::new("."));
+                let directory = File::from(
+                    openat2(
+                        &*self.root,
+                        parent,
+                        OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC,
+                        Mode::empty(),
+                        ResolveFlags::empty(),
+                    )
+                    .context("open existing parent directory")?,
+                );
+                let parent_path = descriptor_path(&directory)?;
+                let target = parent_path.join(name);
+                if !self.approved_path(&target) {
+                    self.review(call, Some(&target), None, events).await?;
+                }
+                ensure!(
+                    descriptor_path(&directory)? == parent_path,
+                    "parent directory moved during admission; retry"
+                );
+                // No file is created before review. A concurrently created leaf
+                // or symlink fails rather than changing the admitted target.
+                Ok(File::from(
+                    openat2(
+                        &directory,
+                        name,
+                        flags | OFlags::CREATE | OFlags::EXCL | OFlags::NOFOLLOW,
+                        Mode::RUSR | Mode::WUSR,
+                        RESOLVE,
+                    )
+                    .context("create the reviewed file without replacing an existing leaf")?,
+                ))
+            }
+            Err(error) => Err(error).context("open host file"),
+        }
     }
-    fn write(&self, path: &str, content: &str) -> Result<()> {
-        write_text(&mut self.open(path, OFlags::WRONLY, true)?, content)
+
+    fn approved_path(&self, path: &Path) -> bool {
+        path.starts_with(&self.workspace)
+            || self
+                .scratch
+                .as_ref()
+                .is_some_and(|root| path.starts_with(root))
+    }
+
+    async fn review(
+        &self,
+        call: &ToolCall,
+        target: Option<&Path>,
+        links: Option<u64>,
+        events: &EventSink,
+    ) -> Result<()> {
+        let config = self
+            .access
+            .oracle
+            .as_ref()
+            .context("outside access requires a configured Oracle")?;
+        let reviewer = format!(
+            "{} / {}",
+            config.adapter,
+            config.model.as_deref().unwrap_or("backend-default")
+        );
+        events
+            .emit(Event::ToolReview {
+                call_id: call.id.clone(),
+                reviewer: reviewer.clone(),
+                decision: "reviewing",
+                reason: "Checking possible outside-project effects.".into(),
+            })
+            .await?;
+        let intent = self
+            .intent
+            .lock()
+            .expect("tool intent lock poisoned")
+            .clone();
+        let home = std::env::var_os("HOME").map(PathBuf::from);
+        let request = crate::oracle::ReviewRequest {
+            developer_task: &intent,
+            workspace: &self.workspace,
+            scratch: self.scratch.as_deref(),
+            home: home.as_deref(),
+            proposed_tool: call,
+            resolved_target: target,
+            hard_link_count: links,
+        };
+        match crate::oracle::review(config, &request, events).await {
+            Ok(decision) => {
+                let allowed = decision.decision == crate::oracle::Verdict::Allow;
+                events
+                    .emit(Event::ToolReview {
+                        call_id: call.id.clone(),
+                        reviewer,
+                        decision: if allowed { "allowed" } else { "blocked" },
+                        reason: decision.reason.clone(),
+                    })
+                    .await?;
+                ensure!(allowed, "Oracle blocked this request: {}", decision.reason);
+                Ok(())
+            }
+            Err(error) => {
+                let reason = format!("Oracle review unavailable: {error}");
+                events
+                    .emit(Event::ToolReview {
+                        call_id: call.id.clone(),
+                        reviewer,
+                        decision: "blocked",
+                        reason: reason.clone(),
+                    })
+                    .await?;
+                bail!("{reason}")
+            }
+        }
     }
 
     async fn bash(
@@ -247,77 +504,130 @@ impl ToolExecutor {
         script: &str,
         events: &EventSink,
     ) -> Result<(String, Option<i32>)> {
-        // Pin the mount to the authorized descriptor, not a path that can be swapped.
+        // Both modes start in the pinned project. Only explicit host access
+        // takes this branch; a confined launch never falls back to it.
         let root_path = format!("/proc/{}/fd/{}", std::process::id(), self.root.as_raw_fd());
-        check_tree(Path::new(&root_path), 0, &mut 0)?;
-        let mut command = Command::new("/usr/bin/bwrap");
-        command.args([
-            "--unshare-all",
-            "--die-with-parent",
-            "--new-session",
-            "--ro-bind",
-            "/usr",
-            "/usr",
-            "--symlink",
-            "usr/bin",
-            "/bin",
-            "--symlink",
-            "usr/lib",
-            "/lib",
-            "--symlink",
-            "usr/lib64",
-            "/lib64",
-            "--proc",
-            "/proc",
-            "--dev",
-            "/dev",
-            "--tmpfs",
-            "/tmp",
-            "--tmpfs",
-            "/home",
-            "--bind-fd",
-            "0",
-            "/workspace",
-        ]);
-        if Path::new(&root_path).join(".git").exists() {
-            command.args(["--ro-bind", "/proc/self/fd/0/.git", "/workspace/.git"]);
-        }
-        command.args([
-            "--chdir",
-            "/workspace",
-            "--clearenv",
-            "--setenv",
-            "PATH",
-            "/usr/bin:/bin",
-            "--setenv",
-            "HOME",
-            "/home",
-            "--setenv",
-            "LANG",
-            "C.UTF-8",
-            "/bin/bash",
-            "--noprofile",
-            "--norc",
-            "-c",
-            script,
-        ]);
-        command
-            .env_clear()
-            .stdin(Stdio::from(self.root.try_clone()?))
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .kill_on_drop(true);
-        let mut child = command
-            .spawn()
-            .context("Bash requires /usr/bin/bwrap; no host fallback")?;
+        let mut command = if self.access.unrestricted {
+            let mut command = Command::new("/bin/bash");
+            command
+                .args(["--noprofile", "--norc", "-c", script])
+                .current_dir(&root_path)
+                .env_clear();
+            for variable in [
+                "PATH",
+                "HOME",
+                "USER",
+                "LANG",
+                "LC_ALL",
+                "TZ",
+                "XDG_CONFIG_HOME",
+                "XDG_DATA_HOME",
+                "SSH_AUTH_SOCK",
+            ] {
+                if let Some(value) = std::env::var_os(variable) {
+                    command.env(variable, value);
+                }
+            }
+            command.env("TMPDIR", self.scratch.as_ref().expect("host scratch"));
+            command
+                .stdin(Stdio::null())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .process_group(0)
+                .kill_on_drop(true);
+            command
+        } else {
+            check_tree(Path::new(&root_path), 0, &mut 0)?;
+            let mut command = Command::new("/usr/bin/bwrap");
+            command.args([
+                "--unshare-all",
+                "--die-with-parent",
+                "--new-session",
+                "--ro-bind",
+                "/usr",
+                "/usr",
+                "--symlink",
+                "usr/bin",
+                "/bin",
+                "--symlink",
+                "usr/lib",
+                "/lib",
+                "--symlink",
+                "usr/lib64",
+                "/lib64",
+                "--proc",
+                "/proc",
+                "--dev",
+                "/dev",
+                "--tmpfs",
+                "/tmp",
+                "--tmpfs",
+                "/home",
+                "--bind-fd",
+                "0",
+                "/workspace",
+            ]);
+            if Path::new(&root_path).join(".git").exists() {
+                command.args(["--ro-bind", "/proc/self/fd/0/.git", "/workspace/.git"]);
+            }
+            command.args([
+                "--chdir",
+                "/workspace",
+                "--clearenv",
+                "--setenv",
+                "PATH",
+                "/usr/bin:/bin",
+                "--setenv",
+                "HOME",
+                "/home",
+                "--setenv",
+                "LANG",
+                "C.UTF-8",
+                "/bin/bash",
+                "--noprofile",
+                "--norc",
+                "-c",
+                script,
+            ]);
+            command
+                .env_clear()
+                .stdin(Stdio::from(self.root.try_clone()?))
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .kill_on_drop(true);
+            command
+        };
+        let mut child = command.spawn().with_context(|| {
+            if self.access.unrestricted {
+                "start host Bash"
+            } else {
+                "Bash requires /usr/bin/bwrap; no host fallback"
+            }
+        })?;
+        // This guard drops before the child and signals before its PID can be
+        // reaped and reused. WNOWAIT lets normal completion use the same rule.
+        let mut group = HostGroup(if self.access.unrestricted {
+            Some(
+                Pid::from_raw(child.id().context("missing Bash PID")? as i32)
+                    .context("invalid Bash PID")?,
+            )
+        } else {
+            None
+        });
         let mut stdout = child.stdout.take().context("missing Bash stdout")?;
         let mut stderr = child.stderr.take().context("missing Bash stderr")?;
         let collect = async {
             let (mut out_open, mut err_open) = (true, true);
             let (mut out_buf, mut err_buf) = ([0u8; 4096], [0u8; 4096]);
             let mut output = Vec::new();
-            while out_open || err_open {
+            let mut root_exited = false;
+            let mut monitor = tokio::time::interval(Duration::from_millis(20));
+            while out_open || err_open || (self.access.unrestricted && !root_exited) {
                 let (stream, bytes) = tokio::select! {
+                    _ = monitor.tick(), if self.access.unrestricted && !root_exited => {
+                        if group.exited()? { group.stop()?; root_exited = true; }
+                        continue;
+                    },
                     n = stdout.read(&mut out_buf), if out_open => {
                         let n = n?; out_open = n != 0; ("stdout", &out_buf[..n])
                     },
@@ -350,6 +660,44 @@ impl ToolExecutor {
             Ok(result) => result,
             Err(_) => bail!("Bash exceeded its 120 second limit"),
         }
+    }
+}
+
+fn descriptor_path(file: &File) -> Result<PathBuf> {
+    std::fs::read_link(format!(
+        "/proc/{}/fd/{}",
+        std::process::id(),
+        file.as_raw_fd()
+    ))
+    .context("resolve opened tool target")
+}
+
+struct HostGroup(Option<Pid>);
+impl HostGroup {
+    fn exited(&self) -> Result<bool> {
+        let pid = self.0.context("host process group already closed")?;
+        match waitid(
+            WaitId::Pid(pid),
+            WaitIdOptions::EXITED | WaitIdOptions::NOHANG | WaitIdOptions::NOWAIT,
+        ) {
+            Ok(status) => Ok(status.is_some()),
+            Err(rustix::io::Errno::INTR) => Ok(false),
+            Err(error) => Err(error).context("observe host Bash completion without reaping"),
+        }
+    }
+    fn stop(&mut self) -> Result<()> {
+        if let Some(pid) = self.0 {
+            match kill_process_group(pid, Signal::KILL) {
+                Ok(()) | Err(rustix::io::Errno::SRCH) => self.0 = None,
+                Err(error) => return Err(error).context("stop host Bash process group"),
+            }
+        }
+        Ok(())
+    }
+}
+impl Drop for HostGroup {
+    fn drop(&mut self) {
+        let _ = self.stop();
     }
 }
 

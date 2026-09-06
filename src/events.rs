@@ -34,6 +34,19 @@ pub enum Event {
         call_id: String,
         text: String,
     },
+    ToolReview {
+        call_id: String,
+        reviewer: String,
+        decision: &'static str,
+        reason: String,
+    },
+    OracleUsage {
+        reviewer: String,
+        input: Option<u64>,
+        output: Option<u64>,
+        cached: Option<u64>,
+        cost_usd: Option<f64>,
+    },
     Usage {
         input: Option<u64>,
         output: Option<u64>,

@@ -3,8 +3,8 @@
 The terminal submission and four-tool cycle use all four production
 transport paths with controlled peers. Each cycle reads an unpredictable
 seed from an actual file, creates a Python file, edits its value, and runs
-a Python assertion through isolated Bash. Live authentication and the
-remaining session controls still await their required checks.
+a Python assertion through isolated Bash. Live authentication is checked
+separately with retained two-turn records tied to committed inputs.
 
 The responsiveness driver holds each provider and then a real Bash command
 open. It observes incremental output and typed editor text before releasing
@@ -35,6 +35,8 @@ unreported cost remains unknown.
 |---|---|
 | src/main.rs | Construct the selected session and own application shutdown. |
 | src/config.rs | Load trusted home or explicit connection settings. |
+| src/startup.rs | Guide first-start settings, credentials, and project trust. |
+| src/oracle.rs | Judge outside-access proposals in a separate session with no tools. |
 | src/session.rs | Versioned adapter registry and session lifecycle. |
 | src/native.rs | Shared direct-provider model/tool loop. |
 | src/tools.rs | Typed requests, final admission, rooted files, isolated Bash, and actual results. |
@@ -69,7 +71,7 @@ SDK MCP server and routes MCP messages over its existing control channel;
 no Python or TypeScript runtime is added to the application. Each external
 backend owns model progression and awaits the shared executor's result.
 
-File tools require relative paths, Linux openat2 without symlinks, regular
+In the confined default, file tools require relative paths, Linux openat2 without symlinks, regular
 UTF-8 files without hard links, and at most 1 MiB. Parent directories must
 already exist. Bash requires /usr/bin/bwrap, isolated namespaces, a clean
 environment, read-only system binaries, and the pinned workspace directory.
@@ -139,7 +141,7 @@ subsequent tool decisions and turns. This follows the official
 The controlled tool-cycle test checks both the requested inclusion and
 the returned item's presence in the next request.
 
-Codex advertises workspace-write permission to match the admitted host
+In the confined default, Codex advertises workspace-write permission to match the admitted host
 tools. Its environment selection remains explicitly empty, so its built-in
 filesystem tools remain unavailable. The shared executor owns actual
 workspace access. The installed-backend confinement checks are rerun when
@@ -149,6 +151,21 @@ advertised read-only policy caused the model to refuse the permitted edits.
 
 ## Home configuration
 
+DemonCoder's first interactive start guides connection selection, model,
+effort, API credentials or existing subscription login, the default
+connection, project trust, and the Oracle assignment. Run
+`demoncoder --setup` to reopen this flow. API-key input is hidden before the
+prompt becomes visible; cancellation restores terminal settings without
+saving. Setup takes an exclusive settings lock and saves through a private
+temporary file, synchronization, and atomic replacement. New settings
+directories use mode 0700; saved files use 0600.
+
+Project trust uses the canonical selected path and covers its descendants.
+An unknown project requires confirmation. `--trust-workspace` authorizes
+only this invocation. `--config` can supply setup choices to an automated
+invocation, but does not itself grant project trust. Unrecognized plugins
+and hooks are not enabled; dynamic extension loading remains pending.
+
 DemonCoder loads `~/.demoncoder/settings.toml` automatically. `--config`
 selects a complete alternative file. Repository settings are never loaded
 automatically. The older `~/.demoncoder/config.toml` is preserved and is not
@@ -156,6 +173,11 @@ interpreted as this format.
 
 ```toml
 default_connection = "codex"
+
+[oracle]
+connection = "codex"
+model = "gpt-6-astra"
+effort = "medium"
 
 [connections.codex]
 adapter = "codex"
@@ -207,3 +229,47 @@ directories. Its `ClaudeAdapter.ts` passes the installed executable, model,
 effort, and resume identity to the SDK. `CodexSessionRuntime.ts` sends effort
 in `turn/start`. Its relay infrastructure handles remote-environment login.
 These observations informed the adapter checks; no T3Code source was copied.
+
+## Explicit host execution
+
+`demoncoder --yolo` selects host access for that invocation. The terminal
+labels it `HOST ACCESS`. Bash runs on the host in the selected project with
+no sandbox or routine permission prompts. It receives a private mode-0700
+scratch directory under `/tmp` through `TMPDIR`; provider API keys are
+excluded from its environment. Native tools can use absolute paths,
+parent paths, and symlinks. The confined default continues to require
+bubblewrap and never falls back to host execution.
+
+Host mode requires a configured Oracle. Every Bash request and every native
+file request outside the project or owned scratch directory is reviewed
+after hooks have transformed its arguments. Hard-linked files also receive
+review because another name may lie outside those roots. Existing files
+are opened without truncation or creation, and the Oracle sees the resolved
+descriptor target. A new file is created exclusively through its pinned
+parent only after review. A target or parent moved during review causes a
+failure, and a concurrently created leaf is never replaced.
+
+The Oracle receives the developer task, final proposal, project, scratch,
+home, and resolved target as separate fields. Its session advertises no
+tools and rejects tool requests. A denial, invalid result, provider error,
+tool request, or 60-second deadline blocks the operation. Review reasons
+and Oracle usage have separate events and terminal labels. Original tool
+results remain authoritative. The guard is a model judgment and cannot
+prove arbitrary shell effects safe; it is not filesystem isolation.
+
+Host Bash keeps the 120-second and 1-MiB limits. Completion and cancellation
+kill its process group before reaping the leader, including ordinary child
+processes that hold output pipes open or close their output early. Programs
+that deliberately detach into a different session are outside that cleanup
+guarantee. Scratch files are not recursively deleted at session close.
+
+`tests/onboarding.py` drives setup, saved selections, denied trust, hidden
+credentials, and cancellation through a real pseudo-terminal.
+`tests/host_access.py` exercises all coding connections and native Oracle
+transports; `tests/host_guard.rs` covers subscription Oracle transports,
+hook arguments, scratch, cancellation, timeout, target swaps, and host
+children. `tests/live_oracle.py --run` records one live allow/deny pair
+through the production Oracle API. It submits a harmless outside read and
+a home-move proposal for judgment only; neither proposed tool is executed.
+The ordinary mechanism validates the retained record against committed
+inputs and makes no extra live call.

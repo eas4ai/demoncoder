@@ -24,7 +24,7 @@ sys.dont_write_bytecode = True
 from terminal_session import BINARY, ROOT, until
 
 ADAPTERS = ("openai-api", "anthropic-api", "codex", "claude")
-INPUTS = ["Cargo.toml", "Cargo.lock", "build.rs", "src", "tests/live_connections.py", "tests/terminal_session.py", "tests/tool_cycle_fixture.py", "docs/spec", "docs/commitments/first-coding-session.md"]
+INPUTS = ["Cargo.toml", "Cargo.lock", "build.rs", "src", "tests/live_connections.py", "tests/terminal_session.py", "tests/terminal_screen.py", "tests/tool_cycle_fixture.py", "docs/spec", "docs/commitments/first-coding-session.md"]
 EVIDENCE = ROOT / ".cairn/evidence/live"
 
 
@@ -138,7 +138,9 @@ def run(adapter, model):
         log = Path(directory) / "events.jsonl"
         master, slave = pty.openpty()
         fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 40, 180, 0, 0))
-        command = [str(BINARY), "--workspace", str(workspace), "--connection", adapter, "--event-log", str(log)]
+        command = [str(BINARY), "--trust-workspace", "--workspace", str(workspace), "--connection", adapter, "--event-log", str(log)]
+        if settings_path.exists():
+            command.extend(["--config", str(settings_path)])
         if model:
             command.extend(["--model", model])
         env = os.environ.copy()

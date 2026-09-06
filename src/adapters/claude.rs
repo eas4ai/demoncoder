@@ -34,7 +34,7 @@ pub fn open(config: &Connection, workspace: &Path) -> Result<Box<dyn Session>> {
         effort: config.effort.clone(),
         process: None,
         session: None,
-        tools: ToolExecutor::new(workspace)?,
+        tools: ToolExecutor::with_policy(workspace, &config.access)?,
         next_control_id: 1,
     }))
 }
@@ -113,6 +113,7 @@ impl Claude {
             .as_mut()
             .context("Claude process unavailable")?;
         'turns: loop {
+            self.tools.set_intent(&prompt);
             process.send(json!({"type":"user","message":{"role":"user","content":prompt},"parent_tool_use_id":null,"session_id":self.session.as_deref().unwrap_or("")})).await?;
             let mut corrections = Vec::new();
             let mut interrupting = false;
@@ -254,7 +255,7 @@ async fn handle_control(
                     json!({"protocolVersion":"2025-03-26","capabilities":{"tools":{}},"serverInfo":{"name":"demoncoder","version":env!("CARGO_PKG_VERSION")}})
                 }
                 Some("tools/list") => {
-                    let definitions: Vec<Value> = crate::tools::definitions().into_iter().map(|tool| json!({
+                    let definitions: Vec<Value> = tools.definitions().into_iter().map(|tool| json!({
                         "name":tool["name"], "description":tool["description"], "inputSchema":tool["input_schema"],
                     })).collect();
                     json!({"tools":definitions})

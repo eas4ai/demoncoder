@@ -179,7 +179,7 @@ startup_timeout_sec = 1
         master, slave = pty.openpty()
         fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 35, 160, 0, 0))
         env = {"PATH": "/usr/bin:/bin", "HOME": str(home), "CODEX_HOME": str(codex_home), "TERM": "xterm-256color", "LANG": "C.UTF-8", "CLAUDE_CODE_OAUTH_TOKEN": "synthetic-oauth", "OPENAI_API_KEY": "synthetic-key", "ANTHROPIC_API_KEY": "synthetic-key"}
-        process = subprocess.Popen([str(BINARY), "--workspace", str(workspace), "--config", str(config), "--event-log", str(log)], stdin=slave, stdout=slave, stderr=slave, env=env, start_new_session=True)
+        process = subprocess.Popen([str(BINARY), "--trust-workspace", "--workspace", str(workspace), "--config", str(config), "--event-log", str(log)], stdin=slave, stdout=slave, stderr=slave, env=env, start_new_session=True)
         os.close(slave)
         output = bytearray()
         try:

@@ -2,6 +2,7 @@
 """Protocol peers for the production CLI adapters; never launch a real model."""
 import json
 import os
+import shlex
 import subprocess
 from pathlib import Path
 import sys
@@ -42,6 +43,8 @@ def main():
     response = None
     turn = None
     def request_call(call):
+        if Path("host-access").exists() and call["name"] == "bash":
+            call["arguments"]["command"] = 'set -e; test "$PWD" = ' + shlex.quote(str(Path.cwd())) + "; " + call["arguments"]["command"]
         if codex:
             send({"id": "tool-" + call["id"], "method": "item/tool/call", "params": {"threadId": "fixture-thread", "turnId": turn, "callId": call["id"], "tool": call["name"], "arguments": call["arguments"]}})
         else:
@@ -114,7 +117,7 @@ def main():
                 result = {"account": {"type": "chatgpt", "email": "fixture@example.invalid", "planType": "plus"}}
             elif method in ("thread/start", "thread/resume"):
                 if expected: assert message["params"]["model"] == expected["model"]
-                assert message["params"]["sandbox"] == "workspace-write"
+                assert message["params"]["sandbox"] == ("danger-full-access" if Path("host-access").exists() else "workspace-write")
                 assert message["params"]["approvalPolicy"] == "never"
                 if method == "thread/start":
                     assert message["params"]["environments"] == []

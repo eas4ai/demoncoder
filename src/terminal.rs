@@ -52,6 +52,33 @@ impl View {
             Event::ToolPresentation { call_id, text } => {
                 self.append(&format!("\n[Presentation for {call_id}]\n{text}\n"))
             }
+            Event::ToolReview {
+                call_id,
+                reviewer,
+                decision,
+                reason,
+            } => {
+                self.append(&format!(
+                    "\n[Oracle {reviewer} · {call_id} · {decision}] {reason}\n"
+                ));
+            }
+            Event::OracleUsage {
+                reviewer,
+                input,
+                output,
+                cached,
+                cost_usd,
+            } => {
+                let count =
+                    |value: Option<u64>| value.map_or_else(|| "unknown".into(), |v| v.to_string());
+                self.append(&format!(
+                    "\n[Oracle usage {reviewer}] in {} · out {} · cached {} · cost {}\n",
+                    count(input),
+                    count(output),
+                    count(cached),
+                    cost_usd.map_or_else(|| "unknown".into(), |v| format!("${v:.4}"))
+                ));
+            }
             Event::ToolFinished { result } => self.append(&format!(
                 "\n[{}: {}]\n{}\n",
                 result.call_id,

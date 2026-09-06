@@ -17,7 +17,7 @@ class Configuration(unittest.TestCase):
             home = Path(directory)
             config = home / ".demoncoder/settings.toml"
             config.parent.mkdir()
-            base = 'default_connection="selected"\n[connections.selected]\nadapter="openai-api"\nmodel="fixture"\n'
+            base = 'onboarding_complete=true\ndefault_connection="selected"\n[connections.selected]\nadapter="openai-api"\nmodel="fixture"\n'
             cases = [
                 (base + f'api_key="{SECRET}"\n', 0o644, "owner-only"),
                 (base + f'unknown="{SECRET}"\n', 0o600, "invalid connection"),
@@ -28,7 +28,7 @@ class Configuration(unittest.TestCase):
                 (base, 0o600, "set OPENAI_API_KEY or api_key"),
             ]
             env = {"PATH":"/usr/bin:/bin", "HOME":directory}
-            command = [str(BINARY), "--workspace", directory]
+            command = [str(BINARY), "--trust-workspace", "--workspace", directory]
             for content, mode, message in cases:
                 with self.subTest(message=message):
                     config.write_text(content)

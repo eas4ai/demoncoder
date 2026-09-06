@@ -2,6 +2,8 @@ pub mod adapters;
 pub mod config;
 pub mod events;
 pub mod native;
+pub mod oracle;
 pub mod session;
+pub mod startup;
 pub mod terminal;
 pub mod tools;
