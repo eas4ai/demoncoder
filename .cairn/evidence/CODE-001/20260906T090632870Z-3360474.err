@@ -1,0 +1,7 @@
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.07s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s
+     Running tests/tools.rs (target/debug/deps/tools-85203ae210161c93)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.07s
+     Running unittests src/lib.rs (target/debug/deps/demoncoder-fc576474d504f3f1)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.07s
+     Running unittests src/lib.rs (target/debug/deps/demoncoder-fc576474d504f3f1)
