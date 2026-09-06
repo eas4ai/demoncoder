@@ -106,14 +106,16 @@ def main():
             elif method == "account/read":
                 result = {"account": {"type": "chatgpt", "email": "fixture@example.invalid", "planType": "plus"}}
             elif method in ("thread/start", "thread/resume"):
-                assert message["params"]["sandbox"] == "read-only"
+                assert message["params"]["sandbox"] == "workspace-write"
                 assert message["params"]["approvalPolicy"] == "never"
                 if method == "thread/start":
+                    assert message["params"]["environments"] == []
                     assert {tool["name"] for tool in message["params"]["dynamicTools"]} == {"read", "write", "edit", "bash"}
                 else:
                     assert message["params"]["threadId"] == "fixture-thread"
                 result = {"thread": {"id": "fixture-thread"}}
             elif method == "turn/start":
+                assert message["params"]["environments"] == []
                 assert message["params"]["threadId"] == "fixture-thread"
                 prompt = message["params"]["input"][0]["text"]
                 if Path("drop-prompt").exists():
