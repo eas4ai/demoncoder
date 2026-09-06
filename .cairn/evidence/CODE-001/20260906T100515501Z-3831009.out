@@ -1,0 +1,6 @@
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.08s
+CODE-001 openai-api terminal prompt reached runtime and response was rendered
+CODE-001 anthropic-api terminal prompt reached runtime and response was rendered
+CODE-001 codex FAILED: terminal checkpoint timed out: RECEIVED-prompt4d3c4caad6ed
+CODE-001 claude terminal prompt reached runtime and response was rendered
+cairn: CODE-001: fail
