@@ -11,4 +11,4 @@ When setup needs a settings lock, open the parent directory without following it
 
 ## Realized by
 
-(none yet: recorded, not built)
+a646ecc8c7453026793f8123b2d4b2aedd38dadc — Repair owned home settings permissions and verify startup behavior
