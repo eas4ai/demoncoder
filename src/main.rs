@@ -26,7 +26,7 @@ async fn main() -> Result<()> {
         if args.yolo {
             "HOST ACCESS · Oracle outside guard"
         } else {
-            "Confined project"
+            "Project writes · normal reads/network"
         }
     );
     let ui_result = terminal::run(&label, command_tx.clone(), event_rx).await;

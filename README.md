@@ -499,7 +499,7 @@ not silently choose a different match.
 ## Project trust and execution modes
 
 The workspace is a directory you explicitly select. DemonCoder edits that
-workspace directly; it does not create a Git worktree, commit changes, or offer
+workspace directly; it does not automatically create a Git worktree, commit changes, or offer
 automatic rollback. Cancelling a turn leaves completed changes in place.
 
 ### Confined default
@@ -508,26 +508,47 @@ Trusting a project authorizes its coding tools under the confined policy. Saved
 trust covers the selected canonical root and its descendants. An unknown project
 prompts for trust, unless `--trust-workspace` or `--yolo` authorizes the invocation.
 
-Native `read`, `write`, and `edit` use Linux `openat2` beneath a pinned workspace
-descriptor and reject symlinks, hard-linked files, special files, and files above
-1 MiB. Use relative paths such as `src/main.rs`; absolute paths, parent traversal,
-and protected `.git` or `.demoncoder` path components are rejected.
+The default permits normal source/documentation reads and network access. The
+agent can inspect Git metadata, run searches and verification commands, fetch
+public documentation, and use installed Rust, Node, and other developer tools.
+Bash starts at the selected project's real path with the host's tool search path.
+Git staging and commits inside the selected repository work normally.
 
-Confined Bash uses `/usr/bin/bwrap` with isolated filesystem, network, process,
-and environment state. It has writable access to the selected workspace,
-read-only system binaries under `/usr`, private temporary/home directories, and
-read-only access to an existing project `.git`. Provider credentials are absent.
-If bubblewrap is missing or cannot establish isolation, Bash fails. There is no
-automatic host fallback.
+Native `read` accepts absolute and relative paths, including outside the project.
+It uses Linux `openat2`, validates the opened file, and rejects protected credential
+and process-state paths. Native `write` and `edit` remain beneath a pinned project
+descriptor: absolute paths, parent traversal, symlinks, hard-linked mutation targets,
+and direct `.git`/private-settings mutations are refused. File tools retain their
+1 MiB UTF-8 limit. Use Git commands for normal Git metadata changes.
 
-Before confined Bash starts, the workspace is checked for symlinks, hard links,
-and special files. Such entries cause rejection, even if the requested command
-would not use them. The scan also has depth and entry-count bounds.
+Default Bash uses `/usr/bin/bwrap`. The host filesystem is read-only, the selected
+project is writable, networking is available, and process/device state is isolated.
+Provider credentials are removed from the environment. Known credential stores,
+including DemonCoder settings, Codex/Claude authentication state, SSH/cloud
+credentials, and GitHub CLI authentication, are hidden. Machine instruction files
+such as `~/.codex/RTK.md`, `TILTH.md`, `PARTNERSHIP.md`, and
+`~/.claude/BEST_PRACTICES.md`, plus installed skill/plugin trees, remain readable.
+An explicit configuration file containing saved API keys is protected too.
 
-Host-installed tools or dependencies under your home directory, including typical
-rustup or user-managed Node installations, are not available in this environment.
-Network downloads are unavailable. If a task needs your host toolchain or network,
-select `--yolo` explicitly and configure its Oracle.
+Normal build hard links whose aliases are all in the project remain usable.
+Symlinks resolve within the sandbox's read/write mounts. An alias to an outside
+file is read-only; a credential alias is inaccessible. These restrictions affect
+the relevant paths instead of rejecting every shell command. The inspection
+assumes other host processes do not maliciously replace entries during admission.
+
+Temporary writes go to the session's `TMPDIR`. Cargo, npm, and other supported
+cache paths use session-owned storage. Where the kernel supports it, a copy-on-write
+overlay reads existing caches and keeps all new cache changes private to the
+session. Otherwise the session uses an empty private cache. Neither case writes
+through cache hard links into unrelated host files. Session caches are removed
+when the session closes; project changes remain.
+
+If bubblewrap cannot establish the filesystem boundary, Bash reports the actual
+setup error and stops. It never silently switches to unrestricted host execution.
+Network permission does not supply missing service authentication: private Git/CI
+services still need an available authorized route. Public endpoints can be queried
+normally. A missing tool, login, or service response must be reported as unavailable,
+not as a passing check.
 
 ### Explicit host execution with `--yolo`
 
@@ -761,7 +782,7 @@ The updated startup performs this repair for its owned default directory.
 | `DemonCoder requires an interactive terminal` | Launch in a terminal. Explicit configuration does not enable batch/piped operation. |
 | Project trust declined or project not trusted | Use guided project trust or explicitly pass `--trust-workspace` for this invocation. |
 | Bash requires bubblewrap / namespace launch fails | Make `/usr/bin/bwrap` usable for confined mode, or explicitly choose configured `--yolo` host access. No fallback occurs automatically. |
-| Command/toolchain unavailable in confined Bash | Home toolchains and network downloads are outside that environment. Use an available system tool or explicit host mode. |
+| Command/toolchain unavailable in default Bash | The host tool path and network are available. Check the named missing executable, selected toolchain, service authentication, or setup error. |
 | Workspace contains links or special files | Confined Bash rejects that workspace. Native tools also reject linked/special targets. Review the workspace or select an appropriate explicit access mode. |
 | Native write cannot create a file | Its parent directory must already exist, and the path must satisfy the selected access policy. |
 | Edit requires exactly one match | Read the current file and use a unique, exact `old_text`. |

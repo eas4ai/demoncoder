@@ -38,7 +38,7 @@ Falsifier: A second prompt loses the preceding task's context or starts from fil
 Mechanism: coding-session; create a uniquely named function in the first turn and extend that function in the second, checking both the provider input and resulting repository.
 
 [CODE-007] The session runtime MUST enforce the authorized tool-access boundary on the final tool request.
-Falsifier: A denied tool executes, a hook-modified path or command bypasses admission, or a tool reads or changes an unauthorized sibling fixture or receives provider credentials in its environment.
+Falsifier: A denied tool executes, a hook-modified path or command bypasses admission, or a tool changes an unauthorized sibling fixture, reads a protected credential fixture, or receives provider credentials in its environment.
 Mechanism: coding-session; use harmless canaries, a denied marker write, transformed arguments, and a synthetic credential to test admission through the production tool executor.
 
 Hooks can add context or request work. The runtime validates their final
@@ -59,8 +59,10 @@ Mechanism: coding-session; drive first startup and repeated startup through a ps
 Falsifier: Host access is silently sandboxed, an outside file operation or unrestricted shell command executes without its required final-request review, a failed/uncertain Oracle allows execution, the Oracle itself can execute tools, or ordinary session scratch work is denied merely for being under /tmp.
 Mechanism: coding-session; use temporary projects, scratch directories, outside canaries, controlled Oracle responses and at least one retained live Oracle verdict pair. Verify allowed effects, denied effects, fail-closed errors and cancellation, final hook arguments, explicit access-mode display, and actual host execution. Destructive home/system examples are verdict-only and are never executed.
 
-The confined default authorizes only a trusted project. --yolo is an explicit
-invocation choice; repository text cannot enable it. Host execution still
+The default confines file changes to a trusted project and session-owned scratch
+and tool-cache storage. Ordinary source/documentation reads and networking are
+allowed under the later developer-usability correction. --yolo is an explicit
+invocation choice; repository text cannot enable unrestricted host writes. Host execution still
 retains typed tools, bounded outputs, cancellation, and original results.
 All unrestricted shell requests receive Oracle screening because their
 outside effects cannot reliably be inferred from their working directory.

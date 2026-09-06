@@ -14,7 +14,7 @@ pub struct Args {
     /// Print the application version.
     #[arg(short = 'v', long = "version", visible_short_alias = 'V', action = clap::ArgAction::Version)]
     pub version: Option<bool>,
-    /// Workspace authorized for this session.
+    /// Workspace where coding tools may change files.
     #[arg(long, default_value = ".")]
     pub workspace: PathBuf,
     /// A trusted connection configuration file. Repository files are not loaded automatically.
@@ -270,6 +270,14 @@ impl Args {
             "project is not trusted; use guided setup or explicit --trust-workspace authorization"
         );
         connection.access.unrestricted = self.yolo;
+        if self.config.is_none()
+            || config
+                .connections
+                .values()
+                .any(|value| value.api_key.is_some())
+        {
+            connection.access.credential_paths = self.config_path().into_iter().collect();
+        }
         if self.yolo {
             let assignment = config
                 .oracle

@@ -137,8 +137,12 @@ def case(adapter, server):
         subprocess.run(["git", "init", "-q", str(workspace)], check=True)
         (parent / "outside").mkdir()
         secret = "canary-" + uuid.uuid4().hex
-        (parent / "outside/canary.txt").write_text(secret)
-        (home / "credential-canary").write_text(secret)
+        (parent / "outside/canary.txt").write_text("OUTSIDE-DOCUMENTATION")
+        (home / ".demoncoder").mkdir()
+        (home / ".demoncoder/credential-canary").write_text(secret)
+        (codex_home / "BEST_PRACTICES.md").write_text("MACHINE-STANDARDS")
+        (workspace / ".demoncoder").mkdir()
+        (workspace / ".demoncoder/protected").write_text(secret)
         (workspace / ".git/protected").write_text(secret)
         server.token = uuid.uuid4().hex
         server.calls = result_fixture.requests(adapter, server.token) if server.result_cycle else requests(adapter, parent, secret)
@@ -210,11 +214,12 @@ startup_timeout_sec = 1
                 result_fixture.validate(workspace, server, records, output)
             else:
                 assert (workspace / "allowed.txt").read_text() == "second"
-            assert (parent / "outside/canary.txt").read_text() == secret
+            assert (parent / "outside/canary.txt").read_text() == "OUTSIDE-DOCUMENTATION"
+            assert (workspace / ".demoncoder/protected").read_text() == secret
             assert (workspace / ".git/protected").read_text() == secret
             assert not (parent / "outside/bypass.txt").exists()
-            assert all(secret not in result for result in server.results), "a tool exposed the outside canary"
-            description = "failed check, correction, passing check, and original result identities passed" if server.result_cycle else "allowed operations, denied paths, isolated Bash, and backend routing passed"
+            assert all(secret not in result for result in server.results), "a tool exposed a private credential canary"
+            description = "failed check, correction, passing check, and original result identities passed" if server.result_cycle else "ordinary reads, protected writes and credentials, Bash, and backend routing passed"
             print("CODE-008" if server.result_cycle else "CODE-007", adapter, description, flush=True)
         except AssertionError as error:
             events = [json.loads(line)["event"] for line in log.read_text().splitlines()] if log.exists() else []

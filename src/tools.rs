@@ -29,6 +29,7 @@ pub struct AccessPolicy {
     pub unrestricted: bool,
     pub tools_enabled: bool,
     pub oracle: Option<Box<crate::config::Connection>>,
+    pub credential_paths: Vec<PathBuf>,
 }
 
 impl Default for AccessPolicy {
@@ -37,6 +38,7 @@ impl Default for AccessPolicy {
             unrestricted: false,
             tools_enabled: true,
             oracle: None,
+            credential_paths: Vec::new(),
         }
     }
 }
@@ -103,6 +105,7 @@ pub struct ToolExecutor {
     workspace: PathBuf,
     scratch: Option<PathBuf>,
     access: AccessPolicy,
+    developer: Option<crate::developer_access::DeveloperAccess>,
     intent: Mutex<String>,
     hooks: Vec<Box<dyn ToolHook>>,
     // Execution is sequential. Keep the current receipt across cancellation
@@ -146,6 +149,16 @@ impl ToolExecutor {
                 None
             },
             access: access.clone(),
+            developer: if !access.unrestricted && access.tools_enabled {
+                Some(crate::developer_access::DeveloperAccess::new(
+                    &workspace
+                        .canonicalize()
+                        .context("resolve developer workspace")?,
+                    &access.credential_paths,
+                )?)
+            } else {
+                None
+            },
             intent: Mutex::new(String::new()),
             hooks: Vec::new(),
             completed: Mutex::new(None),
@@ -285,7 +298,7 @@ impl ToolExecutor {
                 call_id: identity.0,
                 tool: call.name,
                 success: false,
-                output: error.to_string(),
+                output: format!("{error:#}"),
                 exit_code: None,
             },
         };
@@ -311,6 +324,10 @@ impl ToolExecutor {
 
     fn open(&self, path: &str, flags: OFlags, create: bool) -> Result<File> {
         validate_path(path)?;
+        self.developer
+            .as_ref()
+            .context("developer tools are disabled")?
+            .check_mutation(&self.workspace.join(path))?;
         let flags = flags | OFlags::CLOEXEC | OFlags::NONBLOCK;
         let fd = openat2(&*self.root, path, flags, Mode::empty(), RESOLVE);
         let file = match fd {
@@ -347,6 +364,13 @@ impl ToolExecutor {
         events: &EventSink,
     ) -> Result<File> {
         if !self.access.unrestricted {
+            if flags == OFlags::RDONLY {
+                return self
+                    .developer
+                    .as_ref()
+                    .context("developer tools are disabled")?
+                    .read(&self.root, path);
+            }
             return self.open(path, flags, create);
         }
         ensure!(!path.is_empty() && path.len() <= 4096, "invalid tool path");
@@ -537,58 +561,11 @@ impl ToolExecutor {
                 .kill_on_drop(true);
             command
         } else {
-            check_tree(Path::new(&root_path), 0, &mut 0)?;
-            let mut command = Command::new("/usr/bin/bwrap");
-            command.args([
-                "--unshare-all",
-                "--die-with-parent",
-                "--new-session",
-                "--ro-bind",
-                "/usr",
-                "/usr",
-                "--symlink",
-                "usr/bin",
-                "/bin",
-                "--symlink",
-                "usr/lib",
-                "/lib",
-                "--symlink",
-                "usr/lib64",
-                "/lib64",
-                "--proc",
-                "/proc",
-                "--dev",
-                "/dev",
-                "--tmpfs",
-                "/tmp",
-                "--tmpfs",
-                "/home",
-                "--bind-fd",
-                "0",
-                "/workspace",
-            ]);
-            if Path::new(&root_path).join(".git").exists() {
-                command.args(["--ro-bind", "/proc/self/fd/0/.git", "/workspace/.git"]);
-            }
-            command.args([
-                "--chdir",
-                "/workspace",
-                "--clearenv",
-                "--setenv",
-                "PATH",
-                "/usr/bin:/bin",
-                "--setenv",
-                "HOME",
-                "/home",
-                "--setenv",
-                "LANG",
-                "C.UTF-8",
-                "/bin/bash",
-                "--noprofile",
-                "--norc",
-                "-c",
-                script,
-            ]);
+            let mut command = self
+                .developer
+                .as_ref()
+                .context("developer tools are disabled")?
+                .command(&self.root, &self.workspace, script)?;
             command
                 .env_clear()
                 .stdin(Stdio::from(self.root.try_clone()?))
@@ -731,37 +708,12 @@ fn write_text(file: &mut File, content: &str) -> Result<()> {
     Ok(())
 }
 
-fn check_tree(path: &Path, depth: usize, count: &mut usize) -> Result<()> {
-    ensure!(
-        depth < 64 && *count < 100_000,
-        "workspace exceeds Bash inspection limit"
-    );
-    for entry in std::fs::read_dir(path)? {
-        let entry = entry?;
-        *count += 1;
-        let meta = entry.path().symlink_metadata()?;
-        ensure!(
-            !meta.is_symlink(),
-            "Bash workspace must not contain symlinks"
-        );
-        if meta.is_dir() {
-            check_tree(&entry.path(), depth + 1, count)?;
-        } else {
-            ensure!(
-                meta.is_file() && meta.nlink() == 1,
-                "Bash workspace must contain regular files without hard links"
-            );
-        }
-    }
-    Ok(())
-}
-
 pub fn definitions() -> Vec<Value> {
     [
-        ("read", "Read a UTF-8 workspace file (up to 1 MiB).", json!({"path":{"type":"string"}}), vec!["path"]),
+        ("read", "Read a UTF-8 source or documentation file (up to 1 MiB). Absolute and relative paths are accepted, including outside the project. Private credentials and process state are protected.", json!({"path":{"type":"string"}}), vec!["path"]),
         ("write", "Create or replace a UTF-8 workspace file. Parent directory must exist.", json!({"path":{"type":"string"},"content":{"type":"string"}}), vec!["path","content"]),
         ("edit", "Replace exactly one occurrence of old_text in a workspace file.", json!({"path":{"type":"string"},"old_text":{"type":"string"},"new_text":{"type":"string"}}), vec!["path","old_text","new_text"]),
-        ("bash", "Run Bash in the workspace with isolated filesystem, network and environment. Limit 120 seconds and 1 MiB output.", json!({"command":{"type":"string"}}), vec!["command"]),
+        ("bash", "Run Bash in the selected project's real path with normal network access and installed developer tools. Read source, documentation, Git state, and verification evidence. File writes are limited to the project, session TMPDIR, and approved build caches. Private credentials are protected and provider secrets are removed from the environment. Limit 120 seconds and 1 MiB output.", json!({"command":{"type":"string"}}), vec!["command"]),
     ].into_iter().map(|(name, description, properties, required)| json!({
         "name":name,"description":description,"input_schema":{"type":"object","properties":properties,"required":required,"additionalProperties":false}
     })).collect()

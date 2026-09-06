@@ -36,6 +36,7 @@ fn executor(path: &Path) -> ToolExecutor {
             unrestricted: true,
             tools_enabled: true,
             oracle: Some(Box::new(connection("claude"))),
+            credential_paths: Vec::new(),
         },
     )
     .unwrap()

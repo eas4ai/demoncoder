@@ -42,7 +42,7 @@ pub fn prepare(args: &Args) -> Result<()> {
         if args.yolo {
             "HOST ACCESS -- no sandbox or routine tool prompts; Oracle guards outside access"
         } else {
-            "confined project -- read, write, edit, and Bash"
+            "project writes -- normal reads, network, and installed tools; private credentials protected"
         }
     );
     if !args.yolo
