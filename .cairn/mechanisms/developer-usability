@@ -1,0 +1,17 @@
+command: bash scripts/check-developer-usability.sh
+results: per-requirement
+inputs:
+  - docs/spec/developer-usability.md
+  - docs/spec/coding-session.md
+  - docs/commitments/developer-usability.md
+  - README.md
+  - Cargo.toml
+  - Cargo.lock
+  - src/
+  - tests/
+  - scripts/
+requirements:
+  - USABLE-001
+  - USABLE-002
+  - USABLE-003
+  - USABLE-004
