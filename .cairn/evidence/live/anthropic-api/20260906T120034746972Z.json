@@ -1,0 +1,49 @@
+{
+  "adapter": "anthropic-api",
+  "model": "claude-sonnet-4-6",
+  "effort": "medium",
+  "transport": "live-default-endpoint",
+  "auth_method": "api-key",
+  "input_digest": "4dfbccd981fbfd60132c3b6c575c898932f07848e772b9a7a2427003af2dc90e",
+  "binary_sha256": "053a24536da06aeadbdb5845d867aca79579e0733138c52efd8773b63241fbbf",
+  "started_at": "20260906T120034746972Z",
+  "turns": [],
+  "seed": 1880857,
+  "result": "unverified",
+  "reason": "live turn failed; redacted record retains the runtime error",
+  "observed_events": [
+    {
+      "connection": "anthropic-api",
+      "event": {
+        "type": "ready",
+        "owner": "demoncoder"
+      }
+    },
+    {
+      "connection": "anthropic-api",
+      "event": {
+        "type": "turn_started"
+      }
+    },
+    {
+      "connection": "anthropic-api",
+      "event": {
+        "type": "error",
+        "message": "provider returned HTTP 400; no authentication fallback was attempted"
+      }
+    },
+    {
+      "connection": "anthropic-api",
+      "event": {
+        "type": "turn_finished",
+        "status": "failed"
+      }
+    }
+  ],
+  "prerequisite_diagnostic": {
+    "status": 400,
+    "type": "invalid_request_error",
+    "message": "Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.",
+    "method": "Minimal authenticated Messages request using the same selected model and effort; no fallback credential or model."
+  }
+}

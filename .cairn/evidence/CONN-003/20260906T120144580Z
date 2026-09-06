@@ -1,0 +1,17 @@
+requirement: CONN-003
+requirement_digest: sha256:33cae6d9fdece29965177812edae0860372adae29cdad95ddd4d7838e004a561
+mechanism: connections
+commit: 3a89115
+inputs_digest: sha256:68e07e5b59ca249b35b539c2e53962168f5ae4da58193bc8a7e90188dba5d09f
+mechanism_digest: sha256:6171755149628917d0920166aea16c22d867204daccebf4f37327f03fe5e24aa
+command: bash scripts/check-connections.sh
+cwd: .
+exit: 1
+output_digest: sha256:6aef041afe9bdfbc9811d2d64249a9087857430f1a6d9c9c3e49c214a2c1e18b
+output: .cairn/evidence/CONN-001/20260906T120142339Z-1376504.out
+stderr_output: .cairn/evidence/CONN-001/20260906T120142339Z-1376504.err
+signal: none
+execution_error: null
+result: unverified
+source: none
+recorded: 2026-09-06T12:01:44.580Z
