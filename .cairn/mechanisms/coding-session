@@ -1,0 +1,14 @@
+command: bash scripts/check-coding-session.sh
+results: per-requirement
+inputs:
+  - docs/spec/
+  - docs/commitments/first-coding-session.md
+requirements:
+  - CODE-001
+  - CODE-002
+  - CODE-003
+  - CODE-004
+  - CODE-005
+  - CODE-006
+  - CODE-007
+  - CODE-008

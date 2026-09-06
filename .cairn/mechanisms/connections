@@ -1,0 +1,12 @@
+command: bash scripts/check-connections.sh
+results: per-requirement
+inputs:
+  - docs/spec/
+  - docs/commitments/first-coding-session.md
+requirements:
+  - CONN-001
+  - CONN-002
+  - CONN-003
+  - CONN-004
+  - CONN-005
+  - CONN-006
