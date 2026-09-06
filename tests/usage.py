@@ -56,7 +56,7 @@ class Provider(http.server.BaseHTTPRequestHandler):
             emit({"type":"response.completed", "response":{"output":[], "usage":usage}})
 
 
-def current_footer(master, process, output, expected, row=-1):
+def current_footer(master, process, output, expected, row=-2):
     """Require the current screen; old terminal bytes must never satisfy this check."""
     deadline = time.monotonic() + 3
     inspected = -1
