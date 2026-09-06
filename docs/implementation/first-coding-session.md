@@ -58,7 +58,7 @@ case. The same test with a functioning peer is the corrected case. These
 fixtures do not prove current subscription service compatibility.
 
 After each action is committed and checked, Cairn selects the next one.
-Remaining CODE checks exercise confinement and retained tool results.
+The remaining CODE check exercises retained tool results.
 CONN checks include independent registration and live two-turn tasks for
 all four connections. Missing authentication remains unresolved evidence.
 
@@ -77,7 +77,25 @@ It accepts workspaces without links or special files, protects .git from
 Bash writes, and limits execution to 120 seconds and output to 1 MiB.
 These are current restrictions; broader tool usability remains review work.
 
-The CODE-002 protocol checks do not establish that external built-in tool
-restrictions are complete. CODE-007 still needs adversarial per-connection
-admission checks, including the actual installed backend path. No live
-provider call was used to build this step.
+CODE-007 adds per-connection admission checks with sibling and credential
+canaries, protected Git state, and permitted file and Bash operations.
+The two subscription cases run installed Codex 0.153.4 and Claude Code
+2.1.263 against local model responses and synthetic authentication.
+Every model request must advertise exactly the four host tools. Forced
+requests for backend built-ins must fail without exposing or changing
+the canaries. An inherited Codex MCP server must never start.
+
+Codex starts threads and turns with an explicitly empty environment list,
+which removes its built-in filesystem execution path. It reads inherited
+MCP configuration and disables each server explicitly; an empty table alone
+does not override inherited servers. Other tool sources are disabled.
+Inbound JSON-RPC requests and replies have separate ID spaces; a server
+tool request with the same numeric ID as a pending client request remains
+a request. Claude exposes only the host SDK MCP tool set.
+
+These installed-backend checks exercise the real local runtime and tools.
+They do not use live provider authentication or establish live service
+compatibility. `tests/installed_backends.py` and `tests/boundary_fixture.py`
+retain the cases; `tests/installed_backend_launcher.py` launches the actual
+binary with local test endpoints. The separate tools tests verify denied
+hooks, final transformed paths and commands, and allowed transformations.

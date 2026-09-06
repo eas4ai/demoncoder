@@ -15,3 +15,5 @@ cargo test --locked --lib group_cleanup_covers_drop_and_exited_leader
 python3 tests/cancellation.py
 
 python3 tests/continuation.py
+
+python3 tests/installed_backends.py

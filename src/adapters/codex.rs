@@ -50,7 +50,7 @@ impl Codex {
         tokio::time::timeout(Duration::from_secs(30), async {
             loop {
                 let message = process.receive().await?;
-                if message["id"] == id {
+                  if message["id"] == id && message.get("method").is_none() {
                     if message.get("error").is_some() { bail!("Codex rejected {method}"); }
                     return message.get("result").cloned().context("Codex response has no result");
                 }
@@ -76,6 +76,12 @@ impl Codex {
             "browser_use",
             "computer_use",
             "image_generation",
+            "skill_mcp_dependency_install",
+            "skill_search",
+            "workspace_dependencies",
+            "memories",
+            "goals",
+            "request_permissions_tool",
         ] {
             args.extend(["--disable".into(), feature.into()]);
         }
@@ -83,6 +89,10 @@ impl Codex {
             "mcp_servers={}",
             "web_search=\"disabled\"",
             "forced_login_method=\"chatgpt\"",
+            "tools.experimental_request_user_input.enabled=false",
+            "tools.update_plan.enabled=false",
+            "orchestrator.skills.enabled=false",
+            "orchestrator.mcp.enabled=false",
         ] {
             args.extend(["-c".into(), setting.into()]);
         }
@@ -108,11 +118,31 @@ impl Codex {
         if account["account"]["type"] != "chatgpt" {
             bail!("Codex subscription connection requires a ChatGPT login; run codex login");
         }
+        // Empty TOML tables merge with inherited tables; mcp_servers={} does
+        // not disable configured servers. Resolve names without starting a
+        // thread, then explicitly disable each inherited server for this one.
+        let configuration = self
+            .rpc("config/read", json!({"cwd":self.workspace}))
+            .await?;
+        let configuration = configuration["config"]
+            .as_object()
+            .context("Codex did not return its effective configuration")?;
+        let mut disabled_servers = serde_json::Map::new();
+        if let Some(servers) = configuration.get("mcp_servers") {
+            for name in servers
+                .as_object()
+                .context("Codex MCP configuration is not an object")?
+                .keys()
+            {
+                disabled_servers.insert(name.clone(), json!({"enabled":false}));
+            }
+        }
         let dynamic_tools: Vec<Value> = crate::tools::definitions().into_iter().map(|tool| json!({
             "type":"function", "name":tool["name"], "description":tool["description"], "inputSchema":tool["input_schema"],
         })).collect();
         let mut params = json!({
             "model":self.model,"cwd":self.workspace,"sandbox":"read-only","approvalPolicy":"never",
+            "config":{"mcp_servers":disabled_servers},
         });
         let method = if let Some(thread) = &self.thread {
             params["threadId"] = json!(thread);
@@ -120,6 +150,7 @@ impl Codex {
         } else {
             params["experimentalRawEvents"] = json!(false);
             params["dynamicTools"] = json!(dynamic_tools);
+            params["environments"] = json!([]);
             "thread/start"
         };
         let response = self.rpc(method, params).await?;
@@ -150,6 +181,7 @@ impl Codex {
             process
                 .send(json!({"id":id,"method":"turn/start","params":{
                     "threadId":self.thread,"input":[{"type":"text","text":prompt}],
+                    "environments":[],
                 }}))
                 .await?;
             let mut turn: Option<String> = None;
@@ -187,7 +219,8 @@ impl Codex {
                         None => std::future::pending().await,
                     }} => bail!("Codex did not finish the superseded turn within 30 seconds"),
                 };
-                if interrupt_id.is_some_and(|request| message["id"] == request) {
+                let is_reply = message.get("method").is_none();
+                if is_reply && interrupt_id.is_some_and(|request| message["id"] == request) {
                     anyhow::ensure!(
                         message.get("error").is_none(),
                         "Codex rejected steering interruption"
@@ -195,10 +228,10 @@ impl Codex {
                     interrupt_ack = true;
                     continue;
                 }
-                if message["id"] == id && message.get("error").is_some() {
+                if is_reply && message["id"] == id && message.get("error").is_some() {
                     bail!("Codex rejected the turn");
                 }
-                if message["id"] == id {
+                if is_reply && message["id"] == id {
                     turn = message["result"]["turn"]["id"].as_str().map(str::to_owned);
                 }
                 let params = &message["params"];

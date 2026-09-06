@@ -84,6 +84,8 @@ def run(codex):
                 send({"type": "control_response", "response": {"subtype": "success", "request_id": message["request_id"], "response": {}}})
         elif method == "account/read":
             send({"id": message["id"], "result": {"account": {"type": "chatgpt"}}})
+        elif method == "config/read":
+            send({"id": message["id"], "result": {"config": {"mcp_servers": {}}}})
         elif method == "thread/start":
             send({"id": message["id"], "result": {"thread": {"id": "fixture-thread"}}})
         elif method == "turn/start" or message.get("type") == "user":

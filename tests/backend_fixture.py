@@ -101,6 +101,8 @@ def main():
             result = None
             if method == "initialize":
                 result = {"userAgent": "test-fixture"}
+            elif method == "config/read":
+                result = {"config": {"mcp_servers": {}}}
             elif method == "account/read":
                 result = {"account": {"type": "chatgpt", "email": "fixture@example.invalid", "planType": "plus"}}
             elif method in ("thread/start", "thread/resume"):
