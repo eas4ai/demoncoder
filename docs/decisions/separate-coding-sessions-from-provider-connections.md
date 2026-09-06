@@ -11,4 +11,7 @@ Specify the first commitment in two domains: CODE for the observable coding sess
 
 ## Realized by
 
-(none yet: recorded, not built)
+- 6eb42369e061e6a2adbf827350f9c51e2c6b591a Draft the first DemonCoder coding session under Cairn
+
+This commit realizes the specification partition. The application and
+adapter implementations remain pending.
