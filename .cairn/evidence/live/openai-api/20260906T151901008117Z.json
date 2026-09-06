@@ -1,0 +1,516 @@
+{
+  "adapter": "openai-api",
+  "model": "gpt-6-astra",
+  "effort": "medium",
+  "transport": "live-default-endpoint",
+  "auth_method": "api-key",
+  "input_digest": "e1edcddc6b0778b6c60c0f574e07c6b4c835aebb15baf2df12cd9c90fe2a0d84",
+  "binary_sha256": "acb99ffaf8f19557cf82ad559d19352ebb34e33755f2846f78959998d2bbf980",
+  "started_at": "20260906T151901008117Z",
+  "turns": [
+    {
+      "events": [
+        {
+          "connection": "openai-api",
+          "event": {
+            "type": "ready",
+            "owner": "demoncoder"
+          }
+        },
+        {
+          "connection": "openai-api",
+          "event": {
+            "type": "turn_started"
+          }
+        },
+        {
+          "connection": "openai-api",
+          "event": {
+            "type": "usage",
+            "input": 279,
+            "output": 18,
+            "cached": 0,
+            "cost_usd": null
+          }
+        },
+        {
+          "connection": "openai-api",
+          "event": {
+            "type": "tool_started",
+            "call": {
+              "id": "call_5c9if8zQx4tk2r3oyTvjXgte",
+              "name": "read",
+              "arguments": {
+                "path": "seed.txt"
+              }
+            }
+          }
+        },
+        {
+          "connection": "openai-api",
+          "event": {
+            "type": "tool_finished",
+            "result": {
+              "call_id": "call_5c9if8zQx4tk2r3oyTvjXgte",
+              "tool": "read",
+              "success": true,
+              "output": "1527867\n",
+              "exit_code": null
+            }
+          }
+        },
+        {
+          "connection": "openai-api",
+          "event": {
+            "type": "usage",
+            "input": 352,
+            "output": 34,
+            "cached": 0,
+            "cost_usd": null
+          }
+        },
+        {
+          "connection": "openai-api",
+          "event": {
+            "type": "tool_started",
+            "call": {
+              "id": "call_hodlIQ1j70hrixGR9esiRndX",
+              "name": "write",
+              "arguments": {
+                "content": "def dc_value():\n    return 1527867\n",
+                "path": "answer.py"
+              }
+            }
+          }
+        },
+        {
+          "connection": "openai-api",
+          "event": {
+            "type": "tool_finished",
+            "result": {
+              "call_id": "call_hodlIQ1j70hrixGR9esiRndX",
+              "tool": "write",
+              "success": true,
+              "output": "Wrote 35 bytes to answer.py",
+              "exit_code": null
+            }
+          }
+        },
+        {
+          "connection": "openai-api",
+          "event": {
+            "type": "usage",
+            "input": 440,
+            "output": 36,
+            "cached": 0,
+            "cost_usd": null
+          }
+        },
+        {
+          "connection": "openai-api",
+          "event": {
+            "type": "tool_started",
+            "call": {
+              "id": "call_WB2tik0jS2YWpyOtS5REpzbU",
+              "name": "edit",
+              "arguments": {
+                "new_text": "return 1527868",
+                "old_text": "return 1527867",
+                "path": "answer.py"
+              }
+            }
+          }
+        },
+        {
+          "connection": "openai-api",
+          "event": {
+            "type": "tool_finished",
+            "result": {
+              "call_id": "call_WB2tik0jS2YWpyOtS5REpzbU",
+              "tool": "edit",
+              "success": true,
+              "output": "Edited answer.py",
+              "exit_code": null
+            }
+          }
+        },
+        {
+          "connection": "openai-api",
+          "event": {
+            "type": "usage",
+            "input": 528,
+            "output": 40,
+            "cached": 0,
+            "cost_usd": null
+          }
+        },
+        {
+          "connection": "openai-api",
+          "event": {
+            "type": "tool_started",
+            "call": {
+              "id": "call_VCEkKqRvU9JxE0JahW4EolSy",
+              "name": "bash",
+              "arguments": {
+                "command": "python3 -B -c 'from answer import dc_value; assert dc_value() == 1527868'"
+              }
+            }
+          }
+        },
+        {
+          "connection": "openai-api",
+          "event": {
+            "type": "tool_finished",
+            "result": {
+              "call_id": "call_VCEkKqRvU9JxE0JahW4EolSy",
+              "tool": "bash",
+              "success": true,
+              "output": "",
+              "exit_code": 0
+            }
+          }
+        },
+        {
+          "connection": "openai-api",
+          "event": {
+            "type": "text",
+            "text": "Check"
+          }
+        },
+        {
+          "connection": "openai-api",
+          "event": {
+            "type": "text",
+            "text": " passed"
+          }
+        },
+        {
+          "connection": "openai-api",
+          "event": {
+            "type": "text",
+            "text": ":"
+          }
+        },
+        {
+          "connection": "openai-api",
+          "event": {
+            "type": "text",
+            "text": " `"
+          }
+        },
+        {
+          "connection": "openai-api",
+          "event": {
+            "type": "text",
+            "text": "dc"
+          }
+        },
+        {
+          "connection": "openai-api",
+          "event": {
+            "type": "text",
+            "text": "_value"
+          }
+        },
+        {
+          "connection": "openai-api",
+          "event": {
+            "type": "text",
+            "text": "()`"
+          }
+        },
+        {
+          "connection": "openai-api",
+          "event": {
+            "type": "text",
+            "text": " returns"
+          }
+        },
+        {
+          "connection": "openai-api",
+          "event": {
+            "type": "text",
+            "text": " `"
+          }
+        },
+        {
+          "connection": "openai-api",
+          "event": {
+            "type": "text",
+            "text": "152"
+          }
+        },
+        {
+          "connection": "openai-api",
+          "event": {
+            "type": "text",
+            "text": "786"
+          }
+        },
+        {
+          "connection": "openai-api",
+          "event": {
+            "type": "text",
+            "text": "8"
+          }
+        },
+        {
+          "connection": "openai-api",
+          "event": {
+            "type": "text",
+            "text": "`."
+          }
+        },
+        {
+          "connection": "openai-api",
+          "event": {
+            "type": "usage",
+            "input": 619,
+            "output": 17,
+            "cached": 0,
+            "cost_usd": null
+          }
+        },
+        {
+          "connection": "openai-api",
+          "event": {
+            "type": "turn_finished",
+            "status": "complete"
+          }
+        }
+      ],
+      "source": "def dc_value():\n    return 1527868\n"
+    },
+    {
+      "events": [
+        {
+          "connection": "openai-api",
+          "event": {
+            "type": "turn_started"
+          }
+        },
+        {
+          "connection": "openai-api",
+          "event": {
+            "type": "usage",
+            "input": 704,
+            "output": 18,
+            "cached": 0,
+            "cost_usd": null
+          }
+        },
+        {
+          "connection": "openai-api",
+          "event": {
+            "type": "tool_started",
+            "call": {
+              "id": "call_EejgtTqZYgpv7hriiqzWYLv5",
+              "name": "read",
+              "arguments": {
+                "path": "answer.py"
+              }
+            }
+          }
+        },
+        {
+          "connection": "openai-api",
+          "event": {
+            "type": "tool_finished",
+            "result": {
+              "call_id": "call_EejgtTqZYgpv7hriiqzWYLv5",
+              "tool": "read",
+              "success": true,
+              "output": "def dc_value():\n    return 1527868\n",
+              "exit_code": null
+            }
+          }
+        },
+        {
+          "connection": "openai-api",
+          "event": {
+            "type": "usage",
+            "input": 784,
+            "output": 36,
+            "cached": 0,
+            "cost_usd": null
+          }
+        },
+        {
+          "connection": "openai-api",
+          "event": {
+            "type": "tool_started",
+            "call": {
+              "id": "call_mmHC0OYWAnBv2263txJYoLkz",
+              "name": "edit",
+              "arguments": {
+                "new_text": "return 1527875",
+                "old_text": "return 1527868",
+                "path": "answer.py"
+              }
+            }
+          }
+        },
+        {
+          "connection": "openai-api",
+          "event": {
+            "type": "tool_finished",
+            "result": {
+              "call_id": "call_mmHC0OYWAnBv2263txJYoLkz",
+              "tool": "edit",
+              "success": true,
+              "output": "Edited answer.py",
+              "exit_code": null
+            }
+          }
+        },
+        {
+          "connection": "openai-api",
+          "event": {
+            "type": "usage",
+            "input": 871,
+            "output": 40,
+            "cached": 0,
+            "cost_usd": null
+          }
+        },
+        {
+          "connection": "openai-api",
+          "event": {
+            "type": "tool_started",
+            "call": {
+              "id": "call_P7jVJbugVMAMz6MrOevQtQJn",
+              "name": "bash",
+              "arguments": {
+                "command": "python3 -B -c 'from answer import dc_value; assert dc_value() == 1527875'"
+              }
+            }
+          }
+        },
+        {
+          "connection": "openai-api",
+          "event": {
+            "type": "tool_finished",
+            "result": {
+              "call_id": "call_P7jVJbugVMAMz6MrOevQtQJn",
+              "tool": "bash",
+              "success": true,
+              "output": "",
+              "exit_code": 0
+            }
+          }
+        },
+        {
+          "connection": "openai-api",
+          "event": {
+            "type": "text",
+            "text": "Check"
+          }
+        },
+        {
+          "connection": "openai-api",
+          "event": {
+            "type": "text",
+            "text": " passed"
+          }
+        },
+        {
+          "connection": "openai-api",
+          "event": {
+            "type": "text",
+            "text": ":"
+          }
+        },
+        {
+          "connection": "openai-api",
+          "event": {
+            "type": "text",
+            "text": " `"
+          }
+        },
+        {
+          "connection": "openai-api",
+          "event": {
+            "type": "text",
+            "text": "dc"
+          }
+        },
+        {
+          "connection": "openai-api",
+          "event": {
+            "type": "text",
+            "text": "_value"
+          }
+        },
+        {
+          "connection": "openai-api",
+          "event": {
+            "type": "text",
+            "text": "()`"
+          }
+        },
+        {
+          "connection": "openai-api",
+          "event": {
+            "type": "text",
+            "text": " returns"
+          }
+        },
+        {
+          "connection": "openai-api",
+          "event": {
+            "type": "text",
+            "text": " `"
+          }
+        },
+        {
+          "connection": "openai-api",
+          "event": {
+            "type": "text",
+            "text": "152"
+          }
+        },
+        {
+          "connection": "openai-api",
+          "event": {
+            "type": "text",
+            "text": "787"
+          }
+        },
+        {
+          "connection": "openai-api",
+          "event": {
+            "type": "text",
+            "text": "5"
+          }
+        },
+        {
+          "connection": "openai-api",
+          "event": {
+            "type": "text",
+            "text": "`."
+          }
+        },
+        {
+          "connection": "openai-api",
+          "event": {
+            "type": "usage",
+            "input": 959,
+            "output": 17,
+            "cached": 0,
+            "cost_usd": null
+          }
+        },
+        {
+          "connection": "openai-api",
+          "event": {
+            "type": "turn_finished",
+            "status": "complete"
+          }
+        }
+      ],
+      "source": "def dc_value():\n    return 1527875\n"
+    }
+  ],
+  "seed": 1527867,
+  "result": "pass"
+}
