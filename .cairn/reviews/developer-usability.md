@@ -3,7 +3,7 @@
 commitment: developer-usability
 commit: 9bb91ef7cdc5f04d643e0cea0ce389baacad7ee8
 findings:
-  - USABLE-002: workspace inspection runs synchronously before Bash yields, so a large tree can delay cancellation
+  - open: USABLE-002: workspace inspection runs synchronously before Bash yields, so a large tree can delay cancellation
 Reviewer: Codex
 Date: 2026-09-06
 Status: findings recorded
