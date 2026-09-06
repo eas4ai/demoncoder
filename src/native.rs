@@ -6,7 +6,7 @@ use crate::{
 };
 use anyhow::Result;
 use async_trait::async_trait;
-use std::path::Path;
+use std::{collections::VecDeque, path::Path};
 use tokio::sync::mpsc;
 
 #[async_trait]
@@ -19,6 +19,7 @@ pub trait Model: Send {
 pub struct NativeSession {
     model: Box<dyn Model>,
     tools: ToolExecutor,
+    pending: VecDeque<ToolCall>,
 }
 
 impl NativeSession {
@@ -26,6 +27,7 @@ impl NativeSession {
         Ok(Self {
             model,
             tools: ToolExecutor::new(workspace)?,
+            pending: VecDeque::new(),
         })
     }
 }
@@ -37,6 +39,29 @@ impl Session for NativeSession {
     }
 
     async fn turn(
+        &mut self,
+        prompt: String,
+        commands: &mut mpsc::Receiver<Command>,
+        events: &EventSink,
+    ) -> Result<TurnEnd> {
+        let outcome = self.run_turn(prompt, commands, events).await;
+        if !self.pending.is_empty() {
+            // Close the provider's outstanding call records without inventing
+            // an execution result for an interrupted or unstarted operation.
+            self.model.results(self.pending.drain(..).map(|call| ToolResult {
+                call_id: call.id,
+                tool: call.name,
+                success: false,
+                output: "Turn ended before this tool returned a result. It may have partial effects; inspect the workspace before retrying.".into(),
+                exit_code: None,
+            }).collect());
+        }
+        outcome
+    }
+}
+
+impl NativeSession {
+    async fn run_turn(
         &mut self,
         prompt: String,
         commands: &mut mpsc::Receiver<Command>,
@@ -57,21 +82,22 @@ impl Session for NativeSession {
                 }
             };
             let finished = calls.is_empty();
-            let mut results = Vec::new();
-            for call in calls {
+            self.pending = calls.into();
+            while let Some(call) = self.pending.front().cloned() {
                 while let Ok(command) = commands.try_recv() {
                     if let Some(end) = control(Some(command), &mut corrections, events).await? {
                         return Ok(end);
                     }
                 }
                 if !corrections.is_empty() {
-                    results.push(ToolResult {
+                    self.model.results(vec![ToolResult {
                         call_id: call.id,
                         tool: call.name,
                         success: false,
                         output: "Not executed: developer corrected this response.".into(),
                         exit_code: None,
-                    });
+                    }]);
+                    self.pending.pop_front();
                     continue;
                 }
                 let operation = self.tools.execute(call, events);
@@ -83,10 +109,8 @@ impl Session for NativeSession {
                         result = &mut operation => break result?,
                     }
                 };
-                results.push(result);
-            }
-            if !results.is_empty() {
-                self.model.results(results);
+                self.model.results(vec![result]);
+                self.pending.pop_front();
             }
             let corrected = !corrections.is_empty();
             for correction in corrections {

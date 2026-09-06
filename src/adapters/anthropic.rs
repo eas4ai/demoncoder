@@ -65,7 +65,17 @@ impl Model for Anthropic {
                 })
             })
             .collect();
-        self.history.push(json!({"role":"user", "content":content}));
+        // A tool batch has one immediate result message, even when results
+        // arrive individually or cancellation closes its remaining calls.
+        if let Some(previous) = self.history.last_mut()
+            && previous["role"] == "user"
+            && let Some(blocks) = previous["content"].as_array_mut()
+            && blocks.iter().all(|block| block["type"] == "tool_result")
+        {
+            blocks.extend(content);
+        } else {
+            self.history.push(json!({"role":"user", "content":content}));
+        }
     }
 
     async fn response(&mut self, events: &EventSink) -> Result<Vec<ToolCall>> {
@@ -163,8 +173,6 @@ impl Model for Anthropic {
                             });
                         }
                     }
-                    self.history
-                        .push(json!({"role":"assistant", "content":blocks}));
                     events
                         .emit(Event::Usage {
                             input,
@@ -173,6 +181,8 @@ impl Model for Anthropic {
                             cost_usd: None,
                         })
                         .await?;
+                    self.history
+                        .push(json!({"role":"assistant", "content":blocks}));
                     return Ok(calls);
                 }
                 Some("error") => bail!("Anthropic returned a stream error"),

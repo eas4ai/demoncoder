@@ -23,8 +23,11 @@ Escape cancels the active turn with a two-second grace period. Native HTTP
 requests are dropped and isolated Bash processes are killed with their PID
 namespace. External backend processes run in a separate process group;
 cleanup kills that group before reaping its leader, including on owner drop.
-The terminal remains open and accepts another prompt. Backend reattachment
-and conversation continuity after cancellation still await CODE-006.
+The terminal remains open and accepts another prompt. Codex reconnects with
+thread/resume and Claude with --resume using the preceding backend identity.
+Native sessions keep each completed tool result as it arrives and close
+unfinished tool calls with an explicit unknown-result notice. The next
+prompt keeps the preceding conversation and completed workspace changes.
 Closing a client request cannot establish the provider's billing outcome;
 unreported cost remains unknown.
 
@@ -44,6 +47,8 @@ unreported cost remains unknown.
 | tests/steering.py | Submit a correction during a tool and inspect the next model input and actual effects. |
 | tests/steering_fixture.py | Queue superseded and late backend tool requests around interruption. |
 | tests/cancellation.py | Observe HTTP closure, terminated children, stopped file activity, and a new prompt after Escape. |
+| tests/continuation.py | Extend a uniquely named function in a second turn after completion or cancellation. |
+| tests/continuation_fixture.py | Keep backend-owned context and require resumption of its original identity. |
 | scripts/check-coding-session.sh | Build and report only requirements actually checked. |
 
 The first check submits an unpredictable prompt through the real editor,
@@ -53,8 +58,7 @@ case. The same test with a functioning peer is the corrected case. These
 fixtures do not prove current subscription service compatibility.
 
 After each action is committed and checked, Cairn selects the next one.
-Remaining CODE checks exercise continued context,
-confinement, and retained tool results.
+Remaining CODE checks exercise confinement and retained tool results.
 CONN checks include independent registration and live two-turn tasks for
 all four connections. Missing authentication remains unresolved evidence.
 

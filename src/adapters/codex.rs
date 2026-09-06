@@ -111,16 +111,28 @@ impl Codex {
         let dynamic_tools: Vec<Value> = crate::tools::definitions().into_iter().map(|tool| json!({
             "type":"function", "name":tool["name"], "description":tool["description"], "inputSchema":tool["input_schema"],
         })).collect();
-        let thread = self.rpc("thread/start", json!({
+        let mut params = json!({
             "model":self.model,"cwd":self.workspace,"sandbox":"read-only","approvalPolicy":"never",
-            "experimentalRawEvents":false,"dynamicTools":dynamic_tools,
-        })).await?;
-        self.thread = Some(
-            thread["thread"]["id"]
-                .as_str()
-                .context("Codex did not return a thread identifier")?
-                .into(),
+        });
+        let method = if let Some(thread) = &self.thread {
+            params["threadId"] = json!(thread);
+            "thread/resume"
+        } else {
+            params["experimentalRawEvents"] = json!(false);
+            params["dynamicTools"] = json!(dynamic_tools);
+            "thread/start"
+        };
+        let response = self.rpc(method, params).await?;
+        let thread = response["thread"]["id"]
+            .as_str()
+            .context("Codex did not return a thread identifier")?;
+        anyhow::ensure!(
+            self.thread
+                .as_deref()
+                .is_none_or(|previous| previous == thread),
+            "Codex resumed a different thread"
         );
+        self.thread = Some(thread.into());
         Ok(())
     }
 
@@ -337,8 +349,7 @@ impl Session for Codex {
         if let Some(mut process) = self.process.take() {
             process.stop().await?;
         }
-        // Reattachment after cancellation is introduced with the session-continuation contract.
-        self.thread = None;
+        // Keep backend-owned context for the next prompt after cancellation.
         Ok(())
     }
 }

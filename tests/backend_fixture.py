@@ -24,6 +24,9 @@ def main():
     codex = "app-server" in sys.argv
     assert "OPENAI_API_KEY" not in os.environ
     assert "ANTHROPIC_API_KEY" not in os.environ
+    if Path("continuation").exists():
+        from continuation_fixture import run
+        return run(codex)
     if Path("steering").exists():
         from steering_fixture import run
         return run(codex)
@@ -100,10 +103,13 @@ def main():
                 result = {"userAgent": "test-fixture"}
             elif method == "account/read":
                 result = {"account": {"type": "chatgpt", "email": "fixture@example.invalid", "planType": "plus"}}
-            elif method == "thread/start":
+            elif method in ("thread/start", "thread/resume"):
                 assert message["params"]["sandbox"] == "read-only"
                 assert message["params"]["approvalPolicy"] == "never"
-                assert {tool["name"] for tool in message["params"]["dynamicTools"]} == {"read", "write", "edit", "bash"}
+                if method == "thread/start":
+                    assert {tool["name"] for tool in message["params"]["dynamicTools"]} == {"read", "write", "edit", "bash"}
+                else:
+                    assert message["params"]["threadId"] == "fixture-thread"
                 result = {"thread": {"id": "fixture-thread"}}
             elif method == "turn/start":
                 assert message["params"]["threadId"] == "fixture-thread"

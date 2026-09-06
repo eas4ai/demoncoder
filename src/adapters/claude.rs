@@ -68,6 +68,9 @@ impl Claude {
             if let Some(model) = &self.model {
                 args.extend(["--model".into(), model.clone()]);
             }
+            if let Some(session) = &self.session {
+                args.extend(["--resume".into(), session.clone()]);
+            }
             self.process = Some(BackendProcess::spawn(
                 &self.binary,
                 &args,
@@ -331,7 +334,6 @@ impl Session for Claude {
         if let Some(mut process) = self.process.take() {
             process.stop().await?;
         }
-        self.session = None;
         Ok(())
     }
 }

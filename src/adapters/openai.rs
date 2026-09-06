@@ -116,7 +116,6 @@ impl Model for OpenAi {
                             });
                         }
                     }
-                    self.history.extend(output.iter().cloned());
                     let usage = &response["usage"];
                     events
                         .emit(Event::Usage {
@@ -126,6 +125,9 @@ impl Model for OpenAi {
                             cost_usd: None,
                         })
                         .await?;
+                    // Publish calls to history only when response() can return
+                    // them without another cancellation point.
+                    self.history.extend(output.iter().cloned());
                     return Ok(calls);
                 }
                 Some("response.failed" | "response.incomplete" | "error") => {
