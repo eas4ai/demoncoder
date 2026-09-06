@@ -11,4 +11,4 @@ Add explicit read, write, edit, Bash, steering, and cancellation declarations to
 
 ## Realized by
 
-(none yet: recorded, not built)
+- a6c0ad7a0dac8c779f8b9fa067bb632b617d0a09 Reject missing session capabilities before adapter creation
