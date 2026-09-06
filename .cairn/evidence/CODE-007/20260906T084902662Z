@@ -1,0 +1,17 @@
+requirement: CODE-007
+requirement_digest: sha256:c55d925eca882d02545126485c7b071ddd9ec5f400c6b0f50c491a88bc396a0b
+mechanism: coding-session
+commit: 4b65f35
+inputs_digest: sha256:ad7b447a2569a6d44f66b03bc68d2c1b55116402eec4643d2d2ed8f0b6befd6b
+mechanism_digest: sha256:eff48afff0adeb23850813d67ae230112ea443f7c90c0fec5d5417ee80349532
+command: bash scripts/check-coding-session.sh
+cwd: .
+exit: 0
+output_digest: sha256:674bdd902925c29b0d3f8d93fc4ffdde6395ab81d423bdc06b3f1c760efca075
+output: .cairn/evidence/CODE-001/20260906T084858791Z-3013949.out
+stderr_output: .cairn/evidence/CODE-001/20260906T084858791Z-3013949.err
+signal: none
+execution_error: null
+result: unverified
+source: none
+recorded: 2026-09-06T08:49:02.661Z

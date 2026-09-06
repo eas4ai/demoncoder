@@ -1,0 +1,25 @@
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.07s
+CODE-001 openai-api terminal prompt reached runtime and response was rendered
+CODE-001 anthropic-api terminal prompt reached runtime and response was rendered
+CODE-001 codex terminal prompt reached runtime and response was rendered
+CODE-001 claude terminal prompt reached runtime and response was rendered
+cairn: CODE-001: pass
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s
+     Running tests/tools.rs (target/debug/deps/tools-85203ae210161c93)
+
+running 2 tests
+test final_hook_arguments_and_links_are_denied_without_touching_canaries ... ok
+test real_file_and_command_cycle_retains_failure_and_success ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+CODE-002 openai-api production tool cycle passed
+CODE-002 anthropic-api production tool cycle passed
+CODE-002 codex production tool cycle passed
+CODE-002 claude production tool cycle passed
+cairn: CODE-002: pass
+CODE-003 openai-api assistant, tool, and editor checkpoints passed
+CODE-003 anthropic-api assistant, tool, and editor checkpoints passed
+CODE-003 codex assistant, tool, and editor checkpoints passed
+CODE-003 claude assistant, tool, and editor checkpoints passed
+cairn: CODE-003: pass
