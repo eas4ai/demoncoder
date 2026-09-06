@@ -1,0 +1,64 @@
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.08s
+CODE-001 openai-api terminal prompt reached runtime and response was rendered
+CODE-001 anthropic-api terminal prompt reached runtime and response was rendered
+CODE-001 codex terminal prompt reached runtime and response was rendered
+CODE-001 claude terminal prompt reached runtime and response was rendered
+cairn: CODE-001: pass
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.07s
+     Running tests/tools.rs (target/debug/deps/tools-85203ae210161c93)
+
+running 2 tests
+test final_hook_arguments_and_links_are_denied_without_touching_canaries ... ok
+test real_file_and_command_cycle_retains_failure_and_success ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+CODE-002 openai-api production tool cycle passed
+CODE-002 anthropic-api production tool cycle passed
+CODE-002 codex production tool cycle passed
+CODE-002 claude production tool cycle passed
+cairn: CODE-002: pass
+CODE-003 openai-api assistant, tool, and editor checkpoints passed
+CODE-003 anthropic-api assistant, tool, and editor checkpoints passed
+CODE-003 codex assistant, tool, and editor checkpoints passed
+CODE-003 claude assistant, tool, and editor checkpoints passed
+cairn: CODE-003: pass
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.07s
+     Running unittests src/lib.rs (target/debug/deps/demoncoder-fc576474d504f3f1)
+
+running 1 test
+test adapters::process::tests::interrupted_receive_retains_partial_json ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 1.01s
+
+CODE-004 openai-api correction acknowledged, old tools denied, corrected model input and effect passed
+CODE-004 anthropic-api correction acknowledged, old tools denied, corrected model input and effect passed
+CODE-004 codex correction acknowledged, old tools denied, corrected model input and effect passed
+CODE-004 claude correction acknowledged, old tools denied, corrected model input and effect passed
+cairn: CODE-004: pass
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.07s
+     Running unittests src/lib.rs (target/debug/deps/demoncoder-fc576474d504f3f1)
+
+running 1 test
+test adapters::process::tests::group_cleanup_covers_drop_and_exited_leader ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.05s
+
+CODE-005 openai-api provider stopped within two seconds; next prompt accepted
+CODE-005 openai-api tool stopped within two seconds; next prompt accepted
+CODE-005 anthropic-api provider stopped within two seconds; next prompt accepted
+CODE-005 anthropic-api tool stopped within two seconds; next prompt accepted
+CODE-005 codex provider stopped within two seconds; next prompt accepted
+CODE-005 codex tool stopped within two seconds; next prompt accepted
+CODE-005 claude provider stopped within two seconds; next prompt accepted
+CODE-005 claude tool stopped within two seconds; next prompt accepted
+cairn: CODE-005: pass
+CODE-006 openai-api completed preceding context, file extension, and verification passed
+CODE-006 openai-api cancelled preceding context, file extension, and verification passed
+CODE-006 anthropic-api completed preceding context, file extension, and verification passed
+CODE-006 anthropic-api cancelled preceding context, file extension, and verification passed
+CODE-006 codex completed preceding context, file extension, and verification passed
+CODE-006 codex cancelled preceding context, file extension, and verification passed
+CODE-006 claude completed preceding context, file extension, and verification passed
+CODE-006 claude cancelled preceding context, file extension, and verification passed
+cairn: CODE-006: pass
