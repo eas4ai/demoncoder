@@ -1,0 +1,20 @@
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.08s
+.
+----------------------------------------------------------------------
+Ran 1 test in 0.030s
+
+OK
+..
+----------------------------------------------------------------------
+Ran 2 tests in 0.001s
+
+OK
+   Compiling demoncoder v0.1.0 (/home/shawn/workspace2/demoncoder)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.39s
+test_native_api_sources_and_errors (__main__.Authentication.test_native_api_sources_and_errors) ... ok
+test_subscription_routes_and_errors (__main__.Authentication.test_subscription_routes_and_errors) ... ok
+
+----------------------------------------------------------------------
+Ran 2 tests in 1.086s
+
+OK
