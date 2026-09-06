@@ -11,4 +11,4 @@ Retain a bounded recent transcript with explicit expiry, coalesce streaming frag
 
 ## Realized by
 
-(none yet: recorded, not built)
+- 2f0daae832fdfbe08e2b0d9b4baef68b0e84410a Add bounded virtual chat history and terminal scrolling
