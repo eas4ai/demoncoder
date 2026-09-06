@@ -1,27 +1,35 @@
 use crate::{
     events::{Envelope, Event},
     session::Command,
+    transcript::{Position, Transcript},
 };
 use anyhow::{Context, Result, bail};
-use crossterm::event::{Event as InputEvent, EventStream, KeyCode, KeyEventKind, KeyModifiers};
+use crossterm::{
+    event::{
+        DisableMouseCapture, EnableMouseCapture, Event as InputEvent, EventStream, KeyCode,
+        KeyEventKind, KeyModifiers, MouseEventKind,
+    },
+    execute,
+};
 use futures_util::StreamExt;
 use ratatui::{
-    layout::{Constraint, Layout},
+    layout::{Constraint, Layout, Rect},
     style::{Color, Style},
-    widgets::{Block, Borders, Paragraph, Wrap},
+    text::Line,
+    widgets::{Block, Borders, Paragraph},
 };
-use std::{collections::VecDeque, io::IsTerminal, time::Duration};
+use std::{io::IsTerminal, time::Duration};
 use tokio::sync::mpsc;
 use unicode_width::UnicodeWidthStr;
 
 const MAX_INPUT_BYTES: usize = 64 * 1024;
-const MAX_TRANSCRIPT_BYTES: usize = 1024 * 1024;
 
 #[derive(Default)]
 struct View {
     input: String,
-    transcript: VecDeque<String>,
-    transcript_bytes: usize,
+    transcript: Transcript,
+    anchor: Option<Position>,
+    chat_area: Rect,
     status: String,
     usage: String,
     busy: bool,
@@ -29,14 +37,14 @@ struct View {
 
 impl View {
     fn append(&mut self, text: &str) {
-        let text = visible_text(text);
-        self.transcript_bytes += text.len();
-        self.transcript.push_back(text);
-        while self.transcript_bytes > MAX_TRANSCRIPT_BYTES {
-            if let Some(text) = self.transcript.pop_front() {
-                self.transcript_bytes -= text.len();
-            }
-        }
+        self.transcript.append(text);
+    }
+
+    fn scroll(&mut self, rows: i64) {
+        self.transcript.layout(self.chat_area.width);
+        self.anchor = self
+            .transcript
+            .scroll(self.anchor, rows, self.chat_area.height);
     }
 
     fn event(&mut self, envelope: Envelope) {
@@ -135,9 +143,29 @@ pub async fn run(
         bail!("DemonCoder requires an interactive terminal");
     }
     let mut terminal = ratatui::try_init().context("initialize terminal")?;
-    let result = run_view(connection, &commands, &mut events, &mut terminal).await;
+    let result = async {
+        let _mouse = MouseCapture::enable()?;
+        run_view(connection, &commands, &mut events, &mut terminal).await
+    }
+    .await;
     ratatui::restore();
     result
+}
+
+struct MouseCapture;
+
+impl MouseCapture {
+    fn enable() -> Result<Self> {
+        let guard = Self;
+        execute!(std::io::stdout(), EnableMouseCapture).context("enable chat mouse scrolling")?;
+        Ok(guard)
+    }
+}
+
+impl Drop for MouseCapture {
+    fn drop(&mut self) {
+        let _ = execute!(std::io::stdout(), DisableMouseCapture);
+    }
 }
 
 async fn run_view(
@@ -161,12 +189,19 @@ async fn run_view(
             },
             _ = refresh.tick() => {
                 terminal.draw(|frame| {
-                    let [header, body, editor, footer] = Layout::vertical([Constraint::Length(1), Constraint::Min(1), Constraint::Length(3), Constraint::Length(1)]).areas(frame.area());
+                    let [header, notice, body, editor, usage, help] = Layout::vertical([Constraint::Length(1), Constraint::Length(u16::from(view.transcript.expired())), Constraint::Min(1), Constraint::Length(3), Constraint::Length(1), Constraint::Length(1)]).areas(frame.area());
                     frame.render_widget(Paragraph::new(format!("DemonCoder · {} · {}", visible_text(connection), view.status)).style(Style::default().fg(Color::Cyan)), header);
-                    let transcript = view.transcript.iter().cloned().collect::<String>();
-                    let paragraph = Paragraph::new(transcript).wrap(Wrap { trim: false });
-                    let lines = paragraph.line_count(body.width).saturating_sub(body.height as usize);
-                    frame.render_widget(paragraph.scroll((lines.min(u16::MAX as usize) as u16, 0)), body);
+                    if view.transcript.expired() {
+                        frame.render_widget(Paragraph::new("Older chat expired · display retention limit").style(Style::default().fg(Color::Yellow)), notice);
+                    }
+                    view.chat_area = body;
+                    view.transcript.layout(body.width);
+                    if view.transcript.is_empty() {
+                        frame.render_widget(Paragraph::new("Conversation starts with your next prompt.").style(Style::default().fg(Color::DarkGray)), body);
+                    } else {
+                        let window = view.transcript.window(view.anchor, body.height);
+                        frame.render_widget(Paragraph::new(window.rows.into_iter().map(Line::raw).collect::<Vec<_>>()), body);
+                    }
                     let width = editor.width.saturating_sub(2) as usize;
                     let mut start = view.input.len();
                     let mut columns = 0;
@@ -177,8 +212,9 @@ async fn run_view(
                     }
                     let shown = &view.input[start..];
                     frame.render_widget(Paragraph::new(shown).block(Block::default().borders(Borders::ALL).title(if view.busy { "Correction · Enter sends · Esc cancels" } else { "Prompt · Enter sends" })), editor);
-                    if width > 0 { frame.set_cursor_position((editor.x + 1 + shown.width() as u16, editor.y + 1)); }
-                    frame.render_widget(Paragraph::new(format!("{} · Ctrl-Q quit", view.usage)).style(Style::default().fg(Color::DarkGray)), footer);
+                    if width > 0 && editor.height > 1 { frame.set_cursor_position((editor.x + 1 + shown.width() as u16, editor.y + 1)); }
+                    frame.render_widget(Paragraph::new(view.usage.as_str()).style(Style::default().fg(Color::DarkGray)), usage);
+                    frame.render_widget(Paragraph::new(if view.anchor.is_some() { "History · PgUp/PgDn scroll · End latest · Ctrl-Q quit" } else { "PgUp/PgDn or wheel scroll · Home oldest · Ctrl-Q quit" }).style(Style::default().fg(Color::DarkGray)), help);
                 }).context("draw terminal")?;
             },
             input = input_events.next() => {
@@ -191,9 +227,19 @@ async fn run_view(
                             else { view.input.clear(); }
                         }
                         KeyCode::Esc if view.busy => { commands.send(Command::Cancel).await.context("cancel session")?; }
+                        KeyCode::PageUp => view.scroll(-i64::from(view.chat_area.height.max(1))),
+                        KeyCode::PageDown => view.scroll(i64::from(view.chat_area.height.max(1))),
+                        KeyCode::Up => view.scroll(-1),
+                        KeyCode::Down => view.scroll(1),
+                        KeyCode::Home => {
+                            view.transcript.layout(view.chat_area.width);
+                            view.anchor = view.transcript.oldest();
+                        }
+                        KeyCode::End => view.anchor = None,
                         KeyCode::Enter if !view.input.trim().is_empty() => {
                             let prompt = std::mem::take(&mut view.input);
                             view.append(&format!("\nYou: {prompt}\n\n"));
+                            view.anchor = None;
                             view.status = if view.busy { "Queuing correction" } else { "Starting" }.into();
                             view.busy = true;
                             commands.send(Command::Prompt(prompt)).await.context("submit prompt")?;
@@ -209,9 +255,33 @@ async fn run_view(
                             view.input.push(c);
                         }
                     }
+                    InputEvent::Mouse(mouse) if view.chat_area.contains((mouse.column, mouse.row).into()) => {
+                        match mouse.kind {
+                            MouseEventKind::ScrollUp => view.scroll(-3),
+                            MouseEventKind::ScrollDown => view.scroll(3),
+                            _ => {}
+                        }
+                    }
                     _ => {}
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::View;
+
+    #[test]
+    fn empty_output_deltas_do_not_accumulate_transcript_entries() {
+        let mut view = View::default();
+        for _ in 0..100_000 {
+            view.append("");
+        }
+        assert!(
+            view.transcript.is_empty(),
+            "empty output accumulated transcript metadata"
+        );
     }
 }

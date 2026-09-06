@@ -126,20 +126,31 @@ coding task as correct.
 | Ctrl-C while working | Cancel the active turn. |
 | Ctrl-C while idle | Clear the input editor. |
 | Ctrl-Q | Quit the application and close the session runtime. |
+| Page Up / Page Down | Scroll backward or forward one page. |
+| Up / Down | Scroll one visual row. |
+| Mouse wheel over the chat | Scroll three visual rows. |
+| Home / End | Show the oldest retained chat / return to the latest output. |
 | Backspace | Remove the final character of the input. |
 | Ordinary text | Append to the input, including while output is streaming. |
 
 The header shows the named connection, execution mode, and status. The body shows
 assistant text, tool activity, original results, and Oracle decisions. The editor
 changes from `Prompt` to `Correction` while work runs. The footer displays usage
-when reported.
+when reported, with scrolling controls on a separate line. New output does not
+move a viewport that you have scrolled back; End resumes following live output.
+Submitting a new prompt also returns to the latest output. Resizing preserves the
+reading position. Hold Shift for terminal-emulator text selection where supported.
 
 The editor currently appends and backspaces at the end. Cursor navigation,
 command history, multiline composition, transcript search, and a connection picker
 inside an active session are not implemented. Choose another connection when
-starting a new application session. Input is bounded to 64 KiB and the visible
-transcript to 1 MiB. Older displayed transcript chunks are discarded at that
-limit; this is separate from the model's conversation history.
+starting a new application session. Input is bounded to 64 KiB. Retained chat is
+bounded to 1 MiB and 16,384 logical lines, including its line/index entry count.
+An ordered index locates the viewport; cached wrapping lets idle frames render
+only visible rows. Older displayed chat expires at the retention limit and the
+terminal shows an explicit notice. This bounds display storage, separately from
+the model's conversation history; it is not provider-context compaction or session
+recovery.
 
 ## How the coding loop works
 
@@ -205,7 +216,7 @@ flowchart TD
     Hooks --> Validate["Validate final identity, size, typed arguments, and access"]
     Validate --> Mode{"Execution mode"}
 
-    Mode -->|"Confined default"| Boundary["Rooted files or mandatory bubblewrap Bash"]
+    Mode -->|"Confined default"| Boundary["Normal reads/network; rooted mutations or bubblewrap Bash"]
     Boundary --> Execute["Execute admitted operation"]
 
     Mode -->|"Explicit --yolo"| ReviewNeeded{"Bash, outside file, or hard-linked file?"}
@@ -764,7 +775,7 @@ code. No configuration flag loads hooks or enables unrecognized plugins.
 | Oracle review | 60 seconds; bounded response and reason; errors block access. |
 | API transport | 15-second connect timeout; 120-second read timeout. These are not a total turn budget. |
 | Native Anthropic output request | `max_tokens: 4096` per response; no CLI/config override. |
-| Terminal input / visible transcript | 64 KiB / 1 MiB. |
+| Terminal input / retained chat | 64 KiB / up to 1 MiB and 16,384 logical lines; older chat expires visibly. |
 | Settings file | 64 KiB. |
 | Total session allocation | No cumulative token, spend, or wall-clock budget in this release. |
 
@@ -838,6 +849,7 @@ cargo fmt --check
 cargo clippy --locked --all-targets -- -D warnings
 cargo test --locked --all-targets
 bash scripts/check-startup.sh
+bash scripts/check-developer-usability.sh
 bash scripts/check-coding-session.sh
 bash scripts/check-connections.sh
 ```
@@ -900,7 +912,9 @@ specified by [AGENTS.md](AGENTS.md).
 | [tools.rs](src/tools.rs) | Four tools, typed hooks, final admission, confinement, host execution. |
 | [oracle.rs](src/oracle.rs) | Separate no-tools outside-access review. |
 | [events.rs](src/events.rs) | Attributed events and optional JSONL publication. |
-| [terminal.rs](src/terminal.rs) | Responsive editor, transcript, tool results, usage display. |
+| [terminal.rs](src/terminal.rs) | Responsive editor, scrolling, tool results, usage display. |
+| [transcript.rs](src/transcript.rs) | Bounded chat storage, cached wrapping, and visible-row lookup. |
+| [developer_access.rs](src/developer_access.rs) | Default read/network access, credential protection, and confined writes. |
 
 The [first coding-session commitment](docs/commitments/first-coding-session.md)
 completed on 2026-09-06 with passing evidence for all sixteen CODE/CONN requirements

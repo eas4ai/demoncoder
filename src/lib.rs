@@ -8,3 +8,4 @@ pub mod session;
 pub mod startup;
 pub mod terminal;
 pub mod tools;
+mod transcript;

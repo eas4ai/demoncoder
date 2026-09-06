@@ -21,6 +21,7 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"
 toml = "0.8"
 tempfile = "3"
 unicode-width = "0.2"
+unicode-segmentation = "1.13.3"
 
 [lints.rust]
 unsafe_code = "forbid"
