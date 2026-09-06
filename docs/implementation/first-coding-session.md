@@ -84,6 +84,15 @@ retains the complete version-1 session contract. Model and effort support
 remains adapter-specific; a provider rejection fails without switching
 models or retrying automatically.
 
+The usage footer shows the latest reported usage for the active turn. Each
+new turn starts with `usage unknown`; it cannot inherit an earlier turn's
+counts. Missing input, output, cached-token, and cost fields remain unknown.
+An explicitly reported zero stays zero. Claude's reported dollar cost is
+shown when present; the other adapters do not invent a price. Retained usage
+events carry the selected named connection. `tests/usage.py` streams known,
+partial, zero, and absent records through every production adapter and
+checks both the current terminal screen and retained events.
+
 The native HTTP paths require an API key from OPENAI_API_KEY or
 ANTHROPIC_API_KEY, or from private saved connection settings, and a model. The subscription subprocesses do not inherit either API
 key. Codex registers dynamic tools on thread/start. Claude registers an

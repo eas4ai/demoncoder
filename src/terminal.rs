@@ -45,6 +45,7 @@ impl View {
             Event::TurnStarted => {
                 self.busy = true;
                 self.status = "Working".into();
+                self.usage = "usage unknown".into();
             }
             Event::Text { text } => self.append(&text),
             Event::ToolStarted { call } => self.append(&format!("\n[{} {}]\n", call.name, call.id)),

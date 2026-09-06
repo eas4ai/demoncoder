@@ -13,3 +13,4 @@ python3 tests/authentication.py
 python3 tests/continuation.py --ownership
 cargo test --locked --test capabilities
 python3 tests/capability_rejection.py
+python3 tests/usage.py
