@@ -2,6 +2,7 @@
 """Protocol peers for the production CLI adapters; never launch a real model."""
 import json
 import os
+import subprocess
 from pathlib import Path
 import sys
 import time
@@ -60,6 +61,23 @@ def main():
         response = "SESSION-DONE"
         request_call({"id":token + "-bash", "name":"bash", "arguments":{"command": f"printf 'TOOL-WAIT-{token}\\n'; while ! test -f release-tool; do sleep 0.01; done; printf 'TOOL-DONE\\n'"}})
 
+    def start_cancellation(prompt):
+        nonlocal response
+        if prompt.startswith("NEXT-"):
+            response = "READY-" + prompt
+            complete()
+        elif Path("cancellation").read_text() == "tool":
+            from cancellation import held_tool
+            request_call(held_tool(prompt))
+        else:
+            # A real backend helper must stop along with its parent.
+            subprocess.Popen(["/usr/bin/python3", "-u", "-c",
+                "import time; f=open('heartbeat','a');\nwhile True: f.write('x'); f.flush(); time.sleep(.02)"])
+            if codex:
+                send({"method":"item/agentMessage/delta", "params":{"threadId":"fixture-thread", "turnId":turn, "delta":"CANCELWAIT-" + prompt}})
+            else:
+                send({"type":"stream_event", "session_id":"fixture-session", "event":{"type":"content_block_delta", "delta":{"type":"text_delta", "text":"CANCELWAIT-" + prompt}}})
+
     for raw in sys.stdin:
         message = json.loads(raw)
         if Path("responsiveness").exists() and ((codex and "result" in message) or (not codex and message.get("type") == "control_response")):
@@ -98,7 +116,8 @@ def main():
                 response = record(prompt)
                 send({"id": message["id"], "result": {"turn": {"id": turn, "status": "inProgress"}}})
                 send({"method": "turn/started", "params": {"threadId": "fixture-thread", "turn": {"id": turn}}})
-                if Path("responsiveness").exists(): start_responsive(prompt)
+                if Path("cancellation").exists(): start_cancellation(prompt)
+                elif Path("responsiveness").exists(): start_responsive(prompt)
                 elif Path("tool-cycle").exists():
                     cycle = Cycle(prompt, Path("wrong-edit").exists())
                     request_call(cycle.next())
@@ -111,7 +130,8 @@ def main():
             prompt = message["message"]["content"]
             response = record(prompt)
             send({"type": "system", "subtype": "init", "session_id": "fixture-session", "apiKeySource": "none"})
-            if Path("responsiveness").exists(): start_responsive(prompt)
+            if Path("cancellation").exists(): start_cancellation(prompt)
+            elif Path("responsiveness").exists(): start_responsive(prompt)
             elif Path("tool-cycle").exists():
                 cycle = Cycle(prompt, Path("wrong-edit").exists())
                 request_call(cycle.next())

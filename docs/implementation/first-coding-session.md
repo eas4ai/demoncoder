@@ -19,6 +19,15 @@ the correction in the same backend thread or session. A backend that does
 not complete this transition within 30 seconds reports an error. This is
 the steering transition limit; cancellation has its separate CODE-005 check.
 
+Escape cancels the active turn with a two-second grace period. Native HTTP
+requests are dropped and isolated Bash processes are killed with their PID
+namespace. External backend processes run in a separate process group;
+cleanup kills that group before reaping its leader, including on owner drop.
+The terminal remains open and accepts another prompt. Backend reattachment
+and conversation continuity after cancellation still await CODE-006.
+Closing a client request cannot establish the provider's billing outcome;
+unreported cost remains unknown.
+
 | Path | Responsibility |
 |---|---|
 | src/main.rs | Construct the selected session and own application shutdown. |
@@ -34,6 +43,7 @@ the steering transition limit; cancellation has its separate CODE-005 check.
 | tests/responsiveness.py | Observe output and editor input before provider and tool release. |
 | tests/steering.py | Submit a correction during a tool and inspect the next model input and actual effects. |
 | tests/steering_fixture.py | Queue superseded and late backend tool requests around interruption. |
+| tests/cancellation.py | Observe HTTP closure, terminated children, stopped file activity, and a new prompt after Escape. |
 | scripts/check-coding-session.sh | Build and report only requirements actually checked. |
 
 The first check submits an unpredictable prompt through the real editor,
@@ -43,7 +53,7 @@ case. The same test with a functioning peer is the corrected case. These
 fixtures do not prove current subscription service compatibility.
 
 After each action is committed and checked, Cairn selects the next one.
-Remaining CODE checks exercise child cancellation, continued context,
+Remaining CODE checks exercise continued context,
 confinement, and retained tool results.
 CONN checks include independent registration and live two-turn tasks for
 all four connections. Missing authentication remains unresolved evidence.

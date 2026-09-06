@@ -5,6 +5,7 @@ use std::{
 };
 
 use anyhow::{Context, Result, bail};
+use rustix::process::{Pid, Signal, kill_process_group};
 use serde_json::Value;
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
@@ -44,6 +45,7 @@ impl BackendProcess {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
+            .process_group(0)
             .kill_on_drop(true);
         for name in [
             "PATH",
@@ -112,23 +114,87 @@ impl BackendProcess {
     }
 
     pub async fn stop(&mut self) -> Result<()> {
-        match self.child.try_wait().context("inspect backend process")? {
-            Some(_) => Ok(()),
-            None => {
-                self.child.start_kill().context("stop backend process")?;
-                tokio::time::timeout(Duration::from_secs(2), self.child.wait())
-                    .await
-                    .context("backend did not stop within two seconds")?
-                    .context("reap backend process")?;
-                Ok(())
-            }
+        // Signal before reaping: the unreaped leader reserves this group ID,
+        // including when it has exited while one of its helpers is still alive.
+        self.kill_group().context("stop backend process group")?;
+        tokio::time::timeout(Duration::from_secs(2), self.child.wait())
+            .await
+            .context("backend did not stop within two seconds")?
+            .context("reap backend process")?;
+        Ok(())
+    }
+
+    fn kill_group(&self) -> rustix::io::Result<()> {
+        let Some(pid) = self.child.id().and_then(|id| Pid::from_raw(id as i32)) else {
+            return Ok(());
+        };
+        match kill_process_group(pid, Signal::KILL) {
+            Ok(()) | Err(rustix::io::Errno::SRCH) => Ok(()),
+            Err(error) => Err(error),
         }
+    }
+}
+
+impl Drop for BackendProcess {
+    fn drop(&mut self) {
+        // Emergency cleanup when an owning future is dropped. Normal close
+        // reports errors through stop(); Drop cannot return a failure.
+        let _ = self.kill_group();
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn running(pid: u32) -> bool {
+        std::fs::read_to_string(format!("/proc/{pid}/stat"))
+            .ok()
+            .and_then(|stat| {
+                stat.rsplit_once(')')
+                    .map(|(_, fields)| !fields.starts_with(" Z "))
+            })
+            .unwrap_or(false)
+    }
+
+    #[tokio::test]
+    async fn group_cleanup_covers_drop_and_exited_leader() -> Result<()> {
+        for drop_owner in [false, true] {
+            let workspace = tempfile::tempdir()?;
+            let script = "import json,subprocess; child=subprocess.Popen(['/usr/bin/sleep','60']); print(json.dumps({'helper':child.pid}),flush=True)";
+            let mut process = BackendProcess::spawn(
+                Path::new("/usr/bin/python3"),
+                &["-u".into(), "-c".into(), script.into()],
+                workspace.path(),
+                &[],
+            )?;
+            let helper = process.receive().await?["helper"].as_u64().unwrap() as u32;
+            let leader = process.child.id().unwrap();
+            assert!(running(helper));
+            // Do not reap the exited leader: its PID still reserves our group.
+            tokio::time::timeout(Duration::from_secs(2), async {
+                while running(leader) {
+                    tokio::time::sleep(Duration::from_millis(5)).await;
+                }
+            })
+            .await?;
+            if drop_owner {
+                drop(process);
+            } else {
+                process.stop().await?;
+                // A second close must not signal a stale numeric process ID.
+                process.stop().await?;
+            }
+            tokio::time::timeout(Duration::from_secs(2), async {
+                while running(helper) {
+                    tokio::time::sleep(Duration::from_millis(5)).await;
+                }
+            })
+            .await
+            .context("backend helper survived owner cleanup")?;
+        }
+        Ok(())
+    }
 
     #[tokio::test]
     async fn interrupted_receive_retains_partial_json() -> Result<()> {
