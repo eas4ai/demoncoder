@@ -11,4 +11,4 @@ Add guided first-start setup and an explicit setup command for saved connections
 
 ## Realized by
 
-7d46564d7555f7eb976aa2943cabe7aff0d0c344 — guided private setup, explicit host tools, no-tools Oracle admission, and behavioral checks.
+7d46564d7555f7eb976aa2943cabe7aff0d0c344 Guide first setup and guard explicit host access with the Oracle
