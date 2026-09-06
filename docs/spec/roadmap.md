@@ -1,6 +1,6 @@
 # Roadmap
 
-Current: developer-usability
+Current: output-limits
 
 The developer selected the usable coding session as the first commitment
 and agreed to use Cairn on 2026-09-06. The developer confirmed its detailed
@@ -11,6 +11,7 @@ requirements and falsifiers together on 2026-09-06.
 | 1 | first-coding-session | A responsive terminal coding session with four tools, hooks, cancellation, continued context, and the four requested connections. |
 | 1a | startup-fixes | Repair existing home-directory startup and verify help, version, and default workspace behavior. |
 | 1b | developer-usability | Scrollable bounded chat and practical default access for coding and repository assessment. |
+| 1c | output-limits | Use model output capabilities and explicit settings; reject truncated completion. |
 | 2 | verification-review-recovery | Durable verification, bounded correction and review, cumulative allocations, and safe interrupted-session recovery. |
 | 3 | assignable-subagents | Visible agents with independent model assignments, bounded ownership, cancellation, and change integration. |
 | 4 | advanced-orchestration | Concurrent and dependent assignments with the agreed supervision and correction policies. |

@@ -37,6 +37,7 @@ responsible for choosing sound requirements and meaningful checks.
 | [connections.md](connections.md) | CONN | Provider selection, authentication, adapter boundaries, and extensibility. |
 | [startup.md](startup.md) | START | Help, version, launch-directory selection, and safe settings-directory repair. |
 | [developer-usability.md](developer-usability.md) | USABLE | Scrollable bounded chat and practical read, network, and coding-tool access. |
+| [output-limits.md](output-limits.md) | OUTPUT | Model output settings, discovery and incomplete-response handling. |
 | [roadmap.md](roadmap.md) | — | The selected commitment and intended delivery sequence. |
 
 The broader [design narrative](../spec.md) retains product direction,
