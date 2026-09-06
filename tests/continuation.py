@@ -16,6 +16,7 @@ import termios
 import threading
 import time
 import uuid
+from collections import Counter
 
 sys.dont_write_bytecode = True
 from terminal_session import BINARY, FIXTURE, until
@@ -110,6 +111,9 @@ def case(adapter, server):
         (workspace / "continuation").write_text("cancel" if server.state["cancel"] else "complete")
         if server.forget:
             (workspace / "forget-context").touch()
+        corrupt_resume = getattr(server, "corrupt_resume", False)
+        if corrupt_resume:
+            (workspace / "corrupt-resume").touch()
         settings = f'default_connection = "selected"\n[connections.selected]\nadapter = "{adapter}"\nmodel = "fixture-model"\n'
         native = adapter in ("openai-api", "anthropic-api")
         if native:
@@ -136,6 +140,19 @@ def case(adapter, server):
                 os.write(master, b"\x1b")
             wait_ending(master, process, output, log, "cancelled" if server.state["cancel"] else "complete")
             os.write(master, SECOND_PROMPT.encode() + b"\r")
+            if corrupt_resume:
+                wait_ending(master, process, output, log, "failed")
+                records = [json.loads(line)["event"] for line in log.read_text().splitlines()]
+                errors = [event["message"] for event in records if event["type"] == "error"]
+                expected = "Codex resumed a different thread" if adapter == "codex" else "Claude event belongs to a different session"
+                assert expected in errors, errors
+                assert not (workspace / "unrelated.txt").exists()
+                assert (workspace / "generated.py").read_text() == source
+                assert not any(event["type"] == "tool_started" and "unrelated" in event["call"]["id"] for event in records)
+                os.write(master, b"\x11")
+                process.wait(timeout=5)
+                assert process.returncode == 0
+                return
             until(master, process, output, ("CONTINUED-" + secret).encode(), timeout=5)
             assert not server.errors, server.errors
             assert (workspace / "generated.py").read_text() == source.replace("return 31", "return 38")
@@ -145,6 +162,17 @@ def case(adapter, server):
             assert results["verify"]["success"] and results["verify"]["exit_code"] == 0
             audit = server.audit if native else json.loads((workspace / "continuation-audit.json").read_text())["create_result"]
             assert audit == results["create"], "completed result changed across turns"
+            owners = [event["owner"] for event in records if event["type"] == "ready"]
+            assert owners == ["demoncoder" if native else adapter], owners
+            started = Counter(event["call"]["id"].removeprefix("claude-mcp-") for event in records if event["type"] == "tool_started")
+            finished = Counter(event["result"]["call_id"].removeprefix("claude-mcp-") for event in records if event["type"] == "tool_finished")
+            for call in ("create", "read-back", "extend", "verify"):
+                assert started[call] == finished[call] == 1, "a completed tool was duplicated or lost"
+            assert not started["unstarted"]
+            if not native:
+                backend = json.loads((workspace / "continuation-audit.json").read_text())
+                assert backend["identity"] == ("fixture-thread" if adapter == "codex" else "fixture-session")
+                assert backend["resumed"] == server.state["cancel"]
             os.write(master, b"\x11")
             process.wait(timeout=5)
             assert process.returncode == 0
@@ -165,6 +193,7 @@ def case(adapter, server):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--fault-forget-context", action="store_true")
+    parser.add_argument("--ownership", action="store_true")
     args = parser.parse_args()
     failed = []
     for adapter in ["openai-api", "anthropic-api", "codex", "claude"]:
@@ -187,6 +216,17 @@ def main():
                 server.shutdown()
                 server.server_close()
                 thread.join(timeout=2)
+    if args.ownership:
+        from types import SimpleNamespace
+        for adapter in ("codex", "claude"):
+            server = SimpleNamespace(state=new_state(True), forget=False, errors=[], audit=None, corrupt_resume=True)
+            try:
+                case(adapter, server)
+                print("CONN-004", adapter, "rejected a wrong resumed identity before its queued tool", flush=True)
+            except (AssertionError, OSError, subprocess.SubprocessError) as error:
+                failed.append((adapter, "wrong-resume"))
+                print("CONN-004", adapter, "wrong-resume FAILED:", str(error), flush=True)
+        print("cairn: CONN-004: " + ("fail" if failed else "pass"))
     print("cairn: CODE-006: " + ("fail" if failed else "pass"))
     return int(bool(failed))
 

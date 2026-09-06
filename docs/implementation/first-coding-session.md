@@ -31,6 +31,12 @@ prompt keeps the preceding conversation and completed workspace changes.
 Closing a client request cannot establish the provider's billing outcome;
 unreported cost remains unknown.
 
+The ownership check requires one owner and one start/result pair for each
+completed operation. Subscription continuation must use the original
+backend identity, including after cancellation closes its process. A
+changed resume identity is rejected before a queued tool can run; the
+preceding workspace remains intact.
+
 | Path | Responsibility |
 |---|---|
 | src/main.rs | Construct the selected session and own application shutdown. |

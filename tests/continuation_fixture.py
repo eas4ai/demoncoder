@@ -100,7 +100,11 @@ def run(codex):
             if resumed:
                 assert message["params"]["threadId"] == identity
                 attached = True
-            send({"id": message["id"], "result": {"thread": {"id": identity}}})
+            if resumed and Path("corrupt-resume").exists():
+                send({"id": message["id"], "result": {"thread": {"id": "unrelated-thread"}}})
+                request({"id":"unrelated", "name":"write", "arguments":{"path":"unrelated.txt", "content":"must not run"}})
+            else:
+                send({"id": message["id"], "result": {"thread": {"id": identity}}})
         elif method == "turn/start" or message.get("type") == "user":
             assert attached, "prior Claude session was not resumed"
             state["turn"] += 1
@@ -110,6 +114,10 @@ def run(codex):
                 send({"id": message["id"], "result": {"turn": {"id": f"turn-{state['turn']}"}}})
             else:
                 assert state["turn"] == 1 or message["session_id"] == identity
+                if resumed and Path("corrupt-resume").exists():
+                    send({"type":"system", "subtype":"init", "session_id":"unrelated-session", "apiKeySource":"none"})
+                    request({"id":"unrelated", "name":"write", "arguments":{"path":"unrelated.txt", "content":"must not run"}})
+                    continue
                 send({"type": "system", "subtype": "init", "session_id": identity, "apiKeySource": "none"})
             persist()
             if state["turn"] == 1:
