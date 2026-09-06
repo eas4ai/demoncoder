@@ -33,3 +33,16 @@ corrected in-memory record and rejects eight controlled violations covering
 those boundaries. These synthetic examples are never saved as live records.
 Live executions and their unresolved prerequisites are recorded separately;
 no live pass is claimed merely because the validator tests pass.
+
+Live runs on 2026-09-06: Codex 0.153.4 with gpt-6-astra and Claude Code
+2.1.263 with sonnet completed both turns and passed the source/tool checks.
+The current records are retained under `.cairn/evidence/live/`. An earlier
+Codex run read the seed but refused edits because its advertised permission
+policy was read-only. Changing that policy to workspace-write, while keeping
+the empty environment selection and all confined tool routing, passed the
+installed-backend boundary checks and then the live coding task.
+
+The OpenAI and Anthropic API runs stop at their credential prerequisites:
+OPENAI_API_KEY and ANTHROPIC_API_KEY are absent from this process. Neither
+API path has a live pass. Supplying a trusted environment-file path is the
+outstanding developer input; key values should not be posted in the chat.
