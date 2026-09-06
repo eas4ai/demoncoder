@@ -11,4 +11,4 @@ Load a private TOML settings file under ~/.demoncoder/ by default, with --config
 
 ## Realized by
 
-src/config.rs and the four src/adapters implementations; tests/configuration.py and the home/override terminal tool-cycle cases.
+- b72536233a72739b9c23e386747ec0a88846997d Load private home credentials and pass selected model effort to each connection
