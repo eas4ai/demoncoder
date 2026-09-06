@@ -1,6 +1,9 @@
 # First coding session implementation review
 
-Reviewed: c6522bd6f570758d70fe3d7a7ad4813836f45302
+commitment: first-coding-session
+commit: c6522bd6f570758d70fe3d7a7ad4813836f45302
+findings:
+  - none: no open findings within this commitment
 Reviewer: Codex
 Date: 2026-09-06
 Status: complete
