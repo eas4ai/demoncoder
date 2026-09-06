@@ -123,4 +123,3 @@ communication remain part of the target core throughout that work.
 
 This ordering is a proposal for developer selection. The current completed
 commitment is unchanged, and later product goals remain on the roadmap.
-
