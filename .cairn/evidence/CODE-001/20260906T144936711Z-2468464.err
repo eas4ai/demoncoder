@@ -1,0 +1,34 @@
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.07s
+   Compiling demoncoder v0.1.0 (/home/shawn/workspace2/demoncoder)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.40s
+     Running tests/tools.rs (target/debug/deps/tools-04063155f2154d6d)
+   Compiling demoncoder v0.1.0 (/home/shawn/workspace2/demoncoder)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.15s
+     Running unittests src/lib.rs (target/debug/deps/demoncoder-fc576474d504f3f1)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.07s
+     Running unittests src/lib.rs (target/debug/deps/demoncoder-fc576474d504f3f1)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s
+     Running unittests src/lib.rs (target/debug/deps/demoncoder-fc576474d504f3f1)
+...
+----------------------------------------------------------------------
+Ran 3 tests in 0.000s
+
+OK
+test_cancelled_key_input_restores_terminal_and_saves_nothing (__main__.Onboarding.test_cancelled_key_input_restores_terminal_and_saves_nothing) ... ok
+test_first_run_and_repeated_run_use_saved_choices (__main__.Onboarding.test_first_run_and_repeated_run_use_saved_choices) ... ok
+test_key_input_is_not_echoed_and_is_saved_privately (__main__.Onboarding.test_key_input_is_not_echoed_and_is_saved_privately) ... ok
+
+----------------------------------------------------------------------
+Ran 3 tests in 0.143s
+
+OK
+   Compiling demoncoder v0.1.0 (/home/shawn/workspace2/demoncoder)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.44s
+     Running tests/host_guard.rs (target/debug/deps/host_guard-cfd2bcb126053dc1)
+test_all_connections_execute_host_tools_through_the_oracle (__main__.HostAccess.test_all_connections_execute_host_tools_through_the_oracle) ... ok
+test_outside_paths_and_oracle_failures (__main__.HostAccess.test_outside_paths_and_oracle_failures) ... ok
+
+----------------------------------------------------------------------
+Ran 2 tests in 5.918s
+
+OK
