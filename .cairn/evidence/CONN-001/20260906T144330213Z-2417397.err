@@ -1,0 +1,12 @@
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.07s
+.
+----------------------------------------------------------------------
+Ran 1 test in 0.030s
+
+OK
+..
+----------------------------------------------------------------------
+Ran 2 tests in 0.001s
+
+OK
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.07s

@@ -1,0 +1,34 @@
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.07s
+CODE-002 openai-api production tool cycle passed
+CODE-002 anthropic-api production tool cycle passed
+CODE-002 codex production tool cycle passed
+CODE-002 claude production tool cycle passed
+cairn: CODE-002: pass
+.
+----------------------------------------------------------------------
+Ran 1 test in 0.030s
+
+OK
+CODE-002 openai-api production tool cycle passed
+CODE-002 anthropic-api production tool cycle passed
+CODE-002 codex production tool cycle passed
+CODE-002 claude production tool cycle passed
+cairn: CODE-002: pass
+CODE-002 openai-api production tool cycle passed
+CODE-002 anthropic-api production tool cycle passed
+CODE-002 codex production tool cycle passed
+CODE-002 claude production tool cycle passed
+cairn: CODE-002: pass
+..
+----------------------------------------------------------------------
+Ran 2 tests in 0.001s
+
+OK
+CONN-001 openai-api current live two-turn record passed
+CONN-001 anthropic-api current live two-turn record passed
+CONN-001 codex current live two-turn record passed
+CONN-001 claude current live two-turn record passed
+cairn: CONN-001: pass
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.07s
+CONN-002 independent registration, configured selection, native read, and terminal rendering passed
+cairn: CONN-002: pass
