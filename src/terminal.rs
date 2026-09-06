@@ -147,7 +147,7 @@ async fn run_view(
                         start = index; columns += w;
                     }
                     let shown = &view.input[start..];
-                    frame.render_widget(Paragraph::new(shown).block(Block::default().borders(Borders::ALL).title(if view.busy { "Draft · Esc cancels work" } else { "Prompt · Enter sends" })), editor);
+                    frame.render_widget(Paragraph::new(shown).block(Block::default().borders(Borders::ALL).title(if view.busy { "Correction · Enter sends · Esc cancels" } else { "Prompt · Enter sends" })), editor);
                     if width > 0 { frame.set_cursor_position((editor.x + 1 + shown.width() as u16, editor.y + 1)); }
                     frame.render_widget(Paragraph::new(format!("{} · Ctrl-Q quit", view.usage)).style(Style::default().fg(Color::DarkGray)), footer);
                 }).context("draw terminal")?;
@@ -162,11 +162,11 @@ async fn run_view(
                             else { view.input.clear(); }
                         }
                         KeyCode::Esc if view.busy => { commands.send(Command::Cancel).await.context("cancel session")?; }
-                        KeyCode::Enter if !view.input.trim().is_empty() && !view.busy => {
+                        KeyCode::Enter if !view.input.trim().is_empty() => {
                             let prompt = std::mem::take(&mut view.input);
                             view.append(&format!("\nYou: {prompt}\n\n"));
+                            view.status = if view.busy { "Queuing correction" } else { "Starting" }.into();
                             view.busy = true;
-                            view.status = "Starting".into();
                             commands.send(Command::Prompt(prompt)).await.context("submit prompt")?;
                         }
                         KeyCode::Backspace => { view.input.pop(); }

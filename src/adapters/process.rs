@@ -15,6 +15,7 @@ pub struct BackendProcess {
     child: Child,
     stdin: ChildStdin,
     stdout: BufReader<ChildStdout>,
+    partial: Vec<u8>,
 }
 
 pub fn executable(configured: Option<&Path>, default: &str) -> Result<PathBuf> {
@@ -68,6 +69,7 @@ impl BackendProcess {
             child,
             stdin,
             stdout,
+            partial: Vec::new(),
         })
     }
 
@@ -81,7 +83,8 @@ impl BackendProcess {
     }
 
     pub async fn receive(&mut self) -> Result<Value> {
-        let mut line = Vec::new();
+        // Steering can cancel this future between reads. Keep consumed bytes
+        // on the connection so its next receive resumes the same JSON frame.
         loop {
             let bytes = self
                 .stdout
@@ -95,14 +98,14 @@ impl BackendProcess {
                 .iter()
                 .position(|b| *b == b'\n')
                 .map_or(bytes.len(), |end| end + 1);
-            if line.len() + count > 4 * 1024 * 1024 {
+            if self.partial.len() + count > 4 * 1024 * 1024 {
                 bail!("backend response exceeds 4 MiB");
             }
             let complete = bytes[count - 1] == b'\n';
-            line.extend_from_slice(&bytes[..count]);
+            self.partial.extend_from_slice(&bytes[..count]);
             self.stdout.consume(count);
             if complete {
-                return serde_json::from_slice(&line)
+                return serde_json::from_slice(&std::mem::take(&mut self.partial))
                     .map_err(|_| anyhow::anyhow!("invalid backend JSON response"));
             }
         }
@@ -120,5 +123,35 @@ impl BackendProcess {
                 Ok(())
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn interrupted_receive_retains_partial_json() -> Result<()> {
+        let workspace = tempfile::tempdir()?;
+        let script = "import sys; print('{}', flush=True); sys.stdout.write('{\"method\":'); sys.stdout.flush(); input(); print('\"retained\"}', flush=True)";
+        let mut process = BackendProcess::spawn(
+            Path::new("/usr/bin/python3"),
+            &["-u".into(), "-c".into(), script.into()],
+            workspace.path(),
+            &[],
+        )?;
+        assert_eq!(process.receive().await?, serde_json::json!({}));
+        assert!(
+            tokio::time::timeout(Duration::from_secs(1), process.receive())
+                .await
+                .is_err()
+        );
+        assert_eq!(process.partial, b"{\"method\":");
+        process.send(serde_json::json!({"release": true})).await?;
+        assert_eq!(
+            process.receive().await?,
+            serde_json::json!({"method": "retained"})
+        );
+        process.stop().await
     }
 }

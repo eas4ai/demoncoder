@@ -18,6 +18,7 @@ struct Claude {
     process: Option<BackendProcess>,
     session: Option<String>,
     tools: ToolExecutor,
+    next_control_id: u64,
 }
 
 pub fn open(config: &Connection, workspace: &Path) -> Result<Box<dyn Session>> {
@@ -31,11 +32,17 @@ pub fn open(config: &Connection, workspace: &Path) -> Result<Box<dyn Session>> {
         process: None,
         session: None,
         tools: ToolExecutor::new(workspace)?,
+        next_control_id: 1,
     }))
 }
 
 impl Claude {
-    async fn run_turn(&mut self, prompt: String, events: &EventSink) -> Result<TurnEnd> {
+    async fn run_turn(
+        &mut self,
+        mut prompt: String,
+        steering: &mut mpsc::Receiver<String>,
+        events: &EventSink,
+    ) -> Result<TurnEnd> {
         if self.process.is_none() {
             let mut args: Vec<String> = [
                 "-p",
@@ -85,7 +92,7 @@ impl Claude {
                         return Ok::<(), anyhow::Error>(());
                     }
                     if message["type"] == "control_request" {
-                        handle_control(&self.tools, process, &message, events).await?;
+                        handle_control(&self.tools, process, &message, events, false).await?;
                     }
                 }
             })
@@ -96,63 +103,116 @@ impl Claude {
             .process
             .as_mut()
             .context("Claude process unavailable")?;
-        process.send(json!({"type":"user","message":{"role":"user","content":prompt},"parent_tool_use_id":null,"session_id":self.session.as_deref().unwrap_or("")})).await?;
-        loop {
-            let message = process.receive().await?;
-            if let Some(session) = message["session_id"].as_str().filter(|id| !id.is_empty()) {
-                if self
-                    .session
-                    .as_deref()
-                    .is_some_and(|current| current != session)
+        'turns: loop {
+            process.send(json!({"type":"user","message":{"role":"user","content":prompt},"parent_tool_use_id":null,"session_id":self.session.as_deref().unwrap_or("")})).await?;
+            let mut corrections = Vec::new();
+            let mut interrupting = false;
+            let interrupt_id = format!("steering-{}", self.next_control_id);
+            self.next_control_id += 1;
+            let mut interrupt_ack = false;
+            let mut completed = false;
+            let mut deadline = None;
+            loop {
+                while let Ok(text) = steering.try_recv() {
+                    corrections.push(text);
+                }
+                if !corrections.is_empty() && !interrupting {
+                    process.send(json!({"type":"control_request","request_id":interrupt_id,"request":{"subtype":"interrupt"}})).await?;
+                    interrupting = true;
+                    deadline =
+                        Some(tokio::time::Instant::now() + std::time::Duration::from_secs(30));
+                }
+                if completed && interrupt_ack {
+                    prompt = corrections.join("\n\n");
+                    continue 'turns;
+                }
+                let message = tokio::select! {
+                    biased;
+                    Some(text) = steering.recv() => { corrections.push(text); continue; },
+                    result = process.receive() => result?,
+                    _ = async { match deadline {
+                        Some(at) => tokio::time::sleep_until(at).await,
+                        None => std::future::pending().await,
+                    }} => bail!("Claude did not finish the superseded turn within 30 seconds"),
+                };
+                if message["type"] == "control_response"
+                    && message["response"]["request_id"] == interrupt_id
                 {
-                    bail!("Claude event belongs to a different session");
+                    anyhow::ensure!(
+                        interrupting && message["response"]["subtype"] == "success",
+                        "Claude rejected steering interruption"
+                    );
+                    interrupt_ack = true;
+                    continue;
                 }
-                self.session = Some(session.into());
-            }
-            match message["type"].as_str() {
-                Some("system") if message["subtype"] == "init" => {
-                    if let Some(source) = message["apiKeySource"].as_str()
-                        && source != "none"
+                if let Some(session) = message["session_id"].as_str().filter(|id| !id.is_empty()) {
+                    if self
+                        .session
+                        .as_deref()
+                        .is_some_and(|current| current != session)
                     {
-                        bail!(
-                            "Claude selected API-key authentication for a subscription connection"
-                        );
+                        bail!("Claude event belongs to a different session");
                     }
+                    self.session = Some(session.into());
                 }
-                Some("stream_event") => {
-                    let delta = &message["event"]["delta"];
-                    if delta["type"] == "text_delta" {
+                match message["type"].as_str() {
+                    Some("system") if message["subtype"] == "init" => {
+                        if let Some(source) = message["apiKeySource"].as_str()
+                            && source != "none"
+                        {
+                            bail!(
+                                "Claude selected API-key authentication for a subscription connection"
+                            );
+                        }
+                    }
+                    Some("stream_event") => {
+                        let delta = &message["event"]["delta"];
+                        if delta["type"] == "text_delta" && corrections.is_empty() {
+                            events
+                                .emit(Event::Text {
+                                    text: delta["text"]
+                                        .as_str()
+                                        .context("Claude text delta missing")?
+                                        .into(),
+                                })
+                                .await?;
+                        }
+                    }
+                    Some("result") => {
+                        if !interrupting
+                            && (message["is_error"] == true || message["subtype"] != "success")
+                        {
+                            bail!(
+                                "Claude turn failed; check subscription login and model availability"
+                            );
+                        }
+                        let usage = &message["usage"];
                         events
-                            .emit(Event::Text {
-                                text: delta["text"]
-                                    .as_str()
-                                    .context("Claude text delta missing")?
-                                    .into(),
+                            .emit(Event::Usage {
+                                input: usage["input_tokens"].as_u64(),
+                                output: usage["output_tokens"].as_u64(),
+                                cached: usage["cache_read_input_tokens"].as_u64(),
+                                cost_usd: message["total_cost_usd"].as_f64(),
                             })
                             .await?;
+                        if interrupting {
+                            completed = true;
+                        } else {
+                            return Ok(TurnEnd::Complete);
+                        }
                     }
-                }
-                Some("result") => {
-                    if message["is_error"] == true || message["subtype"] != "success" {
-                        bail!(
-                            "Claude turn failed; check subscription login and model availability"
-                        );
-                    }
-                    let usage = &message["usage"];
-                    events
-                        .emit(Event::Usage {
-                            input: usage["input_tokens"].as_u64(),
-                            output: usage["output_tokens"].as_u64(),
-                            cached: usage["cache_read_input_tokens"].as_u64(),
-                            cost_usd: message["total_cost_usd"].as_f64(),
-                        })
+                    Some("control_request") => {
+                        handle_control(
+                            &self.tools,
+                            process,
+                            &message,
+                            events,
+                            corrections.is_empty(),
+                        )
                         .await?;
-                    return Ok(TurnEnd::Complete);
+                    }
+                    _ => {}
                 }
-                Some("control_request") => {
-                    handle_control(&self.tools, process, &message, events).await?;
-                }
-                _ => {}
             }
         }
     }
@@ -163,6 +223,7 @@ async fn handle_control(
     process: &mut BackendProcess,
     message: &Value,
     events: &EventSink,
+    admit_tools: bool,
 ) -> Result<()> {
     let request = &message["request"];
     let response = match request["subtype"].as_str() {
@@ -171,7 +232,7 @@ async fn handle_control(
             let allowed = ["read", "write", "edit", "bash"]
                 .iter()
                 .any(|tool| name == format!("mcp__demoncoder__{tool}"));
-            if allowed {
+            if allowed && admit_tools {
                 json!({"behavior":"allow", "updatedInput":request["input"]})
             } else {
                 json!({"behavior":"deny", "message":"Only DemonCoder's four coding tools are authorized."})
@@ -188,6 +249,9 @@ async fn handle_control(
                         "name":tool["name"], "description":tool["description"], "inputSchema":tool["input_schema"],
                     })).collect();
                     json!({"tools":definitions})
+                }
+                Some("tools/call") if !admit_tools => {
+                    json!({"content":[{"type":"text","text":"Not executed: no active authorized turn or developer correction pending."}],"isError":true})
                 }
                 Some("tools/call") => {
                     let result = tools
@@ -236,8 +300,9 @@ impl Session for Claude {
         commands: &mut mpsc::Receiver<Command>,
         events: &EventSink,
     ) -> Result<TurnEnd> {
+        let (corrections, mut steering) = mpsc::channel(32);
         let outcome = {
-            let run = self.run_turn(prompt, events);
+            let run = self.run_turn(prompt, &mut steering, events);
             tokio::pin!(run);
             loop {
                 tokio::select! {
@@ -245,7 +310,12 @@ impl Session for Claude {
                     command = commands.recv() => match command {
                         Some(Command::Cancel) => break Ok(TurnEnd::Cancelled),
                         Some(Command::Shutdown) | None => break Ok(TurnEnd::Shutdown),
-                        Some(Command::Prompt(_)) => events.emit(Event::Error { message:"steering is not implemented for this connection yet".into() }).await?,
+                        Some(Command::Prompt(text)) => {
+                            match corrections.try_send(text) {
+                                Ok(()) => events.emit(Event::Text { text:"\n[Correction queued for the next tool boundary]\n".into() }).await?,
+                                Err(_) => events.emit(Event::Error { message:"Correction queue is full; wait for the current tool boundary and submit again.".into() }).await?,
+                            }
+                        },
                     },
                     result = &mut run => break result,
                 }

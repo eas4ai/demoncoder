@@ -124,106 +124,171 @@ impl Codex {
         Ok(())
     }
 
-    async fn run_turn(&mut self, prompt: String, events: &EventSink) -> Result<TurnEnd> {
+    async fn run_turn(
+        &mut self,
+        mut prompt: String,
+        steering: &mut mpsc::Receiver<String>,
+        events: &EventSink,
+    ) -> Result<TurnEnd> {
         self.connect().await?;
-        let id = self.next_id;
-        self.next_id += 1;
-        let process = self.process.as_mut().context("Codex process unavailable")?;
-        process
-            .send(json!({"id":id,"method":"turn/start","params":{
-                "threadId":self.thread,"input":[{"type":"text","text":prompt}],
-            }}))
-            .await?;
-        let mut turn: Option<String> = None;
-        loop {
-            let message = process.receive().await?;
-            if message["id"] == id && message.get("error").is_some() {
-                bail!("Codex rejected the turn");
-            }
-            if message["id"] == id {
-                turn = message["result"]["turn"]["id"].as_str().map(str::to_owned);
-            }
-            let params = &message["params"];
-            if let Some(thread) = params["threadId"].as_str()
-                && Some(thread) != self.thread.as_deref()
-            {
-                bail!("Codex event belongs to a different thread");
-            }
-            match message["method"].as_str() {
-                Some("item/tool/call") => {
-                    anyhow::ensure!(
-                        params["turnId"].as_str() == turn.as_deref() && turn.is_some(),
-                        "Codex tool belongs to another turn"
-                    );
-                    anyhow::ensure!(
-                        params["namespace"].is_null(),
-                        "unknown Codex tool namespace"
-                    );
-                    let result = self
-                        .tools
-                        .execute(
-                            ToolCall {
-                                id: params["callId"]
-                                    .as_str()
-                                    .context("missing Codex tool call ID")?
-                                    .into(),
-                                name: params["tool"]
-                                    .as_str()
-                                    .context("missing Codex tool name")?
-                                    .into(),
-                                arguments: params["arguments"].clone(),
-                            },
-                            events,
-                        )
+        'turns: loop {
+            let id = self.next_id;
+            self.next_id += 1;
+            let process = self.process.as_mut().context("Codex process unavailable")?;
+            process
+                .send(json!({"id":id,"method":"turn/start","params":{
+                    "threadId":self.thread,"input":[{"type":"text","text":prompt}],
+                }}))
+                .await?;
+            let mut turn: Option<String> = None;
+            let mut corrections = Vec::new();
+            let mut interrupt_id = None;
+            let mut interrupt_ack = false;
+            let mut completed = false;
+            let mut deadline = None;
+            loop {
+                while let Ok(text) = steering.try_recv() {
+                    corrections.push(text);
+                }
+                if !corrections.is_empty() && turn.is_some() && interrupt_id.is_none() {
+                    let request = self.next_id;
+                    self.next_id += 1;
+                    process
+                        .send(json!({"id":request,"method":"turn/interrupt","params":{
+                            "threadId":self.thread,"turnId":turn,
+                        }}))
                         .await?;
-                    process.send(json!({"id":message["id"],"result":{
-                        "success":result.success,"contentItems":[{"type":"inputText","text":serde_json::to_string(&result)?}],
-                    }})).await?;
+                    interrupt_id = Some(request);
+                    deadline =
+                        Some(tokio::time::Instant::now() + std::time::Duration::from_secs(30));
                 }
-                Some("turn/started") => {
-                    let started = params["turn"]["id"]
-                        .as_str()
-                        .context("Codex turn identifier missing")?;
-                    if turn.as_deref().is_some_and(|current| current != started) {
-                        bail!("Codex started an unrelated turn");
+                if completed && interrupt_ack {
+                    prompt = corrections.join("\n\n");
+                    continue 'turns;
+                }
+                let message = tokio::select! {
+                    biased;
+                    Some(text) = steering.recv() => { corrections.push(text); continue; },
+                    result = process.receive() => result?,
+                    _ = async { match deadline {
+                        Some(at) => tokio::time::sleep_until(at).await,
+                        None => std::future::pending().await,
+                    }} => bail!("Codex did not finish the superseded turn within 30 seconds"),
+                };
+                if interrupt_id.is_some_and(|request| message["id"] == request) {
+                    anyhow::ensure!(
+                        message.get("error").is_none(),
+                        "Codex rejected steering interruption"
+                    );
+                    interrupt_ack = true;
+                    continue;
+                }
+                if message["id"] == id && message.get("error").is_some() {
+                    bail!("Codex rejected the turn");
+                }
+                if message["id"] == id {
+                    turn = message["result"]["turn"]["id"].as_str().map(str::to_owned);
+                }
+                let params = &message["params"];
+                if let Some(thread) = params["threadId"].as_str()
+                    && Some(thread) != self.thread.as_deref()
+                {
+                    bail!("Codex event belongs to a different thread");
+                }
+                match message["method"].as_str() {
+                    Some("item/tool/call") => {
+                        if !corrections.is_empty()
+                            || params["turnId"].as_str() != turn.as_deref()
+                            || turn.is_none()
+                        {
+                            process.send(json!({"id":message["id"],"result":{
+                                "success":false,"contentItems":[{"type":"inputText","text":"Not executed: superseded or unrelated turn."}],
+                            }})).await?;
+                            continue;
+                        }
+                        anyhow::ensure!(
+                            params["namespace"].is_null(),
+                            "unknown Codex tool namespace"
+                        );
+                        let result = self
+                            .tools
+                            .execute(
+                                ToolCall {
+                                    id: params["callId"]
+                                        .as_str()
+                                        .context("missing Codex tool call ID")?
+                                        .into(),
+                                    name: params["tool"]
+                                        .as_str()
+                                        .context("missing Codex tool name")?
+                                        .into(),
+                                    arguments: params["arguments"].clone(),
+                                },
+                                events,
+                            )
+                            .await?;
+                        // Deliver completed evidence before interrupting its backend turn.
+                        process.send(json!({"id":message["id"],"result":{
+                            "success":result.success,"contentItems":[{"type":"inputText","text":serde_json::to_string(&result)?}],
+                        }})).await?;
                     }
-                    turn = Some(started.into());
-                }
-                Some("item/agentMessage/delta") => {
-                    events
-                        .emit(Event::Text {
-                            text: params["delta"]
-                                .as_str()
-                                .context("Codex text delta missing")?
-                                .into(),
-                        })
-                        .await?
-                }
-                Some("turn/completed") => {
-                    if params["turn"]["id"].as_str() != turn.as_deref() || turn.is_none() {
-                        bail!("Codex completed an unrelated turn");
+                    Some("turn/started") => {
+                        let started = params["turn"]["id"]
+                            .as_str()
+                            .context("Codex turn identifier missing")?;
+                        if turn.as_deref().is_some_and(|current| current != started) {
+                            bail!("Codex started an unrelated turn");
+                        }
+                        turn = Some(started.into());
                     }
-                    return match params["turn"]["status"].as_str() {
-                        Some("completed") => Ok(TurnEnd::Complete),
-                        Some("interrupted") => Ok(TurnEnd::Cancelled),
-                        _ => bail!("Codex turn failed"),
-                    };
+                    Some("item/agentMessage/delta") if corrections.is_empty() => {
+                        events
+                            .emit(Event::Text {
+                                text: params["delta"]
+                                    .as_str()
+                                    .context("Codex text delta missing")?
+                                    .into(),
+                            })
+                            .await?;
+                    }
+                    Some("turn/completed") => {
+                        anyhow::ensure!(
+                            params["turn"]["id"].as_str() == turn.as_deref() && turn.is_some(),
+                            "Codex completed an unrelated turn"
+                        );
+                        if !corrections.is_empty() {
+                            anyhow::ensure!(
+                                matches!(
+                                    params["turn"]["status"].as_str(),
+                                    Some("completed" | "interrupted")
+                                ),
+                                "Codex superseded turn failed"
+                            );
+                            completed = true;
+                        } else {
+                            return match params["turn"]["status"].as_str() {
+                                Some("completed") => Ok(TurnEnd::Complete),
+                                Some("interrupted") => Ok(TurnEnd::Cancelled),
+                                _ => bail!("Codex turn failed"),
+                            };
+                        }
+                    }
+                    Some("thread/tokenUsage/updated") => {
+                        let usage = &params["tokenUsage"]["last"];
+                        events
+                            .emit(Event::Usage {
+                                input: usage["inputTokens"].as_u64(),
+                                output: usage["outputTokens"].as_u64(),
+                                cached: usage["cachedInputTokens"].as_u64(),
+                                cost_usd: None,
+                            })
+                            .await?;
+                    }
+                    Some(_) if message.get("id").is_some() => {
+                        process.send(json!({"id":message["id"],"error":{"code":-32601,"message":"request is not supported by this client"}})).await?;
+                    }
+                    _ => {}
                 }
-                Some("thread/tokenUsage/updated") => {
-                    let usage = &params["tokenUsage"]["last"];
-                    events
-                        .emit(Event::Usage {
-                            input: usage["inputTokens"].as_u64(),
-                            output: usage["outputTokens"].as_u64(),
-                            cached: usage["cachedInputTokens"].as_u64(),
-                            cost_usd: None,
-                        })
-                        .await?;
-                }
-                Some(_) if message.get("id").is_some() => {
-                    process.send(json!({"id":message["id"],"error":{"code":-32601,"message":"request is not supported by this client"}})).await?;
-                }
-                _ => {}
             }
         }
     }
@@ -241,8 +306,9 @@ impl Session for Codex {
         commands: &mut mpsc::Receiver<Command>,
         events: &EventSink,
     ) -> Result<TurnEnd> {
+        let (corrections, mut steering) = mpsc::channel(32);
         let outcome = {
-            let run = self.run_turn(prompt, events);
+            let run = self.run_turn(prompt, &mut steering, events);
             tokio::pin!(run);
             loop {
                 tokio::select! {
@@ -250,7 +316,12 @@ impl Session for Codex {
                     command = commands.recv() => match command {
                         Some(Command::Cancel) => break Ok(TurnEnd::Cancelled),
                         Some(Command::Shutdown) | None => break Ok(TurnEnd::Shutdown),
-                        Some(Command::Prompt(_)) => events.emit(Event::Error { message:"steering is not implemented for this connection yet".into() }).await?,
+                        Some(Command::Prompt(text)) => {
+                            match corrections.try_send(text) {
+                                Ok(()) => events.emit(Event::Text { text:"\n[Correction queued for the next tool boundary]\n".into() }).await?,
+                                Err(_) => events.emit(Event::Error { message:"Correction queue is full; wait for the current tool boundary and submit again.".into() }).await?,
+                            }
+                        },
                     },
                     result = &mut run => break result,
                 }

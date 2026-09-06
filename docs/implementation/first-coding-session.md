@@ -10,6 +10,15 @@ The responsiveness driver holds each provider and then a real Bash command
 open. It observes incremental output and typed editor text before releasing
 either operation for all four adapters.
 
+Enter submits a correction while the session is working. The active tool
+finishes and retains its result; superseded queued tools are denied. Native
+providers receive the correction before their next request. External
+backends receive the completed result, then an interruption request. After
+both interruption acknowledgement and turn completion, the adapter submits
+the correction in the same backend thread or session. A backend that does
+not complete this transition within 30 seconds reports an error. This is
+the steering transition limit; cancellation has its separate CODE-005 check.
+
 | Path | Responsibility |
 |---|---|
 | src/main.rs | Construct the selected session and own application shutdown. |
@@ -23,6 +32,8 @@ either operation for all four adapters.
 | tests/terminal_session.py | Drive the actual binary through a pseudo-terminal. |
 | tests/backend_fixture.py | Controlled Codex and Claude protocol peers. |
 | tests/responsiveness.py | Observe output and editor input before provider and tool release. |
+| tests/steering.py | Submit a correction during a tool and inspect the next model input and actual effects. |
+| tests/steering_fixture.py | Queue superseded and late backend tool requests around interruption. |
 | scripts/check-coding-session.sh | Build and report only requirements actually checked. |
 
 The first check submits an unpredictable prompt through the real editor,
@@ -32,9 +43,8 @@ case. The same test with a functioning peer is the corrected case. These
 fixtures do not prove current subscription service compatibility.
 
 After each action is committed and checked, Cairn selects the next one.
-Later CODE
-checks exercise streaming while blocked, steering between tools, child
-cancellation, continued context, confinement, and retained tool results.
+Remaining CODE checks exercise child cancellation, continued context,
+confinement, and retained tool results.
 CONN checks include independent registration and live two-turn tasks for
 all four connections. Missing authentication remains unresolved evidence.
 

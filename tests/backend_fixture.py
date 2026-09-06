@@ -23,6 +23,9 @@ def main():
     codex = "app-server" in sys.argv
     assert "OPENAI_API_KEY" not in os.environ
     assert "ANTHROPIC_API_KEY" not in os.environ
+    if Path("steering").exists():
+        from steering_fixture import run
+        return run(codex)
     turns = 0
     cycle = None
     response = None
