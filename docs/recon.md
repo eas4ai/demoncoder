@@ -1,5 +1,78 @@
 # Demoncoder reconnaissance
 
+## Status and decision workflow — 2026-09-07
+
+Status: Observed. Baseline: `42b0c0c18f24966256ca4ad5c765934a91856a5a` on main.
+The developer requested /existing-project after discussing a clearer status and
+decision view. This pass prepares that feature. The historical report below is
+retained in full, including unresolved findings and backlog references.
+
+### Exists
+
+| Observation | Evidence |
+|---|---|
+| One Rust terminal app composes adapters, durable workflow, optional delegation and terminal through bounded channels. | `Cargo.toml:1`; `src/main.rs:14`; `docs/decisions/use-a-small-rust-terminal-host-with-explicit-session-owners.md`. |
+| Tasks separate stopped work, verification, review and acceptance. Snapshot and check generation guard acceptance. | `src/workflow/state.rs:28`, `src/workflow/state.rs:84`; `src/workflow/mod.rs:129`. |
+| Agent records retain identity, ownership, checks, reviews, worktrees, integration, dependencies and supervision receipts. | `src/subagents/state.rs:118`, `src/subagents/state.rs:234`. |
+| Status arrives as transcript notices. /agents republishes state; /agent ID prints the full record as pretty JSON. | `src/terminal.rs:336`; `src/subagents/session.rs:111`, `src/subagents/session.rs:128`. |
+| Inspection and individual cancellation work during parent work; other agent controls require stopped parent work. | `src/subagents/session.rs:62`, `src/subagents/session.rs:157`. |
+| Live advisory events can be omitted under queue pressure. Counting notices alone cannot establish authoritative overview state. | `src/events.rs:247`; `src/subagents/manager.rs:143`. |
+| Contextual errors and typed events report failures; typed serialized records bound retained history. | `src/main.rs:91`; `src/workflow/state.rs:172`; `src/subagents/state.rs:186`; `src/terminal.rs:594`. |
+
+### Documented and checked against source
+
+These are source checks of display/control obligations, not fresh execution of
+the full VERIFY, SUB or ORCH mechanisms.
+
+| Section | Disposition and evidence |
+|---|---|
+| VERIFY-001: separate outcomes and explicit acceptance | Holds in inspected path: `docs/spec/verification-review-recovery.md`; `src/workflow/state.rs:84`; `src/workflow/mod.rs:260`; `src/terminal.rs:459`. |
+| SUB-004 and ORCH-006: attributed inspection and controls | Holds in inspected path: `docs/spec/assignable-subagents.md`; `docs/spec/advanced-orchestration.md`; `src/terminal.rs:336`; `src/subagents/session.rs:62`. These clauses do not require a persistent overview or formatted evidence browser. |
+| SUB-005: explicit integration with current evidence | Source support: `src/subagents/state.rs:163`; `src/subagents/session.rs:139`; `docs/spec/assignable-subagents.md`. No fresh integration experiment. |
+| Recovery and supervision already exist | `docs/decisions/keep-task-acceptance-and-recovery-in-the-existing-session-owner.md`; `docs/decisions/schedule-dependencies-and-supervision-inside-the-existing-delegation-owner.md`; `.cairn/reviews/advanced-orchestration.md:1`. |
+| Roadmap order | `docs/spec/roadmap.md` and `docs/commitments/advanced-orchestration.md` select evidence-based improvement after orchestration. A UX slice needs an explicit priority decision. |
+| Verification ownership | `scripts/check-advanced-orchestration.sh:1`; `tests/advanced_orchestration.py:205`; `tests/verification_workflow.py:187`; `tests/assignable_subagents.py:128`; `tests/status_sweep.py:46`; README Development and verification. |
+
+### Contradicted
+
+| Finding | Both sides and disposition |
+|---|---|
+| DXP-1: footer always prints agents 0 despite child execution. | Literal at `src/terminal.rs:773`; actual active count received at `src/terminal.rs:338` only produces a notice. SWEEP-005 in `docs/spec/terminal-usability-sweep.md` requires active subagents in the strip. Proposed defect correction; developer ruling pending. Source observation, not a fresh active-child PTY reproduction. |
+| DXP-2: README denies cumulative wall-clock allocation. | `README.md:1088` denies cumulative token, spend or wall-clock budgets; its Task verification and recovery section and `src/subagents/manager.rs:143` expose deadlines and admissions. Hard token/spend caps remain unsupported. Proposed documentation correction. |
+| DXP-3: installed spec lint reports three compound obligations. | ORCH-006 and ORCH-007 in `docs/spec/advanced-orchestration.md`, SUB-007 in `docs/spec/assignable-subagents.md`; installed spec-lint reports PKG-007. Agreed wording retained for developer ruling. Structural findings do not prove runtime failures. |
+
+### Unverified and retained
+
+| Limit or retained finding | Evidence and disposition |
+|---|---|
+| No fresh live-provider, installed-release or full regression claim | Documentation-only pass. Existing evidence remains attributable to `.cairn/reviews/advanced-orchestration.md`; cairn wake reports Done for advanced-orchestration. |
+| Prior findings remain | Complete historical report below retains Markdown/file links, hash edits, broader inventory, original symptom limits and source-review reports. Later reliability work is in `docs/spec/reliability.md` and `.cairn/reviews/reliability.md`; this pass does not independently re-close it. |
+| Earlier ignored-test count | Current README Local checks names driver categories rather than a fixed count. Original observation remains below at its historical baseline. |
+| Build and discovery context | `Cargo.lock` resolves Ratatui 0.30.2, Crossterm 0.29.0, Tokio 1.53.1, Reqwest 0.12.28 and Syntect 5.3.0. Tracked .github, Dockerfile, Makefile and Justfile lookup returned no files; source/test TODO search returned no matches. Searches do not prove runtime correctness. |
+| History scope | Last thirty commits, local branches and same-day terminal/workflow/agent-control/README history inspected. Delivery includes d94e156, 65bb87b, 105c250, 143195a, 9d12a12 and 42b0c0c. Other modules were not re-audited at requirement depth. No remote fetch. |
+| Discovery limits | Graph and source inspection located current controls; a source-scoped Ripwire task map supplemented discovery. No graph-derived coverage claim. |
+
+### Work preparation and checks
+
+`docs/proposals/status-and-decisions.md` proposes a bounded terminal overview,
+readable evidence and contextual existing controls, with affected paths and
+falsifiers. The existing glossary suffices. No new Observed requirement needs
+promotion; no Agreed block or roadmap selection was changed.
+
+AGENTS.md exactly matches the installed working-agreement template. Installed
+spec lint reports the three unresolved findings above. No runtime check was run
+for this documentation-only pass.
+
+Verification for this pass: installed spec lint exited 1 with DXP-3's three
+findings; git diff --check passed; a Python check confirmed the entire historical
+report is unchanged and all 63 new code-formatted file/line references exist.
+Source-scoped Ripwire quality-delta reported zero regressions and test-gate
+reported zero changed symbols. Those source checks do not validate prose or
+establish new runtime evidence.
+
+## Historical pre-sweep reconnaissance
+
+
 Status: Historical pre-sweep observations, retained 2026-09-07
 
 The developer subsequently selected `terminal-usability-sweep`. The implementation
