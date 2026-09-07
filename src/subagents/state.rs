@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::workflow::{
+    review::{Decision, Role, Verdict},
     runtime::Identity,
     state::{CheckReceipt, ReviewReceipt},
     workspace::Snapshot,
@@ -74,6 +75,7 @@ fn validate_owned_path(path: &str) -> Result<()> {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AgentStatus {
+    Queued,
     Preparing,
     Running,
     Stopped,
@@ -139,9 +141,11 @@ pub struct AgentRecord {
     pub checkpoint_cursor: u64,
     pub integration: Option<Value>,
     pub decisions: Vec<String>,
+    #[serde(default)]
+    pub orchestration: Option<OrchestrationState>,
 }
 
-#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum AssignmentOrigin {
     Developer,
@@ -150,6 +154,12 @@ pub enum AssignmentOrigin {
 }
 
 impl AgentRecord {
+    pub fn orchestration_allows_integration(&self) -> bool {
+        self.orchestration
+            .as_ref()
+            .is_none_or(|state| state.stage == OrchestrationStage::Ready)
+    }
+
     pub fn can_integrate(&self, digest: &str) -> bool {
         self.status == AgentStatus::Ready
             && self.completed
@@ -170,6 +180,7 @@ impl AgentRecord {
                     && review.snapshot == digest
                     && review.verification_generation == self.validation_generation
             })
+            && self.orchestration_allows_integration()
     }
 
     pub fn retain_activity(&mut self, event: Value) -> Result<()> {
@@ -191,4 +202,108 @@ pub struct DelegationIdentity {
     pub reviewer: Option<Identity>,
     pub max_active: u32,
     pub backend_limit: u64,
+    #[serde(default)]
+    pub orchestration: Option<OrchestrationIdentity>,
+}
+
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct OrchestrationIdentity {
+    pub judge: Identity,
+    pub correction_limit: u32,
+    #[serde(default)]
+    pub checks: Vec<String>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OrchestrationStage {
+    Queued,
+    Working,
+    Checking,
+    Advisor,
+    WorkerResponse,
+    Judge,
+    Correcting,
+    Ready,
+    Held,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct OrchestrationState {
+    pub dependencies: Vec<u64>,
+    pub correction_rounds: u32,
+    pub stage: OrchestrationStage,
+    pub receipts: Vec<RoleReceipt>,
+    pub reason: String,
+}
+
+impl OrchestrationState {
+    pub fn new(dependencies: Vec<u64>) -> Self {
+        Self {
+            dependencies,
+            correction_rounds: 0,
+            stage: OrchestrationStage::Queued,
+            receipts: Vec::new(),
+            reason: "Waiting for admission.".into(),
+        }
+    }
+
+    pub fn admit_correction(&mut self, limit: u32) -> Result<u32> {
+        ensure!(
+            self.correction_rounds < limit,
+            "correction limit exhausted; assignment is held"
+        );
+        self.correction_rounds += 1;
+        Ok(self.correction_rounds)
+    }
+
+    pub fn retain_receipt(&mut self, receipt: RoleReceipt) -> Result<()> {
+        ensure!(
+            self.receipts.len() < 64,
+            "supervision receipt history is full; preserve the record before continuing"
+        );
+        self.receipts.push(receipt);
+        Ok(())
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct RoleReceipt {
+    pub role: Role,
+    pub correction_round: u32,
+    pub connection: Identity,
+    pub snapshot: String,
+    pub evidence: String,
+    pub verdict: Verdict,
+    pub findings: Vec<String>,
+    pub explanation: String,
+}
+
+impl RoleReceipt {
+    pub fn new(
+        role: Role,
+        correction_round: u32,
+        connection: Identity,
+        snapshot: String,
+        evidence: String,
+        decision: Decision,
+    ) -> Result<Self> {
+        ensure!(
+            evidence.len() <= 1024 * 1024,
+            "supervision evidence exceeds 1 MiB"
+        );
+        Ok(Self {
+            role,
+            correction_round,
+            connection,
+            snapshot,
+            evidence,
+            verdict: decision.verdict,
+            findings: decision.findings,
+            explanation: decision.explanation,
+        })
+    }
 }

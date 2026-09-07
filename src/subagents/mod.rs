@@ -3,6 +3,7 @@ pub mod manager;
 pub mod schedule;
 pub mod session;
 pub mod state;
+pub mod supervision;
 pub mod worktree;
 
 use crate::{config::Connection, workflow::allocation::Limits};
@@ -16,4 +17,11 @@ pub struct Settings {
     pub limits: Limits,
     pub max_active: u32,
     pub backend_limit: u64,
+    pub orchestration: Option<OrchestrationSettings>,
+}
+
+#[derive(Clone)]
+pub struct OrchestrationSettings {
+    pub judge: Connection,
+    pub correction_limit: u32,
 }

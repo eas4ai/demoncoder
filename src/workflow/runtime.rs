@@ -202,6 +202,10 @@ impl SharedRuntime {
                 if agent.status.active() {
                     agent.status = crate::subagents::state::AgentStatus::Uncertain;
                     agent.outcome = "Interrupted child operation; inspect before continuing. No work was replayed.".into();
+                    if let Some(state) = &mut agent.orchestration {
+                        state.stage = crate::subagents::state::OrchestrationStage::Held;
+                        state.reason = agent.outcome.clone();
+                    }
                     record.recovery_pending = true;
                 }
             }

@@ -74,6 +74,12 @@ pub struct Args {
     /// Make a named connection available for confined worktree subagents; repeat as needed.
     #[arg(long = "agent-connection")]
     pub agent_connections: Vec<String>,
+    /// Enable dependency scheduling and bounded advisor/worker/judge supervision.
+    #[arg(long)]
+    pub orchestrate: bool,
+    /// Configured tool-free connection that judges disputed advisor findings.
+    #[arg(long)]
+    pub judge: Option<String>,
     /// Maximum active child assignments; does not increase the shared task allowance.
     #[arg(long, default_value_t = 2, value_parser = clap::value_parser!(u32).range(1..=8))]
     pub agent_limit: u32,
@@ -294,14 +300,50 @@ impl Args {
     }
 
     pub fn agent_settings(&self) -> Result<Option<crate::subagents::Settings>> {
+        self.validate_orchestration_flags()?;
         if self.agent_connections.is_empty() {
             return Ok(None);
+        }
+        let config = self.load_config()?;
+        let connections = self.selected_agent_connections(&config)?;
+        let workflow = self.workflow_settings()?;
+        let orchestration = self.selected_orchestration(&config)?;
+        Ok(Some(crate::subagents::Settings {
+            connections,
+            reviewer: workflow.reviewer,
+            checks: workflow.checks,
+            limits: workflow.limits,
+            max_active: self.agent_limit,
+            backend_limit: self.agent_backend_turns,
+            orchestration,
+        }))
+    }
+
+    fn validate_orchestration_flags(&self) -> Result<()> {
+        anyhow::ensure!(
+            self.orchestrate || self.judge.is_none(),
+            "--judge requires --orchestrate"
+        );
+        if self.orchestrate {
+            anyhow::ensure!(
+                !self.agent_connections.is_empty(),
+                "--orchestrate requires at least one --agent-connection"
+            );
+            anyhow::ensure!(
+                !self.checks.is_empty(),
+                "--orchestrate requires at least one --check"
+            );
+            anyhow::ensure!(self.reviewer.is_some(), "--orchestrate requires --reviewer");
+            anyhow::ensure!(self.judge.is_some(), "--orchestrate requires --judge");
         }
         anyhow::ensure!(
             self.agent_connections.len() <= 16,
             "at most sixteen agent connections may be enabled"
         );
-        let config = self.load_config()?;
+        Ok(())
+    }
+
+    fn selected_agent_connections(&self, config: &Config) -> Result<BTreeMap<String, Connection>> {
         let mut connections = BTreeMap::new();
         for name in &self.agent_connections {
             let mut connection = match config.connections.get(name) {
@@ -318,15 +360,29 @@ impl Args {
                 crate::tools::AccessPolicy::worktree_only(self.config_path().into_iter().collect());
             connections.insert(name.clone(), connection);
         }
-        let workflow = self.workflow_settings()?;
-        Ok(Some(crate::subagents::Settings {
-            connections,
-            reviewer: workflow.reviewer,
-            checks: workflow.checks,
-            limits: workflow.limits,
-            max_active: self.agent_limit,
-            backend_limit: self.agent_backend_turns,
-        }))
+        Ok(connections)
+    }
+
+    fn selected_orchestration(
+        &self,
+        config: &Config,
+    ) -> Result<Option<crate::subagents::OrchestrationSettings>> {
+        self.judge
+            .as_ref()
+            .map(|name| {
+                let mut judge = config
+                    .connections
+                    .get(name)
+                    .cloned()
+                    .context("judge connection is not configured")?;
+                judge.validate()?;
+                judge.access = crate::tools::AccessPolicy::review_only();
+                Ok(crate::subagents::OrchestrationSettings {
+                    judge,
+                    correction_limit: 2,
+                })
+            })
+            .transpose()
     }
 
     pub(crate) fn config_path(&self) -> Option<PathBuf> {

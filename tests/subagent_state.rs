@@ -123,6 +123,7 @@ fn integration_requires_current_complete_checks_and_review() {
         checkpoint_cursor: 0,
         integration: None,
         decisions: vec![],
+        orchestration: None,
     };
     assert!(record.can_integrate(&digest));
     assert!(!record.can_integrate("changed workspace"));
