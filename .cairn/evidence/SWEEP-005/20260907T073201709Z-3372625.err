@@ -1,0 +1,61 @@
+    Checking demoncoder v0.1.2 (/home/shawn/workspace2/demoncoder)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.23s
+   Compiling demoncoder v0.1.2 (/home/shawn/workspace2/demoncoder)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.71s
+     Running unittests src/lib.rs (target/debug/deps/demoncoder-0773d5cb978cf781)
+     Running unittests src/main.rs (target/debug/deps/demoncoder-ef2a144d16b067fe)
+     Running tests/capabilities.rs (target/debug/deps/capabilities-2b3bf5f087c57478)
+     Running tests/developer_access.rs (target/debug/deps/developer_access-a7db3c5eefb1fca4)
+     Running tests/host_guard.rs (target/debug/deps/host_guard-b20426bc2aa58341)
+     Running tests/live_oracle.rs (target/debug/deps/live_oracle-a72916d9afc1185f)
+     Running tests/output_limits.rs (target/debug/deps/output_limits-ecf7c9dda71f74e6)
+     Running tests/registry_driver.rs (target/debug/deps/registry_driver-64825e811360ea8d)
+     Running tests/tools.rs (target/debug/deps/tools-02b06b618dfa5741)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.08s
+...
+----------------------------------------------------------------------
+Ran 3 tests in 3.679s
+
+OK
+test_reported_partial_zero_and_absent_usage (__main__.Usage.test_reported_partial_zero_and_absent_usage) ... ok
+
+----------------------------------------------------------------------
+Ran 1 test in 1.510s
+
+OK
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.08s
+test_cancelled_key_input_restores_terminal_and_saves_nothing (__main__.Onboarding.test_cancelled_key_input_restores_terminal_and_saves_nothing) ... ok
+test_first_run_and_repeated_run_use_saved_choices (__main__.Onboarding.test_first_run_and_repeated_run_use_saved_choices) ... ok
+test_key_input_is_not_echoed_and_is_saved_privately (__main__.Onboarding.test_key_input_is_not_echoed_and_is_saved_privately) ... ok
+
+----------------------------------------------------------------------
+Ran 3 tests in 0.138s
+
+OK
+.
+----------------------------------------------------------------------
+Ran 1 test in 0.029s
+
+OK
+test_help_and_version_do_not_start_setup (__main__.Information.test_help_and_version_do_not_start_setup) ... ok
+
+----------------------------------------------------------------------
+Ran 1 test in 0.018s
+
+OK
+test_default_workspace_is_launch_directory_and_explicit_overrides (__main__.Workspace.test_default_workspace_is_launch_directory_and_explicit_overrides) ... ok
+
+----------------------------------------------------------------------
+Ran 1 test in 0.159s
+
+OK
+test_custom_shared_parent_is_rejected_without_chmod (__main__.Directory.test_custom_shared_parent_is_rejected_without_chmod) ... ok
+test_existing_default_directory_is_secured_without_losing_files (__main__.Directory.test_existing_default_directory_is_secured_without_losing_files) ... ok
+test_saved_connections_survive_directory_repair_and_new_project_trust (__main__.Directory.test_saved_connections_survive_directory_repair_and_new_project_trust) ... ok
+test_symlinked_default_directory_is_rejected_without_chmod (__main__.Directory.test_symlinked_default_directory_is_rejected_without_chmod) ... ok
+
+----------------------------------------------------------------------
+Ran 4 tests in 0.046s
+
+OK
