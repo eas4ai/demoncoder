@@ -81,7 +81,7 @@ impl Drop for InspectionGuard {
     }
 }
 
-async fn inspect<T: Send + 'static>(
+pub(crate) async fn inspect<T: Send + 'static>(
     work: impl FnOnce(&AtomicBool) -> Result<T> + Send + 'static,
 ) -> Result<T> {
     let guard = InspectionGuard(Arc::new(AtomicBool::new(false)));

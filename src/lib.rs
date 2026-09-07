@@ -17,5 +17,5 @@ pub mod terminal;
 pub mod tools;
 mod transcript;
 pub mod workflow;
-
 pub mod subagents;
+mod worktree_access;
