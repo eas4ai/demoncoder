@@ -1,10 +1,10 @@
 # Advanced orchestration review
 
 commitment: advanced-orchestration
-commit: c7db3bcd8ebc537e20b97999f6312d10d67ece44
+commit: efa94df77ef3cf6a47f01784d982808a22b371d1
 findings:
-  - open: Orchestration implementation and production proof are incomplete.
-Status: in progress
+  - none: all recorded findings repaired; committed and installed checks passed
+Status: complete
 
 ## Baseline demonstration
 
@@ -316,3 +316,40 @@ All seven installed orchestration requirements passed, including the complete
 cancellation and recovery cases. The shell mechanism also passes Bash syntax
 validation. Implementation and installed verification steps are complete; formal
 Cairn receipt collection and the final recorded audit remain pending.
+
+## Final review and production-standard audit
+
+Reviewed efa94df77ef3cf6a47f01784d982808a22b371d1 without changing code. Its Rust sources,
+Rust tests and Cargo inputs still equal independently approved af54b0d. All seven
+current receipts at 20260907T203134929Z report pass and command exit 0; captured
+stdout, stderr and input details are committed. All seven installed workflows
+passed on the matching optimized executable. Every recorded source and proof
+finding above has a verified repair. No open finding remains.
+
+The review attacked what ordinary successful runs could miss: reservation and
+registration interleavings, batch cancellation, integration after parent effects,
+late settlement, recovery identity and spent admissions, stale original role
+responses, tool-free contexts, actual transport evidence and descendant shutdown.
+Deterministic regressions and violating examples are recorded above. The final
+mechanism runs the production drivers and lifecycle tests, and reports each pass
+only after its case succeeds; a missing or failed case cannot become a pass.
+
+| Rule | Assessment |
+|---|---|
+| 1. Understand before editing | The agreed ORCH contract, existing delegation owners and affected data paths were mapped before implementation. |
+| 2. Smallest coherent change | The existing session and delegation runtime own scheduling and supervision; changes stay within the selected commitment. |
+| 3. Maintainable code | Independent quality review approved the final source and explained the retained nonzero structural findings. |
+| 4. Boundary contracts | Optional stored fields preserve old records; resumed authority includes connections, models, checks and the fixed correction policy. |
+| 5. Errors and secrets | Original role responses and failures remain inspectable; refused launches and interrupted integration settle explicitly rather than fabricating success. |
+| 6. Security | Child confinement and tool-free role boundaries remain enforced across all four controlled transports; only explicit developer integration releases dependencies. |
+| 7. Survivable state | Durable capacity, registration, cancellation, correction and integration transitions have failure and restart coverage. |
+| 8. Reliability | Retention, active work, evidence, correction rounds and shared admissions are bounded; cancellation and shutdown satisfy the tested deadline. |
+| 9. Work tracking | Plan steps were completed after their implementation and verification; Cairn still owns the commitment completion verdict. |
+| 10. Verification | Final Rust, formatting, Clippy, affected local drivers, all seven formal requirements and all seven installed workflows passed. |
+| 11. Honest reporting | Structural reports remain nonzero; historical live-provider evidence is stale and was not refreshed or represented as passing. |
+| 12. Technical partnership | The implementation follows the developer's agreed policy; review findings were recorded before repair and re-reviewed independently. |
+| 13. Release audit | No revision is needed for this commitment after the recorded repairs, current evidence and installed verification. |
+| 14. Plain writing | README commands, limits, integration authority and recovery instructions describe the implemented behavior directly. |
+
+The historical live-provider limitation and reviewed metric tradeoffs remain as
+stated above. They do not substitute for, or weaken, the current ORCH checks.
