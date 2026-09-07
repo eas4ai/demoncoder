@@ -65,3 +65,22 @@ that fabricated success at its status assertion. The durable record and runtime
 were unchanged. Then the unmodified SUB-007 production driver passed all four
 transport recovery cases and interrupted preparation/integration cases. This
 demonstrates the relevant assertion, not arbitrary corruption detection.
+
+## Revised mechanism review: ORCH-006
+
+Compared the unchanged shell runner and declaration with the revised individual
+and parent cancellation sentences and their existing falsifier. Examined
+cancellation and cancellation_persistence_failure: all four transports exercise
+held advisor/worker-response/judge activity, independent parent input, attributed
+state events, individual cancellation, parent cancellation and shutdown. The
+cases check the two-second bound, stopped heartbeat effects, peer shutdown, and
+no queued worktree creation after parent cancellation. The selected-only case
+allows independent queued work to finish. The new REM inspector checks supplement
+these assertions with rendered evidence, command guidance and input preservation.
+No mismatch was found; the sentence split removes no obligation.
+
+Safe violating observation: in the persistence-failure case, a temporary wrapper
+appended synthetic bytes only to the second heartbeat read returned to the test.
+The unchanged assertion rejected continued effects after cancellation. No file
+was altered by the wrapper. Then the complete unmodified ORCH-006 production
+cases passed, including cancellation when durable transition persistence fails.
