@@ -412,6 +412,7 @@ impl Manager {
         let guard = Interrupted {
             runtime: self.runtime.clone(),
             id,
+            integration: matches!(&job, Job::Integrate(_)),
             armed: true,
         };
         self.publish(id, events)?;
@@ -498,6 +499,15 @@ impl Manager {
                 .find(|agent| agent.id == id)
                 .context("agent disappeared")?;
             match result {
+                Ok(())
+                    if matches!(job, Job::Integrate(_))
+                        && agent.status != AgentStatus::Integrated =>
+                {
+                    record.recovery_pending = true;
+                    agent.status = AgentStatus::Uncertain;
+                    agent.outcome = "Integration stopped before durable completion. Inspect the parent workspace and retained child result; nothing will replay automatically.".into();
+                    hold_stage(agent);
+                }
                 Ok(()) if agent.orchestration.is_none() => {
                     if matches!(job, Job::Work) {
                         agent.status = AgentStatus::Stopped;
@@ -515,17 +525,21 @@ impl Manager {
                         "Validated child changes integrated; parent acceptance invalidated.".into();
                 }
                 Ok(()) => {}
+                Err(error) if matches!(job, Job::Integrate(_)) => {
+                    record.recovery_pending = true;
+                    agent.status = AgentStatus::Uncertain;
+                    agent.outcome = format!(
+                        "Integration did not complete durably: {error:#}. Inspect the parent workspace and retained child result; nothing will replay automatically."
+                    );
+                    hold_stage(agent);
+                }
                 Err(_) if cancelled => {
                     agent.status = AgentStatus::Cancelled;
                     agent.outcome = "Assignment cancelled. Files and original evidence retained; no integration authorized.".into();
                     hold_stage(agent);
                 }
                 Err(error) => {
-                    if matches!(job, Job::Integrate(_)) {
-                        record.recovery_pending = true;
-                    }
                     agent.status = if uncertain
-                        || matches!(job, Job::Integrate(_))
                         || agent.status == AgentStatus::Preparing
                     {
                         AgentStatus::Uncertain
@@ -619,13 +633,22 @@ impl Manager {
                 );
                 worktree::integrate(&self.workspace, identity, plan).await?;
                 self.runtime.update(|record| {
-                    record.last_snapshot = None;
-                    record
+                    ensure!(
+                        !self.stopping.load(Ordering::SeqCst),
+                        "integration owner stopped before durable completion"
+                    );
+                    let agent = record
                         .agents
                         .iter_mut()
                         .find(|agent| agent.id == id)
-                        .context("agent disappeared")?
-                        .status = AgentStatus::Integrated;
+                        .context("agent disappeared")?;
+                    ensure!(
+                        agent.status == AgentStatus::Integrating,
+                        "integration was cancelled or superseded before durable completion"
+                    );
+                    record.last_snapshot = None;
+                    record.recovery_pending = false;
+                    agent.status = AgentStatus::Integrated;
                     Ok(())
                 })
             }
@@ -1100,9 +1123,22 @@ impl Manager {
             }
             agent.integration = Some(serde_json::to_value(&plan)?);
             agent.status = AgentStatus::Integrating;
+            record.recovery_pending = true;
             Ok(())
         })?;
         self.launch(id, Job::Integrate(plan), events)
+            .inspect_err(|error| {
+                let _ = self.runtime.update_agent(id, |agent| {
+                    if agent.status != AgentStatus::Integrated {
+                        agent.status = AgentStatus::Uncertain;
+                        agent.outcome = format!(
+                            "Integration owner failed to register: {error:#}. Inspect the parent workspace and retained child result; nothing will replay automatically."
+                        );
+                        hold_stage(agent);
+                    }
+                    Ok(())
+                });
+            })
     }
 
     pub async fn cancel(&self, id: u64) -> Result<()> {
@@ -1112,7 +1148,23 @@ impl Manager {
                 .lock()
                 .map_err(|_| anyhow::anyhow!("agent lifecycle lock failed"))?;
             let active = registered.remove(&id);
-            let retained = self.runtime.update_agent(id, |agent| {
+            let retained = self.runtime.update(|record| {
+                let agent = record
+                    .agents
+                    .iter_mut()
+                    .find(|agent| agent.id == id)
+                    .context("agent assignment does not exist")?;
+                if agent.status == AgentStatus::Integrating {
+                    record.recovery_pending = true;
+                    agent.status = AgentStatus::Uncertain;
+                    agent.outcome = if active.is_some() {
+                        "Integration cancellation requested; inspect the parent workspace and retained child result before continuing.".into()
+                    } else {
+                        "Integration lost its owner; inspect the parent workspace and retained child result before continuing.".into()
+                    };
+                    hold_stage(agent);
+                    return Ok(());
+                }
                 if matches!(
                     agent.status,
                     AgentStatus::Queued
@@ -1122,7 +1174,6 @@ impl Manager {
                         | AgentStatus::Failed
                         | AgentStatus::Validating
                         | AgentStatus::Ready
-                        | AgentStatus::Integrating
                 ) {
                     agent.status = AgentStatus::Cancelled;
                     agent.outcome = if active.is_some() {
@@ -1159,8 +1210,19 @@ impl Manager {
     fn mark_stopping(&self) -> Result<()> {
         self.stopping.store(true, Ordering::SeqCst);
         self.runtime.update(|record| {
+            if record
+                .agents
+                .iter()
+                .any(|agent| agent.status == AgentStatus::Integrating)
+            {
+                record.recovery_pending = true;
+            }
             for agent in &mut record.agents {
-                if agent.status == AgentStatus::Queued || agent.status.active() {
+                if agent.status == AgentStatus::Integrating {
+                    agent.status = AgentStatus::Uncertain;
+                    agent.outcome = "Integration owner stopped during shutdown; inspect the parent workspace and retained child result before continuing.".into();
+                    hold_stage(agent);
+                } else if agent.status == AgentStatus::Queued || agent.status.active() {
                     agent.status = AgentStatus::Cancelled;
                     agent.outcome =
                         "Assignment cancelled before shutdown; it will not start automatically."
@@ -1259,6 +1321,7 @@ async fn stop(active: Active) {
 struct Interrupted {
     runtime: SharedRuntime,
     id: u64,
+    integration: bool,
     armed: bool,
 }
 impl Drop for Interrupted {
@@ -1266,8 +1329,12 @@ impl Drop for Interrupted {
         if self.armed {
             let _ = self.runtime.update(|record| {
                 let agent = record.agents.iter_mut().find(|agent| agent.id == self.id).context("agent disappeared")?;
-                if agent.status == AgentStatus::Integrating { record.recovery_pending = true; }
-                if agent.status.active() {
+                if self.integration && agent.status != AgentStatus::Integrated {
+                    record.recovery_pending = true;
+                    agent.status = AgentStatus::Uncertain;
+                    agent.outcome = "Integration owner interrupted; inspect the parent workspace and retained child result. Nothing will replay automatically.".into();
+                    hold_stage(agent);
+                } else if agent.status.active() {
                     agent.status = AgentStatus::Uncertain;
                     agent.outcome = "Agent owner interrupted; inspect retained state. Nothing will replay automatically.".into();
                 }
@@ -1394,9 +1461,10 @@ mod tests {
     use crate::workflow::{
         allocation::{Allocation, Limits},
         runtime::Record,
-        state::Task,
+        state::{CheckReceipt, ReviewReceipt, Task},
         workspace,
     };
+    use std::{path::Path, process::Command};
 
     fn connection() -> crate::config::Connection {
         serde_json::from_value(json!({"adapter":"openai-api"})).unwrap()
@@ -1432,6 +1500,189 @@ mod tests {
             decisions: Vec::new(),
             orchestration: Some(OrchestrationState::new(Vec::new())),
         }
+    }
+
+    struct IntegrationFixture {
+        _root: tempfile::TempDir,
+        workspace_root: PathBuf,
+        record_root: PathBuf,
+        manager: Arc<Manager>,
+        runtime: SharedRuntime,
+        identity: super::super::state::WorktreeIdentity,
+        plan: worktree::IntegrationPlan,
+        events: EventSink,
+        _event_rx: mpsc::Receiver<crate::events::Envelope>,
+    }
+
+    fn test_git(root: &Path, args: &[&str]) {
+        let output = Command::new("git")
+            .current_dir(root)
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "git {args:?}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    async fn integration_fixture(orchestrated: bool) -> IntegrationFixture {
+        let root = tempfile::tempdir().unwrap();
+        let workspace_root = root.path().join("workspace");
+        std::fs::create_dir(&workspace_root).unwrap();
+        test_git(&workspace_root, &["init", "-q"]);
+        test_git(&workspace_root, &["config", "user.email", "test@localhost"]);
+        test_git(&workspace_root, &["config", "user.name", "Test"]);
+        std::fs::write(workspace_root.join("owned"), "parent\n").unwrap();
+        test_git(&workspace_root, &["add", "."]);
+        test_git(&workspace_root, &["commit", "-qm", "baseline"]);
+
+        let child_root = root.path().join("child");
+        let identity = worktree::prepare(&workspace_root, &child_root)
+            .await
+            .unwrap();
+        std::fs::write(child_root.join("owned"), "child result\n").unwrap();
+        let snapshot = worktree::inspect(&identity).await.unwrap();
+        let request = AssignmentRequest {
+            connection: "worker".into(),
+            objective: "replace owned content".into(),
+            context: String::new(),
+            owned_paths: vec!["owned".into()],
+        };
+        let plan = worktree::build_delta(&identity, &request, &snapshot.digest)
+            .await
+            .unwrap();
+        let connection = connection();
+        let identity_record = Identity::from(&connection);
+        let orchestration = orchestrated.then(|| {
+            let mut state = OrchestrationState::new(Vec::new());
+            state.stage = OrchestrationStage::Ready;
+            state.reason = "Ready for explicit integration.".into();
+            state
+        });
+        let agent = AgentRecord {
+            id: 1,
+            parent_task: Some(1),
+            origin: AssignmentOrigin::Developer,
+            completed: true,
+            request,
+            identity: identity_record.clone(),
+            worktree: Some(identity.clone()),
+            planned_root: Some(child_root),
+            status: AgentStatus::Ready,
+            outcome: "ready".into(),
+            commands: vec!["true".into()],
+            reviewer: Some(identity_record.clone()),
+            checks: vec![CheckReceipt {
+                command: "true".into(),
+                snapshot: snapshot.digest.clone(),
+                success: true,
+                output: String::new(),
+                exit_code: Some(0),
+            }],
+            review: Some(ReviewReceipt {
+                evidence: "current child and check".into(),
+                snapshot: snapshot.digest.clone(),
+                verification_generation: 1,
+                reviewer: "test reviewer".into(),
+                findings: Vec::new(),
+                clear: true,
+                explanation: "clear".into(),
+            }),
+            validation_generation: 1,
+            validation_snapshot: Some(snapshot.digest),
+            activity: Vec::new(),
+            checkpoint: None,
+            checkpoint_cursor: 0,
+            integration: None,
+            decisions: Vec::new(),
+            orchestration,
+        };
+        let record_root = root.path().join("record");
+        let record = Record {
+            workspace: workspace_root.clone(),
+            identity: identity_record,
+            reviewer_identity: None,
+            task: Some(
+                Task::new(
+                    1,
+                    "parent task".into(),
+                    Vec::new(),
+                    workspace::capture(&workspace_root).unwrap(),
+                    0,
+                )
+                .unwrap(),
+            ),
+            archived: Vec::new(),
+            next_task: 2,
+            allocation: Some(Allocation::new(Limits::default()).unwrap()),
+            checkpoint: None,
+            checkpoint_cursor: 0,
+            operations: Vec::new(),
+            messages: Vec::new(),
+            phase: None,
+            recovery_pending: false,
+            decisions: Vec::new(),
+            last_snapshot: None,
+            agents: vec![agent],
+            backend_invocations: 0,
+            delegation: None,
+        };
+        let runtime = SharedRuntime::for_test(&record_root, record).unwrap();
+        let settings = Settings {
+            connections: [("worker".into(), connection.clone())].into(),
+            reviewer: Some(connection.clone()),
+            checks: vec!["true".into()],
+            limits: Limits::default(),
+            max_active: 2,
+            backend_limit: 64,
+            orchestration: orchestrated.then(|| super::super::OrchestrationSettings {
+                judge: connection,
+                correction_limit: 2,
+            }),
+        };
+        let manager = Manager::new(workspace_root.clone(), settings, runtime.clone()).unwrap();
+        let (event_tx, event_rx) = mpsc::channel(16);
+        let events = EventSink::new("test".into(), event_tx, None)
+            .unwrap()
+            .with_runtime(runtime.clone());
+        IntegrationFixture {
+            _root: root,
+            workspace_root,
+            record_root,
+            manager,
+            runtime,
+            identity,
+            plan,
+            events,
+            _event_rx: event_rx,
+        }
+    }
+
+    async fn apply_integration_effect(fixture: &IntegrationFixture) {
+        fixture
+            .runtime
+            .update_agent(1, |agent| {
+                agent.status = AgentStatus::Integrating;
+                agent.integration = Some(serde_json::to_value(&fixture.plan)?);
+                Ok(())
+            })
+            .unwrap();
+        worktree::integrate(&fixture.workspace_root, &fixture.identity, &fixture.plan)
+            .await
+            .unwrap();
+        assert_eq!(
+            std::fs::read_to_string(fixture.workspace_root.join("owned")).unwrap(),
+            "child result\n"
+        );
+    }
+
+    fn persisted_record(record_root: &Path) -> Record {
+        let envelope: Value =
+            serde_json::from_slice(&std::fs::read(record_root.join("state.json")).unwrap())
+                .unwrap();
+        serde_json::from_value(envelope["payload"].clone()).unwrap()
     }
 
     #[tokio::test(flavor = "current_thread")]
@@ -1638,5 +1889,125 @@ mod tests {
         assert_eq!(first.status, AgentStatus::Cancelled);
         assert!(first.worktree.is_none(), "cancelled job produced effects");
         manager.abort_all();
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn integration_admission_holds_recovery_until_durable_success() {
+        let fixture = integration_fixture(false).await;
+        let registration = fixture.manager.active.lock().unwrap();
+        let manager = fixture.manager.clone();
+        let events = fixture.events.clone();
+        let handle = tokio::runtime::Handle::current();
+        let start =
+            std::thread::spawn(move || handle.block_on(manager.start_integration(1, &events)));
+        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        let admission_had_recovery_gate = loop {
+            let record = fixture.runtime.record().unwrap();
+            if record.agents[0].status == AgentStatus::Integrating {
+                break record.recovery_pending;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "integration was not durably admitted"
+            );
+            std::thread::yield_now();
+        };
+        drop(registration);
+        assert!(start.join().unwrap().is_ok());
+
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(3);
+        loop {
+            let record = fixture.runtime.record().unwrap();
+            if record.agents[0].status == AgentStatus::Integrated {
+                assert!(!record.recovery_pending);
+                break;
+            }
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "integration owner did not settle"
+            );
+            tokio::task::yield_now().await;
+        }
+        assert!(
+            admission_had_recovery_gate,
+            "parent effects could begin before recovery was durably held"
+        );
+        fixture.manager.abort_all();
+    }
+
+    #[tokio::test]
+    async fn individual_cancellation_after_parent_effect_requires_explicit_recovery() {
+        let fixture = integration_fixture(false).await;
+        apply_integration_effect(&fixture).await;
+
+        fixture.manager.cancel(1).await.unwrap();
+        fixture
+            .manager
+            .finish_job(1, &Job::Integrate(fixture.plan.clone()), Ok(()))
+            .unwrap();
+        let retained = fixture.runtime.record().unwrap();
+        assert_eq!(retained.agents[0].status, AgentStatus::Uncertain);
+        assert!(retained.recovery_pending);
+        assert!(!retained.agents[0].outcome.contains("integrated"));
+
+        let blocked = fixture.manager.start(
+            AssignmentRequest {
+                connection: "worker".into(),
+                objective: "must wait for inspection".into(),
+                context: String::new(),
+                owned_paths: vec!["later".into()],
+            },
+            AssignmentOrigin::Developer,
+            &fixture.events,
+        );
+        assert!(
+            blocked
+                .unwrap_err()
+                .to_string()
+                .contains("reconcile interrupted work")
+        );
+
+        fixture
+            .manager
+            .reconcile(1, "Inspected the parent delta and retained child result.")
+            .await
+            .unwrap();
+        assert!(fixture.runtime.record().unwrap().recovery_pending);
+        let snapshot = workspace::capture(&fixture.workspace_root).unwrap();
+        fixture
+            .runtime
+            .reconcile(
+                "Inspected the parent after interrupted integration.",
+                Some(&snapshot.digest),
+            )
+            .unwrap();
+        let reconciled = fixture.runtime.record().unwrap();
+        assert!(!reconciled.recovery_pending);
+        assert_eq!(reconciled.agents[0].status, AgentStatus::Failed);
+        fixture.manager.abort_all();
+    }
+
+    #[tokio::test]
+    async fn forced_shutdown_after_parent_effect_persists_uncertainty_and_blocks_queue() {
+        let fixture = integration_fixture(true).await;
+        apply_integration_effect(&fixture).await;
+
+        fixture.manager.abort_all();
+        fixture
+            .manager
+            .finish_job(
+                1,
+                &Job::Integrate(fixture.plan.clone()),
+                Err(anyhow::anyhow!("integration owner aborted")),
+            )
+            .unwrap();
+        let retained = fixture.runtime.record().unwrap();
+        assert_eq!(retained.agents[0].status, AgentStatus::Uncertain);
+        assert!(retained.recovery_pending);
+        assert!(fixture.manager.resume_queue(&fixture.events).is_err());
+
+        let persisted = persisted_record(&fixture.record_root);
+        assert_eq!(persisted.agents[0].status, AgentStatus::Uncertain);
+        assert!(persisted.recovery_pending);
     }
 }
