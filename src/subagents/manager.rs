@@ -647,7 +647,6 @@ impl Manager {
                         "integration was cancelled or superseded before durable completion"
                     );
                     record.last_snapshot = None;
-                    record.recovery_pending = false;
                     agent.status = AgentStatus::Integrated;
                     Ok(())
                 })
@@ -1123,7 +1122,6 @@ impl Manager {
             }
             agent.integration = Some(serde_json::to_value(&plan)?);
             agent.status = AgentStatus::Integrating;
-            record.recovery_pending = true;
             Ok(())
         })?;
         self.launch(id, Job::Integrate(plan), events)
@@ -1892,8 +1890,22 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn integration_admission_holds_recovery_until_durable_success() {
+    async fn healthy_integration_keeps_independent_admissions_available() {
         let fixture = integration_fixture(false).await;
+        let mut independent = queued_agent(
+            2,
+            &fixture.manager.record(1).unwrap().identity,
+            fixture.record_root.join("agents/2"),
+        );
+        independent.status = AgentStatus::Running;
+        independent.orchestration = None;
+        fixture
+            .runtime
+            .update(|record| {
+                record.agents.push(independent);
+                Ok(())
+            })
+            .unwrap();
         let registration = fixture.manager.active.lock().unwrap();
         let manager = fixture.manager.clone();
         let events = fixture.events.clone();
@@ -1901,17 +1913,51 @@ mod tests {
         let start =
             std::thread::spawn(move || handle.block_on(manager.start_integration(1, &events)));
         let deadline = std::time::Instant::now() + Duration::from_secs(2);
-        let admission_had_recovery_gate = loop {
+        loop {
             let record = fixture.runtime.record().unwrap();
             if record.agents[0].status == AgentStatus::Integrating {
-                break record.recovery_pending;
+                break;
             }
             assert!(
                 std::time::Instant::now() < deadline,
                 "integration was not durably admitted"
             );
             std::thread::yield_now();
-        };
+        }
+        let model_admission = fixture
+            .runtime
+            .begin_model("agent:2:worker")
+            .and_then(|id| fixture.runtime.finish_model(id));
+        let backend_admission = fixture
+            .runtime
+            .begin_backend("agent:2:worker")
+            .and_then(|id| fixture.runtime.finish_model(id));
+        let tool_admission = fixture
+            .runtime
+            .observe(
+                &Event::ToolStarted {
+                    call: ToolCall {
+                        id: "independent-tool".into(),
+                        name: "read".into(),
+                        arguments: json!({"path":"owned"}),
+                    },
+                },
+                "agent:2:worker",
+            )
+            .and_then(|_| {
+                fixture.runtime.observe(
+                    &Event::ToolFinished {
+                        result: crate::tools::ToolResult {
+                            call_id: "independent-tool".into(),
+                            tool: "read".into(),
+                            success: true,
+                            output: "parent".into(),
+                            exit_code: None,
+                        },
+                    },
+                    "agent:2:worker",
+                )
+            });
         drop(registration);
         assert!(start.join().unwrap().is_ok());
 
@@ -1929,8 +1975,16 @@ mod tests {
             tokio::task::yield_now().await;
         }
         assert!(
-            admission_had_recovery_gate,
-            "parent effects could begin before recovery was durably held"
+            model_admission.is_ok(),
+            "healthy integration blocked an independent native model admission: {model_admission:?}"
+        );
+        assert!(
+            backend_admission.is_ok(),
+            "healthy integration blocked an independent backend admission: {backend_admission:?}"
+        );
+        assert!(
+            tool_admission.is_ok(),
+            "healthy integration blocked an independent tool admission: {tool_admission:?}"
         );
         fixture.manager.abort_all();
     }
