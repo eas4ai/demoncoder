@@ -1,6 +1,6 @@
 # Roadmap
 
-Current: reliability
+Current: verification-review-recovery
 
 The developer selected the usable coding session as the first commitment
 and agreed to use Cairn on 2026-09-06. The developer confirmed its detailed
@@ -31,3 +31,6 @@ The developer selected terminal-usability-sweep on 2026-09-07 after chat present
 and Creator identity were reconciled as complete.
 
 The developer selected reliability next after clipboard-shortcuts on 2026-09-07.
+
+The developer selected all four remaining commitments in roadmap order and
+confirmed verification-review-recovery requirements on 2026-09-07.

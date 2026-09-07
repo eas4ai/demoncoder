@@ -43,6 +43,7 @@ responsible for choosing sound requirements and meaningful checks.
 | [terminal-usability-sweep.md](terminal-usability-sweep.md) | SWEEP | The selected reliability investigation, mouse interaction, activity and status sweep. |
 | [clipboard-shortcuts.md](clipboard-shortcuts.md) | CLIP | Corrected clipboard shortcuts and safe terminal paste. |
 | [reliability.md](reliability.md) | REL | Host sockets, queue responsiveness and bounded, correct streamed data. |
+| [verification-review-recovery.md](verification-review-recovery.md) | VERIFY | Durable verification, review, bounded correction, allocations and safe recovery. |
 | [roadmap.md](roadmap.md) | — | The selected commitment and intended delivery sequence. |
 
 The broader [design narrative](../spec.md) retains product direction,
