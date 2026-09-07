@@ -1,0 +1,54 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running tests/developer_access.rs (target/debug/deps/developer_access-c37c03e0691e2a3f)
+
+running 16 tests
+test native_read_accepts_outside_documentation_and_git_metadata_but_mutation_stays_rooted ... ok
+test bash_does_not_inherit_a_host_directory_descriptor ... ok
+test installed_developer_tools_are_available_without_exposing_provider_environment ... ok
+test normal_build_links_and_reference_symlinks_do_not_disable_bash ... ok
+test bash_can_reach_a_network_documentation_endpoint ... ok
+test selected_repository_read_only_assessment ... ignored, requires DEMONCODER_ASSESS_WORKSPACE and uses public network services
+test selected_private_config_cannot_be_changed_by_native_tools ... ok
+test nested_private_settings_are_hidden_without_blocking_the_shell ... ok
+test git_can_inspect_and_commit_the_selected_repository ... ok
+test reliability_host_socket_is_not_reachable_from_confined_bash ... ok
+test sweep_public_skill_read_preserves_private_canary ... ok
+test sweep_temporary_files_and_pty_work_inside_the_production_sandbox ... ok
+test reliability_abstract_socket_and_datagram_bypass_are_denied ... ok
+test sweep_nested_namespace_probe_retains_its_actual_disposition ... ok
+test outside_hard_link_and_symlink_writes_are_blocked_without_disabling_other_commands ... ok
+test private_workspace_settings_and_their_aliases_are_unreadable ... ok
+
+test result: ok. 15 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.74s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s
+     Running unittests src/lib.rs (target/debug/deps/demoncoder-50ea58c1cf5481a1)
+
+running 2 tests
+test developer_access::tests::cancelled_preparation_yields_and_stops_without_starting_a_command ... ok
+test developer_access::tests::cold_cache_keeps_installed_tools_and_does_not_write_the_host_cache ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 36 filtered out; finished in 0.15s
+
+    Blocking waiting for file lock on artifact directory
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.88s
+     Running unittests src/lib.rs (target/debug/deps/demoncoder-50ea58c1cf5481a1)
+
+running 2 tests
+test socket_filter::tests::socket_filter_cannot_be_rewritten_or_truncated ... ok
+test socket_filter::tests::socket_filter_enforces_domains_types_and_abis ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 36 filtered out; finished in 0.00s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s
+     Running tests/host_guard.rs (target/debug/deps/host_guard-c468cba85b9fd1fc)
+
+running 1 test
+test reliability_explicit_host_mode_retains_unix_sockets ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 6 filtered out; finished in 0.04s
+
+    Blocking waiting for file lock on package cache
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.11s
+REL-001 production executor closes inherited host socket and outside writable descriptors
+cairn: REL-001: pass

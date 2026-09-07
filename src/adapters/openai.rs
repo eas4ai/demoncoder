@@ -1,7 +1,7 @@
 use super::http;
 use crate::{
     config::Connection,
-    events::{Event, EventSink},
+    events::{ContextUsage, Event, EventSink},
     native::{Model, NativeSession},
     session::Session,
     tools::{ToolCall, ToolExecutor, ToolResult},
@@ -57,6 +57,16 @@ pub fn open(config: &Connection, workspace: &Path) -> Result<Box<dyn Session>> {
 
 #[async_trait]
 impl Model for OpenAi {
+    fn checkpoint(&self) -> Option<Value> {
+        Some(Value::Array(self.history.clone()))
+    }
+    fn restore(&mut self, checkpoint: &Value) -> Result<()> {
+        self.history = checkpoint
+            .as_array()
+            .context("invalid OpenAI conversation checkpoint")?
+            .clone();
+        Ok(())
+    }
     fn prompt(&mut self, text: String) {
         self.history.push(json!({"role":"user", "content":text}));
     }
@@ -83,12 +93,20 @@ impl Model for OpenAi {
             })
             .collect();
         let mut body = json!({"model":self.model,"input":self.history,"stream":true,"store":false,"include":["reasoning.encrypted_content"],"tools":tools});
+        if !self.definitions.is_empty() {
+            body["instructions"] = super::CREATOR_INSTRUCTIONS.into();
+        }
         if let Some(limit) = self.max_output_tokens {
             body["max_output_tokens"] = limit.into();
         }
         if let Some(effort) = &self.effort {
             body["reasoning"] = json!({"effort":effort});
         }
+        events
+            .emit(Event::Context {
+                usage: ContextUsage::estimate_request(&body),
+            })
+            .await?;
         let request = self
             .client
             .post(self.endpoint.clone())
@@ -136,6 +154,11 @@ impl Model for OpenAi {
                     }
                     let usage = &response["usage"];
                     events
+                        .emit(Event::Context {
+                            usage: ContextUsage::openai(usage),
+                        })
+                        .await?;
+                    events
                         .emit(Event::Usage {
                             input: usage["input_tokens"].as_u64(),
                             output: usage["output_tokens"].as_u64(),
@@ -150,6 +173,11 @@ impl Model for OpenAi {
                 }
                 Some("response.incomplete") => {
                     let usage = &event["response"]["usage"];
+                    events
+                        .emit(Event::Context {
+                            usage: ContextUsage::openai(usage),
+                        })
+                        .await?;
                     events
                         .emit(Event::Usage {
                             input: usage["input_tokens"].as_u64(),

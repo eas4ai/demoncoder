@@ -1,0 +1,10 @@
+Installed: /home/shawn/.cargo/bin/demoncoder
+SHA256: d6abf98983e4a62d3661c6c57f2d722d141a862aa24ec673b9a24b8c236cb776
+Matches release binary and PATH.
+test_copy_uses_prompt_text_without_submitting_or_cancelling (prompt_clipboard.PromptClipboard.test_copy_uses_prompt_text_without_submitting_or_cancelling) ... ok
+test_terminal_paste_is_editor_text_and_modes_are_restored (prompt_clipboard.PromptClipboard.test_terminal_paste_is_editor_text_and_modes_are_restored) ... ok
+
+----------------------------------------------------------------------
+Ran 2 tests in 1.050s
+
+OK

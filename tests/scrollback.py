@@ -149,7 +149,7 @@ class Scrollback(unittest.TestCase):
                 wheeled = app.wait(lambda screen: bool(row_numbers(screen)) and min(row_numbers(screen)) < first, "mouse wheel scrolling")
                 first = min(row_numbers(wheeled))
                 app.server.more.set()
-                completed = app.wait(lambda screen: "in 12345" in screen, "new output and completed usage")
+                completed = app.wait(lambda screen: "complete" in screen.splitlines()[0], "new output and completed usage")
                 self.assertEqual(min(row_numbers(completed)), first)
                 self.assertNotIn("NEWEST-MARKER", completed)
                 app.send(b"\x1b[F")

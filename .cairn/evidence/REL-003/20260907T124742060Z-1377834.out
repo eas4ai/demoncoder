@@ -1,0 +1,42 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.10s
+     Running tests/reliability_streams.rs (target/debug/deps/reliability_streams-74b062508a434b79)
+
+running 2 tests
+test anthropic_accepts_exact_byte_bound_after_completion ... ok
+test anthropic_rejects_excess_before_completion ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.29s
+
+cairn: REL-003: pass
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.10s
+     Running tests/reliability_utf8.rs (target/debug/deps/reliability_utf8-9c69b08df3b01c3c)
+
+running 2 tests
+test bash_preserves_every_multibyte_split_boundary ... FAILED
+test bash_keeps_stream_decoders_separate_and_flushes_incomplete_eof ... FAILED
+
+failures:
+
+---- bash_preserves_every_multibyte_split_boundary stdout ----
+
+thread 'bash_preserves_every_multibyte_split_boundary' (1378138) panicked at tests/reliability_utf8.rs:44:5:
+assertion `left == right` failed: stdout decoding
+  left: "��"
+ right: "é"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- bash_keeps_stream_decoders_separate_and_flushes_incomplete_eof stdout ----
+
+thread 'bash_keeps_stream_decoders_separate_and_flushes_incomplete_eof' (1378137) panicked at tests/reliability_utf8.rs:46:5:
+assertion `left == right` failed: receipt must match displayed decoded fragments
+  left: "€"
+ right: "���"
+
+
+failures:
+    bash_keeps_stream_decoders_separate_and_flushes_incomplete_eof
+    bash_preserves_every_multibyte_split_boundary
+
+test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.32s
+
+error: test failed, to rerun pass `--test reliability_utf8`

@@ -1,7 +1,7 @@
 //! One small model/tool loop shared by direct API providers.
 use crate::{
     events::{Event, EventSink},
-    session::{Command, Session, TurnEnd},
+    session::{CORRECTION_CAPACITY, CORRECTION_REJECTION, Command, Session, TurnEnd},
     tools::{ToolCall, ToolExecutor, ToolResult},
 };
 use anyhow::Result;
@@ -11,6 +11,12 @@ use tokio::sync::mpsc;
 
 #[async_trait]
 pub trait Model: Send {
+    fn checkpoint(&self) -> Option<serde_json::Value> {
+        None
+    }
+    fn restore(&mut self, _checkpoint: &serde_json::Value) -> Result<()> {
+        anyhow::bail!("model does not support conversation recovery")
+    }
     fn prompt(&mut self, text: String);
     fn results(&mut self, results: Vec<ToolResult>);
     async fn response(&mut self, events: &EventSink) -> Result<Vec<ToolCall>>;
@@ -42,6 +48,50 @@ impl Session for NativeSession {
         "demoncoder"
     }
 
+    fn supports_workflow(&self) -> bool {
+        self.model.checkpoint().is_some()
+    }
+
+    fn checkpoint(&self) -> Option<serde_json::Value> {
+        self.model
+            .checkpoint()
+            .map(|model| serde_json::json!({ "model":model, "pending":self.pending }))
+    }
+    fn settle_interruption(&mut self) -> Result<()> {
+        if let Some(result) = self.tools.take_completed()
+            && self.pending.front().is_some_and(|c| c.id == result.call_id)
+        {
+            self.model.results(vec![result]);
+            self.pending.pop_front();
+        }
+        if !self.pending.is_empty() {
+            self.model.results(self.pending.drain(..).map(|call| ToolResult { call_id:call.id, tool:call.name, success:false, output:"Execution stopped before this tool had a known result. Inspect partial effects before retrying.".into(), exit_code:None }).collect());
+        }
+        Ok(())
+    }
+
+    fn restore(&mut self, checkpoint: &serde_json::Value, results: &[ToolResult]) -> Result<()> {
+        #[derive(serde::Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct Saved {
+            model: serde_json::Value,
+            pending: Vec<ToolCall>,
+        }
+        let saved: Saved = serde_json::from_value(checkpoint.clone())
+            .map_err(|_| anyhow::anyhow!("invalid native conversation checkpoint"))?;
+        self.model.restore(&saved.model)?;
+        if !saved.pending.is_empty() {
+            self.model.results(saved.pending.into_iter().map(|call| {
+            results.iter().rev().find(|r| r.call_id == call.id && r.tool == call.name).cloned().unwrap_or(ToolResult {
+                call_id: call.id, tool: call.name, success: false,
+                output: "Session was interrupted before a durable result was recorded for this call. It was not replayed; inspect possible effects before continuing.".into(), exit_code: None,
+            })
+        }).collect());
+        }
+        self.pending.clear();
+        Ok(())
+    }
+
     async fn turn(
         &mut self,
         prompt: String,
@@ -49,26 +99,8 @@ impl Session for NativeSession {
         events: &EventSink,
     ) -> Result<TurnEnd> {
         let outcome = self.run_turn(prompt, commands, events).await;
-        if let Some(result) = self.tools.take_completed()
-            && self
-                .pending
-                .front()
-                .is_some_and(|call| call.id == result.call_id)
-        {
-            self.model.results(vec![result]);
-            self.pending.pop_front();
-        }
-        if !self.pending.is_empty() {
-            // Close the provider's outstanding call records without inventing
-            // an execution result for an interrupted or unstarted operation.
-            self.model.results(self.pending.drain(..).map(|call| ToolResult {
-                call_id: call.id,
-                tool: call.name,
-                success: false,
-                output: "Turn ended before this tool returned a result. It may have partial effects; inspect the workspace before retrying.".into(),
-                exit_code: None,
-            }).collect());
-        }
+        self.settle_interruption()?;
+        events.checkpoint(self.checkpoint())?;
         outcome
     }
 }
@@ -82,28 +114,36 @@ impl NativeSession {
     ) -> Result<TurnEnd> {
         self.tools.set_intent(&prompt);
         self.model.prompt(prompt);
+        events.checkpoint(self.checkpoint())?;
         loop {
             let mut corrections = Vec::new();
+            let admission = events.begin_model()?;
             let calls = {
                 let response = self.model.response(events);
                 tokio::pin!(response);
                 loop {
                     tokio::select! {
                         biased;
-                        command = commands.recv() => if let Some(end) = control(command, &mut corrections, events).await? { return Ok(end); },
-                        result = &mut response => break result?,
+                        command = commands.recv() => if let Some(end) = control(command, &mut corrections, events)? { return Ok(end); },
+                        result = &mut response => break result,
                     }
                 }
             };
+            events.finish_model(admission)?;
+            // A returned provider error has no pending native tool effects. Keep
+            // the error, but settle its admission; cancellation exits above and
+            // deliberately leaves the interrupted request uncertain.
+            let calls = calls?;
             let finished = calls.is_empty();
             anyhow::ensure!(
                 finished || self.tools.tools_enabled(),
                 "Oracle requested a tool; review refused"
             );
             self.pending = calls.into();
+            events.checkpoint(self.checkpoint())?;
             while let Some(call) = self.pending.front().cloned() {
                 while let Ok(command) = commands.try_recv() {
-                    if let Some(end) = control(Some(command), &mut corrections, events).await? {
+                    if let Some(end) = control(Some(command), &mut corrections, events)? {
                         return Ok(end);
                     }
                 }
@@ -123,19 +163,21 @@ impl NativeSession {
                 let result = loop {
                     tokio::select! {
                         biased;
-                        command = commands.recv() => if let Some(end) = control(command, &mut corrections, events).await? { return Ok(end); },
+                        command = commands.recv() => if let Some(end) = control(command, &mut corrections, events)? { return Ok(end); },
                         result = &mut operation => break result?,
                     }
                 };
                 self.model.results(vec![result]);
                 self.pending.pop_front();
                 self.tools.take_completed();
+                events.checkpoint(self.checkpoint())?;
             }
             let corrected = !corrections.is_empty();
             for correction in corrections {
                 self.tools.set_intent(&correction);
                 self.model.prompt(correction);
             }
+            events.checkpoint(self.checkpoint())?;
             if finished && !corrected {
                 return Ok(TurnEnd::Complete);
             }
@@ -143,7 +185,7 @@ impl NativeSession {
     }
 }
 
-async fn control(
+fn control(
     command: Option<Command>,
     corrections: &mut Vec<String>,
     events: &EventSink,
@@ -152,15 +194,46 @@ async fn control(
         Some(Command::Cancel) => Ok(Some(TurnEnd::Cancelled)),
         Some(Command::Shutdown) | None => Ok(Some(TurnEnd::Shutdown)),
         Some(Command::Prompt(text)) => {
-            corrections.push(text);
-            events
-                .emit(Event::Text {
-                    text: "\n[Correction queued for the next tool boundary]\n".into(),
-                })
-                .await?;
+            if crate::workflow::is_control(&text) {
+                events.emit_advisory(Event::Error {
+                    message: crate::workflow::BUSY_CONTROL.into(),
+                })?;
+                return Ok(None);
+            }
+            let admitted = corrections.len() < CORRECTION_CAPACITY;
+            if admitted {
+                corrections.push(text);
+            }
+            correction_notice(events, admitted)?;
+            Ok(None)
+        }
+        Some(Command::Submit { text, reply }) => {
+            if crate::workflow::is_control(&text) {
+                let _ = reply.send(Err(crate::workflow::BUSY_CONTROL));
+                return Ok(None);
+            }
+            if corrections.len() >= CORRECTION_CAPACITY {
+                let _ = reply.send(Err(CORRECTION_REJECTION));
+                correction_notice(events, false)?;
+            } else if reply.send(Ok(())).is_ok() {
+                corrections.push(text);
+                correction_notice(events, true)?;
+            }
             Ok(None)
         }
     }
+}
+
+fn correction_notice(events: &EventSink, admitted: bool) -> Result<()> {
+    events.emit_advisory(if admitted {
+        Event::Text {
+            text: "\n[Correction queued for the next tool boundary]\n".into(),
+        }
+    } else {
+        Event::Error {
+            message: CORRECTION_REJECTION.into(),
+        }
+    })
 }
 
 #[cfg(test)]

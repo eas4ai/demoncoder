@@ -1,7 +1,7 @@
 # Chat presentation review
 
 commitment: chat-presentation
-commit: 06a1736fbf92019183925ccccaaa8e5f9ddc231d
+commit: 78c74e28ea29c3474d20d675a163a271fe75982e
 findings:
   - none: no open findings within this commitment
 Reviewer: Codex
@@ -88,3 +88,55 @@ errors, untrusted text, persistence boundaries, bounded work, meaningful checks,
 documentation and truthful reporting. No further revision is needed within the
 chat-presentation commitment. Provider execution, event evidence and permissions
 were not changed by the presentation layer.
+
+## Reconciliation review, 2026-09-07
+
+Reviewed the current committed inputs at 9eda67d without changing application
+code. Attacked whether the Creator prompt additions change event identity, tool
+result grouping, scroll anchors, or usage formatting. They change request
+instructions only; the terminal and transcript implementation is unchanged.
+The completed/cancelled continuation and wrong-resume checks passed through all
+four production adapters. `cargo test --locked` passed 55 tests, with 3 ignored;
+`cargo build --locked` and `git diff --check` passed.
+
+Cairn receipts at `.cairn/evidence/CHAT-001/20260907T062350676Z` and the matching
+CHAT-002, CHAT-003 and CHAT-004 paths pass against the committed Creator change.
+The mechanism ran library tests, build, chat-presentation, scrollback and usage
+terminal drivers. Inspected the original receipt fields and retained output;
+no live-provider refresh is claimed.
+
+The existing usage driver deliberately expects `cost unknown` when another
+usage dimension exists (`tests/usage.py:119`). That matches the current contract,
+but the developer's later request changes it. Mouse dragging, native selection,
+animation and the richer status strip are recovered work described in
+`docs/recon.md`; passing CHAT evidence does not establish those features.
+
+The installed spec lint reports eight pre-existing structure/path findings,
+including CHAT-002's two obligations in one sentence. They are recorded in
+`docs/recon.md` for the specification pass; this review does not silently change
+Agreed wording or claim a passing lint. Existing source-review and Markdown
+backlog findings remain open outside the four CHAT behaviors. No new behavioral
+finding was found within the current commitment.
+
+### Handoff input declaration
+
+The developer explicitly selected `handoff.md` for this adoption. Its reconciliation
+update records completion and fresh CHAT evidence, and this review reads it to
+separate completed presentation work from later usability scope. Declare it as a
+review input in the chat-presentation mechanism so edits to that completion record
+invalidate evidence. This is documentation for the current review, not a new
+runtime requirement or authorization for the later usability implementation.
+The terminal checks do not validate every historical claim in the handoff; this
+record and `docs/recon.md` retain that manual review and its limits.
+
+### Final handoff review
+
+Reviewed at 78c74e2 without changing application code. The only newly declared
+input is `handoff.md`; its appended reconciliation distinguishes the preserved
+historical observations from the developer's correction and fresh checks. The
+application and terminal tests are unchanged from 99e9ae8. Rechecked all four
+receipts from the 20260907T063206 run against committed input 022cd14: each passes.
+The handoff's existing references to 99e9ae8 and 9eda67d are historical commit
+anchors, not claims that later records are absent. No new CHAT behavior finding.
+The eight recorded spec-lint findings and later usability work remain explicit
+in `docs/recon.md`; current CHAT completion does not close them.

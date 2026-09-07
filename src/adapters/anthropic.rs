@@ -1,7 +1,7 @@
 use super::http;
 use crate::{
     config::Connection,
-    events::{Event, EventSink},
+    events::{ContextUsage, Event, EventSink},
     native::{Model, NativeSession},
     session::Session,
     tools::{ToolCall, ToolExecutor, ToolResult},
@@ -12,6 +12,8 @@ use futures_util::StreamExt;
 use reqwest::{Client, Url};
 use serde_json::{Value, json};
 use std::path::Path;
+
+const MAX_TOOL_INPUT_BYTES: usize = 1024 * 1024;
 
 struct Anthropic {
     client: Client,
@@ -107,6 +109,16 @@ impl Anthropic {
 
 #[async_trait]
 impl Model for Anthropic {
+    fn checkpoint(&self) -> Option<Value> {
+        Some(Value::Array(self.history.clone()))
+    }
+    fn restore(&mut self, checkpoint: &Value) -> Result<()> {
+        self.history = checkpoint
+            .as_array()
+            .context("invalid Anthropic conversation checkpoint")?
+            .clone();
+        Ok(())
+    }
     fn prompt(&mut self, text: String) {
         self.history.push(json!({"role":"user", "content":text}));
     }
@@ -140,9 +152,17 @@ impl Model for Anthropic {
             "model":self.model,"messages":self.history,"stream":true,"max_tokens":limit,
             "tools":self.definitions.clone(),
         });
+        if !self.definitions.is_empty() {
+            body["system"] = super::CREATOR_INSTRUCTIONS.into();
+        }
         if let Some(effort) = &self.effort {
             body["output_config"] = json!({"effort":effort});
         }
+        events
+            .emit(Event::Context {
+                usage: ContextUsage::estimate_request(&body),
+            })
+            .await?;
         let request = self
             .client
             .post(self.endpoint.clone())
@@ -155,8 +175,12 @@ impl Model for Anthropic {
         let mut partial: Vec<String> = Vec::new();
         let (mut input, mut output, mut cached) = (None, None, None);
         let mut stop_reason = None;
+        let mut context_usage = crate::context::MessageContext::default();
         while let Some(event) = stream.next().await {
             let event = event?;
+            if let Some(usage) = context_usage.observe(&event) {
+                events.emit(Event::Context { usage }).await?;
+            }
             match event["type"].as_str() {
                 Some("message_start") => {
                     let usage = &event["message"]["usage"];
@@ -172,7 +196,14 @@ impl Model for Anthropic {
                         index == blocks.len(),
                         "out of order Anthropic content block"
                     );
-                    blocks.push(event["content_block"].clone());
+                    let block = &event["content_block"];
+                    if block["type"] == "tool_use" {
+                        anyhow::ensure!(
+                            serde_json::to_vec(&block["input"])?.len() <= MAX_TOOL_INPUT_BYTES,
+                            "Anthropic tool input exceeds 1 MiB; no tool calls from this response were executed"
+                        );
+                    }
+                    blocks.push(block.clone());
                     partial.push(String::new());
                 }
                 Some("content_block_delta") => {
@@ -192,11 +223,17 @@ impl Model for Anthropic {
                             append(block, "text", text)?;
                             events.emit(Event::Text { text: text.into() }).await?;
                         }
-                        Some("input_json_delta") => partial[index].push_str(
-                            delta["partial_json"]
+                        Some("input_json_delta") => {
+                            let fragment = delta["partial_json"]
                                 .as_str()
-                                .context("missing tool input delta")?,
-                        ),
+                                .context("missing tool input delta")?;
+                            anyhow::ensure!(
+                                fragment.len()
+                                    <= MAX_TOOL_INPUT_BYTES.saturating_sub(partial[index].len()),
+                                "Anthropic tool input exceeds 1 MiB; no tool calls from this response were executed"
+                            );
+                            partial[index].push_str(fragment);
+                        }
                         Some("thinking_delta") => append(
                             block,
                             "thinking",

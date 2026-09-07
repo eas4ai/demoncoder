@@ -1,0 +1,22 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s
+     Running tests/reliability_streams.rs (target/debug/deps/reliability_streams-74b062508a434b79)
+
+running 2 tests
+test anthropic_accepts_exact_byte_bound_after_completion ... ok
+test anthropic_rejects_excess_before_completion ... FAILED
+
+failures:
+
+---- anthropic_rejects_excess_before_completion stdout ----
+
+thread 'anthropic_rejects_excess_before_completion' (1286428) panicked at tests/reliability_streams.rs:122:14:
+oversized arguments must fail while stream is held open: Elapsed(())
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    anthropic_rejects_excess_before_completion
+
+test result: FAILED. 1 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.07s
+
+error: test failed, to rerun pass `--test reliability_streams`

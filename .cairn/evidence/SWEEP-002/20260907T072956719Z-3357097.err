@@ -1,0 +1,68 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s
+     Running unittests src/lib.rs (target/debug/deps/demoncoder-0773d5cb978cf781)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.08s
+....
+----------------------------------------------------------------------
+Ran 4 tests in 3.048s
+
+OK
+...
+----------------------------------------------------------------------
+Ran 3 tests in 2.891s
+
+OK
+.F
+======================================================================
+FAIL: test_page_mouse_resize_and_new_output_preserve_history (__main__.Scrollback.test_page_mouse_resize_and_new_output_preserve_history)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/shawn/workspace2/demoncoder/tests/scrollback.py", line 152, in test_page_mouse_resize_and_new_output_preserve_history
+    completed = app.wait(lambda screen: "complete" in screen.splitlines()[0], "new output and completed usage")
+  File "/home/shawn/workspace2/demoncoder/tests/scrollback.py", line 105, in wait
+    raise AssertionError("visible screen did not reach " + description + "\n" + self.screen())
+AssertionError: visible screen did not reach new output and completed usage
+DemonCoder · fixture · Project writes · normal reads/netw   
+  xxxxxxxxxxxxxxx                                        ║  
+  ROW-00343 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx║  
+  xxxxxxxxxxxxxxx                                        ║  
+  ROW-00344 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx║  
+  xxxxxxxxxxxxxxx                                        ║  
+  ROW-00345 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx║  
+  xxxxxxxxxxxxxxx                                        ║  
+  ROW-00346 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx║  
+  xxxxxxxxxxxxxxx                                        ║  
+  ROW-00347 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx║  
+  xxxxxxxxxxxxxxx                                        ║  
+  ROW-00348 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx║  
+  xxxxxxxxxxxxxxx                                        ║  
+  ROW-00349 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx║  
+  xxxxxxxxxxxxxxx                                        ║  
+  ROW-00350 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx║  
+  xxxxxxxxxxxxxxx                                        ║  
+  ROW-00351 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx║  
+  xxxxxxxxxxxxxxx                                        ║  
+  ROW-00352 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx║  
+  xxxxxxxxxxxxxxx                                        ║  
+  ROW-00353 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx║  
+  xxxxxxxxxxxxxxx                                        ║  
+  ROW-00354 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx║  
+  xxxxxxxxxxxxxxx                                        ║  
+  ROW-00355 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx║  
+  xxxxxxxxxxxxxxx                                        ║  
+  ROW-00356 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx█  
+  xxxxxxxxxxxxxxx                                        ║  
+  ROW-00357 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx║  
+  xxxxxxxxxxxxxxx                                        ║  
+  ROW-00358 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx║  
+  xxxxxxxxxxxxxxx                                        ║  
+  ROW-00359 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx║  
+┌Prompt · Enter sends───────────────────────────────────┐   
+│still-responsive                                       │   
+└───────────────────────────────────────────────────────┘   
+Model fixture-model · Ctx 12354/? · ? free · Git unavaila   
+Full output · History · End latest · Ctrl-O collapse · Ct   
+
+----------------------------------------------------------------------
+Ran 2 tests in 9.041s
+
+FAILED (failures=1)

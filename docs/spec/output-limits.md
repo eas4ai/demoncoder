@@ -11,7 +11,7 @@ and explicit developer settings, with truthful handling of truncated responses.
 Falsifier: An uncapped modern-model fixture receives max_tokens 4096, a saved or explicitly overridden limit is ignored, a provider default is replaced by a guessed constant, or model discovery silently substitutes another model or credential.
 Mechanism: output-limits; inspect actual requests through the production native adapters, model metadata discovery, explicit overrides and normal connection selection.
 
-[OUTPUT-002] A provider response stopped by its output or context limit MUST remain visibly incomplete and MUST NOT admit any tool calls from that response. Reported usage MUST remain visible, and a later prompt MUST be usable without an invalid pending-tool history.
+[OUTPUT-002] A provider response stopped by its output or context limit MUST remain visibly incomplete. It MUST NOT admit any tool calls from that response. Reported usage MUST remain visible. A later prompt MUST be usable without an invalid pending-tool history.
 Falsifier: A truncated response produces a complete turn, its tool calls have effects, reported usage disappears, or the next prompt carries unexecuted tool-use records without results.
 Mechanism: output-limits; controlled truncated text and tool streams through the production session, followed by a successful continuation.
 

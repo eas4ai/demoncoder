@@ -1,0 +1,20 @@
+requirement: REL-002
+requirement_digest: sha256:96bb5e192d666ec13bc2f115cd03b4180d70e0e405a25d94b0e6b4ac6dab996b
+sequence: 5
+history_digest: sha256:01eb4fb1853492ad299cde3c7778eea80e73fcec292effb23cd871f207c69c41
+mechanism: reliability-queues
+commit: ea737d1
+inputs_digest: sha256:59c5746a560cc49d5a4afac15dddbe4c38279f5e31d085da41a6ba99140dd0df
+mechanism_digest: sha256:efbc90d46ac40ebb12c00ed5d2d18672d5f92a61a7f600945dbdfe83dc9a26db
+command: bash scripts/check-reliability-queues.sh
+cwd: .
+exit: 0
+output_digest: sha256:f3556f7b29cde8f7fa86f0764d7dd5a3266340192bef0e06158267da229120b8
+output: .cairn/evidence/REL-002/20260907T124657341Z-1368257.out
+stderr_output: .cairn/evidence/REL-002/20260907T124657341Z-1368257.err
+stderr_digest: sha256:05b1daa279ae7557f611cc81dc29500c66d94a590e7b104c7113037dee289a00
+signal: none
+execution_error: null
+result: pass
+source: line
+recorded: 2026-09-07T12:47:32.570Z

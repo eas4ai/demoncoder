@@ -1,0 +1,5 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.10s
+     Running tests/reliability_streams.rs (target/debug/deps/reliability_streams-74b062508a434b79)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.10s
+     Running tests/reliability_utf8.rs (target/debug/deps/reliability_utf8-9c69b08df3b01c3c)
+error: test failed, to rerun pass `--test reliability_utf8`

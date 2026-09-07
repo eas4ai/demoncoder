@@ -1,0 +1,14 @@
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.12s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.11s
+     Running unittests src/lib.rs (target/debug/deps/demoncoder-0773d5cb978cf781)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.08s
+..
+----------------------------------------------------------------------
+Ran 2 tests in 1.049s
+
+OK
+....
+----------------------------------------------------------------------
+Ran 4 tests in 3.109s
+
+OK

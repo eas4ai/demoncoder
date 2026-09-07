@@ -1,0 +1,23 @@
+command: bash scripts/check-verification-review-recovery.sh
+results: per-requirement
+inputs:
+  - Cargo.toml
+  - Cargo.lock
+  - src/
+  - tests/
+  - scripts/
+  - README.md
+  - docs/spec/
+  - docs/plans/
+  - docs/commitments/verification-review-recovery.md
+requirements:
+  - VERIFY-001
+  - VERIFY-002
+  - VERIFY-003
+  - VERIFY-004
+  - VERIFY-005
+  - VERIFY-006
+reviewed:
+  - VERIFY-004 sha256:1cd94b9629a17acb8c7dfa9ab2145c261769004143f587ef92bd5ab43ef3a279
+  - VERIFY-005 sha256:cf2e91a46a04a4d7b6ec12cb0e6bc913621c4959746269b5366c023e15bff464
+  - VERIFY-006 sha256:4ec3d3c5bd21a7badf592692b7d9b8c5f7b71f2e81e4a88a52d7cbd44e7c1067

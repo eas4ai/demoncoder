@@ -321,3 +321,196 @@ async fn selected_repository_read_only_assessment() {
         );
     }
 }
+
+#[tokio::test]
+async fn sweep_temporary_files_and_pty_work_inside_the_production_sandbox() {
+    let workspace = tempfile::tempdir().unwrap();
+    let executor = ToolExecutor::new(workspace.path()).unwrap();
+    let result = bash(
+        &executor,
+        r#"python3 -B - <<'PYTHON'
+import os, pty, tempfile
+with tempfile.NamedTemporaryFile() as file:
+    assert os.path.commonpath([file.name, os.environ['TMPDIR']]) == os.environ['TMPDIR']
+    file.write(b'TEMP-OK'); file.flush()
+    assert open(file.name, 'rb').read() == b'TEMP-OK'
+print('SWEEP temporary storage: writable session TMPDIR', flush=True)
+master, slave = pty.openpty()
+try:
+    os.write(slave, b'PTY-OK')
+    assert os.read(master, 64) == b'PTY-OK'
+finally:
+    os.close(slave); os.close(master)
+print('SWEEP PTY: opened and transferred bytes', flush=True)
+PYTHON"#
+            .into(),
+    )
+    .await;
+    println!("{}", result.output);
+    assert!(result.success, "{}", result.output);
+    assert!(result.output.contains("SWEEP PTY: opened"));
+}
+
+#[tokio::test]
+async fn sweep_nested_namespace_probe_retains_its_actual_disposition() {
+    let workspace = tempfile::tempdir().unwrap();
+    let executor = ToolExecutor::new(workspace.path()).unwrap();
+    let result = bash(
+        &executor,
+        "unshare --user --map-root-user -- /usr/bin/true".into(),
+    )
+    .await;
+    println!(
+        "SWEEP nested namespace: exit {:?}; {}",
+        result.exit_code, result.output
+    );
+    assert!(
+        result.success || result.output.contains("Operation not permitted"),
+        "unexpected namespace probe failure: {}",
+        result.output
+    );
+    // A platform refusal is a recorded environment limit, never a host fallback.
+    let check = bash(&executor, "printf STILL-CONFINED".into()).await;
+    assert!(check.success, "{}", check.output);
+}
+
+#[tokio::test]
+async fn sweep_public_skill_read_preserves_private_canary() {
+    let parent = tempfile::tempdir().unwrap();
+    let workspace = parent.path().join("project");
+    let skill = parent.path().join(".agents/skills/fixture/SKILL.md");
+    let private = parent.path().join("credentials.toml");
+    std::fs::create_dir(&workspace).unwrap();
+    std::fs::create_dir_all(skill.parent().unwrap()).unwrap();
+    std::fs::write(&skill, "PUBLIC-SKILL-FIXTURE").unwrap();
+    std::fs::write(&private, "PRIVATE-CANARY").unwrap();
+    let policy = AccessPolicy {
+        credential_paths: vec![private.clone()],
+        ..AccessPolicy::default()
+    };
+    let executor = ToolExecutor::with_policy(&workspace, &policy).unwrap();
+    let read = tool(&executor, "read", json!({"path":skill})).await;
+    assert!(read.success, "{}", read.output);
+    assert_eq!(read.output, "PUBLIC-SKILL-FIXTURE");
+    let command = bash(&executor, format!("cat '{}'", skill.display())).await;
+    assert!(command.success, "{}", command.output);
+    assert_eq!(command.output, "PUBLIC-SKILL-FIXTURE");
+    let denied = tool(&executor, "read", json!({"path":private})).await;
+    assert!(!denied.success);
+    assert!(!denied.output.contains("PRIVATE-CANARY"));
+    println!("SWEEP skill read: public native/Bash reads pass; selected credential remains denied");
+}
+
+#[tokio::test]
+async fn reliability_host_socket_is_not_reachable_from_confined_bash() {
+    use std::os::unix::net::UnixListener;
+    // Keep the harmless host service outside /tmp, which the sandbox hides.
+    let host = tempfile::Builder::new()
+        .prefix("demoncoder-socket-fixture-")
+        .tempdir_in(std::env::var_os("HOME").expect("Linux test home"))
+        .unwrap();
+    let workspace = host.path().join("workspace");
+    std::fs::create_dir(&workspace).unwrap();
+    let address = host.path().join("control.sock");
+    let listener = UnixListener::bind(&address).unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let executor = ToolExecutor::new(&workspace).unwrap();
+    let address = serde_json::to_string(address.to_str().unwrap()).unwrap();
+    let result = bash(
+        &executor,
+        format!(
+            r#"python3 - <<'PYTHON'
+import socket
+try:
+    client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    client.settimeout(1)
+    client.connect({address})
+except OSError:
+    print('SOCKET-DENIED')
+else:
+    print('HOST-SOCKET-CONTACTED')
+PYTHON"#
+        ),
+    )
+    .await;
+    assert!(
+        result.success,
+        "fixture could not execute: {}",
+        result.output
+    );
+    assert!(
+        result.output.contains("SOCKET-DENIED"),
+        "host socket reached: {}",
+        result.output
+    );
+    assert_eq!(
+        listener.accept().unwrap_err().kind(),
+        std::io::ErrorKind::WouldBlock
+    );
+}
+
+#[tokio::test]
+async fn reliability_abstract_socket_and_datagram_bypass_are_denied() {
+    use std::os::{
+        linux::net::SocketAddrExt,
+        unix::net::{SocketAddr, UnixListener},
+    };
+    let workspace = tempfile::tempdir().unwrap();
+    let name = format!(
+        "demoncoder-fixture-{}-{}",
+        std::process::id(),
+        workspace.path().file_name().unwrap().to_string_lossy()
+    );
+    let address = SocketAddr::from_abstract_name(name.as_bytes()).unwrap();
+    let listener = UnixListener::bind_addr(&address).unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let executor = ToolExecutor::new(workspace.path()).unwrap();
+    let name = serde_json::to_string(&name).unwrap();
+    let script = format!(
+        r#"python3 - <<'PYTHON'
+import errno, socket, os
+# Inspect inherited descriptors before loading ctypes/libffi, which may open
+# its own library descriptor using the now-available number 3.
+try:
+    os.fstat(3)
+except OSError as e:
+    assert e.errno == errno.EBADF
+else:
+    raise AssertionError('inherited descriptor 3: ' + os.readlink('/proc/self/fd/3'))
+for kind in (socket.SOCK_STREAM, socket.SOCK_DGRAM):
+    try:
+        sock = socket.socket(socket.AF_UNIX, kind)
+        sock.connect('\0' + {name})
+    except OSError as e:
+        assert e.errno == errno.EPERM, e
+    else:
+        raise AssertionError('host socket creation allowed')
+try:
+    socket.socketpair(socket.AF_UNIX, socket.SOCK_DGRAM)
+except OSError as e:
+    assert e.errno == errno.EPERM, e
+else:
+    raise AssertionError('datagram socketpair bypass allowed')
+for flags in (0, socket.SOCK_CLOEXEC, socket.SOCK_NONBLOCK):
+    a, b = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM | flags)
+    a.sendall(b'pair'); assert b.recv(4) == b'pair'
+    a.close(); b.close()
+# io_uring_setup has number 425 on the supported native Linux architectures.
+import ctypes
+libc = ctypes.CDLL(None, use_errno=True)
+assert libc.syscall(425, 1, 0) == -1 and ctypes.get_errno() == errno.EPERM
+print('SOCKET-POLICY-OK')
+PYTHON"#
+    );
+    // A second launch must read the policy independently, despite the first
+    // launch consuming its descriptor to EOF.
+    for _ in 0..2 {
+        let result = bash(&executor, script.clone()).await;
+        assert!(result.success, "{}", result.output);
+        assert!(result.output.contains("SOCKET-POLICY-OK"));
+    }
+    assert_eq!(
+        listener.accept().unwrap_err().kind(),
+        std::io::ErrorKind::WouldBlock
+    );
+}

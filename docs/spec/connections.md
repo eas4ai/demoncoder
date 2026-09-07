@@ -2,6 +2,7 @@
 
 Status: Agreed 2026-09-06
 Prefix: CONN
+Host paths: ~/.demoncoder/
 
 The developer requested an expandable provider list and named the following
 initial connections. API keys and subscription authentication are distinct

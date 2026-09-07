@@ -23,7 +23,7 @@ from tool_cycle_fixture import Cycle, sse_call
 from terminal_screen import screen_text
 
 ROOT = Path(__file__).resolve().parents[1]
-BINARY = ROOT / "target/debug/demoncoder"
+BINARY = Path(os.environ.get("DEMONCODER_TEST_BINARY", str(ROOT / "target/debug/demoncoder"))).resolve()
 FIXTURE = ROOT / "tests/backend_fixture.py"
 
 

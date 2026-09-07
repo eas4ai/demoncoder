@@ -51,7 +51,7 @@ class ChatPresentation(unittest.TestCase):
             app = App(Path(directory), Provider)
             try:
                 app.send(b"long-output\r")
-                compact = app.wait(lambda s: "TAIL-MARKER" in s and "Ctrl-O" in s and "hidden" in s, "compact wrapped output")
+                compact = app.wait(lambda s: "TAIL-MARKER" in s and "Ctrl-O" in s and "hidden" in s and "· complete ·" in s, "completed compact wrapped output")
                 self.assertIn("● Assistant", compact)
                 self.assertIn("HEAD-MARKER", compact)
                 self.assertNotIn("OUTPUT-020", compact)
@@ -61,9 +61,9 @@ class ChatPresentation(unittest.TestCase):
                 for _ in range(5):
                     if "OUTPUT-020" in app.screen():
                         break
+                    previous = app.screen().splitlines()[1:-5]
                     app.send(b"\x1b[6~")
-                    for _ in range(3):
-                        app.collect(.03)
+                    app.wait(lambda s: s.splitlines()[1:-5] != previous, "next expanded page")
                 self.assertIn("OUTPUT-020", app.screen())
                 self.assertIn("unsent correction", app.screen())
                 self.assertEqual(len(app.server.requests), 1)
@@ -85,14 +85,14 @@ class ChatPresentation(unittest.TestCase):
                 try:
                     app.send(prompt.encode() + b"\r")
                     if prompt != "fail-tool":
-                        running = app.wait(lambda s: marker in s and "● Running bash" in s, "running tool")
+                        running = app.wait(lambda s: marker in [line.strip() for line in s.splitlines()] and "● Running bash" in s, "running tool output")
                         self.assertNotIn("● Ran", running)
                     if prompt == "cancel-tool":
                         app.send(b"\x1b")
                     screen = app.wait(lambda s: outcome in s and ("cancelled" in s if prompt == "cancel-tool" else "REVIEW-DONE" in s), "truthful tool outcome")
                     # The command heading also quotes this marker; inspect body rows.
                     body = [line.strip() for line in screen.splitlines()]
-                    self.assertEqual(body.count(marker), 1)
+                    self.assertEqual(body.count(marker), 1, app.screen())
                     if prompt == "fail-tool":
                         self.assertIn("exit 7", screen)
                     if prompt == "run-tool":

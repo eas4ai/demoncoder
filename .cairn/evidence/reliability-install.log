@@ -1,0 +1,29 @@
+Command: demoncoder --version
+demoncoder 0.1.2
+Exit: 0
+Command: python3 /tmp/demoncoder-install-verification-wlqdufri/verify.py
+Installed: /home/shawn/.cargo/bin/demoncoder
+SHA256: 82b08fb61b1274ef59b8fbf9bb5dab2c117f47a25f4b4b78b2c12f4876951c46
+Matches release binary and PATH.
+Installed production tool cycle: openai-api pass
+Installed production tool cycle: anthropic-api pass
+Installed production tool cycle: codex pass
+Installed production tool cycle: claude pass
+test_model_default_allows_a_large_generated_file_and_tool_continuation (output_limits.OutputLimits.test_model_default_allows_a_large_generated_file_and_tool_continuation) ... ok
+test_saved_limit_and_cli_override_reach_both_native_apis (output_limits.OutputLimits.test_saved_limit_and_cli_override_reach_both_native_apis) ... ok
+test_truncation_is_visible_and_the_next_prompt_works (output_limits.OutputLimits.test_truncation_is_visible_and_the_next_prompt_works) ... ok
+test_copy_uses_prompt_text_without_submitting_or_cancelling (prompt_clipboard.PromptClipboard.test_copy_uses_prompt_text_without_submitting_or_cancelling) ... ok
+test_terminal_paste_is_editor_text_and_modes_are_restored (prompt_clipboard.PromptClipboard.test_terminal_paste_is_editor_text_and_modes_are_restored) ... ok
+
+----------------------------------------------------------------------
+Ran 5 tests in 4.340s
+
+OK
+Installed quit stops owned tools within two seconds: openai-api pass
+Installed quit stops owned tools within two seconds: anthropic-api pass
+Installed quit stops owned tools within two seconds: codex pass
+Installed quit stops owned tools within two seconds: claude pass
+Exit: 0
+Command: python3 /tmp/demoncoder-install-verification-wlqdufri/verify_fds.py
+Installed main process -> Anthropic fixture -> confined Bash: inherited socket and outside writable descriptors closed; no host effects
+Exit: 0

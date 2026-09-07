@@ -1,0 +1,6 @@
+# Recover the confirmed terminal usability sweep in Demoncoder
+
+Surfaced from: CHAT-002
+Captured: 2026-09-07T06:27:38.819Z
+
+The developer directed this session to handoff.md, identified that the agreed usability records were written in suprnova-coder, and confirmed Creator identity was already finished. The recovered source is suprnova-coder commit 6f433cb, docs/spec/normal-task-usability.md and docs/commitments/normal-task-reliability-and-terminal-usability.md. docs/proposals/normal-task-usability.md maps the confirmed requests to Demoncoder source and proposed checks. Preserve animation, scrollbar dragging, mouse text selection, ordered model/context/Git/subagent/token status, truthful current-context capacity, and omission of unknown or partial monetary cost. Investigate the four reported test/access symptoms separately in disposable repositories, preserving confinement. Daemon terminal-publication/shutdown and sealed owned-worktree implementations belong to suprnova-coder and are not Demoncoder reproductions. Subagent execution and provider-selected native search stay later work. This captures existing developer intent; it does not ask the developer to select Creator identity again. The current roadmap still names chat-presentation.

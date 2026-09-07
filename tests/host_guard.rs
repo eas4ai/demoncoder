@@ -35,9 +35,12 @@ fn executor(path: &Path) -> ToolExecutor {
         path,
         &AccessPolicy {
             unrestricted: true,
+            strict_worktree: false,
             tools_enabled: true,
             oracle: Some(Box::new(connection("claude"))),
             credential_paths: Vec::new(),
+            supervisor: Some(env!("CARGO_BIN_EXE_demoncoder").into()),
+            extension: None,
         },
     )
     .unwrap()
@@ -49,6 +52,21 @@ fn write_call(path: &Path) -> ToolCall {
         name: "write".into(),
         arguments: json!({"path":path,"content":"reviewed"}),
     }
+}
+
+#[tokio::test]
+async fn reliability_explicit_host_mode_retains_unix_sockets() {
+    let workspace = tempfile::tempdir().unwrap();
+    std::fs::write(workspace.path().join("oracle-mode"), "allow").unwrap();
+    let tools = executor(workspace.path());
+    let (events, _rx) = sink();
+    let result = tools.execute(ToolCall {
+        id: "host-socket-fixture".into(),
+        name: "bash".into(),
+        arguments: json!({"command": "python3 -c 'import socket; s = socket.socket(socket.AF_UNIX); s.close(); a,b = socket.socketpair(socket.AF_UNIX, socket.SOCK_DGRAM); a.send(b\"fixture\"); assert b.recv(7) == b\"fixture\"; print(\"HOST-SOCKETS-OK\")'"}),
+    }, &events).await.unwrap();
+    assert!(result.success, "{}", result.output);
+    assert!(result.output.contains("HOST-SOCKETS-OK"));
 }
 
 async fn ready(path: PathBuf) {
@@ -66,6 +84,16 @@ fn stopped(pid: &str) -> bool {
     std::fs::read_to_string(format!("/proc/{pid}/stat")).map_or(true, |stat| {
         stat.split(") ").nth(1).unwrap().starts_with('Z')
     })
+}
+
+fn fixture_pidfd(pid: &str) -> std::os::fd::OwnedFd {
+    let pid = rustix::process::Pid::from_raw(pid.trim().parse().unwrap()).unwrap();
+    rustix::process::pidfd_open(pid, rustix::process::PidfdFlags::empty()).unwrap()
+}
+
+fn stop_fixture(pidfd: &std::os::fd::OwnedFd) {
+    // Best-effort cleanup on a failing test must never signal a reused PID.
+    let _ = rustix::process::pidfd_send_signal(pidfd, rustix::process::Signal::KILL);
 }
 
 #[tokio::test]
@@ -232,7 +260,14 @@ async fn target_swaps_during_review_cannot_change_the_effect() {
 
 #[tokio::test]
 async fn host_children_stop_on_exit_closed_stdio_and_cancellation() {
-    for mode in ["exit", "closed-stdio", "cancel"] {
+    for (mode, detached) in [
+        ("exit", false),
+        ("closed-stdio", false),
+        ("cancel", false),
+        ("exit", true),
+        ("closed-stdio", true),
+        ("cancel", true),
+    ] {
         let root = tempfile::tempdir().unwrap();
         std::fs::write(root.path().join("oracle-mode"), "allow").unwrap();
         let tools = executor(root.path());
@@ -242,8 +277,13 @@ async fn host_children_stop_on_exit_closed_stdio_and_cancellation() {
             "closed-stdio" => "exec 1>&- 2>&-; sleep .1; exit 7",
             _ => "wait",
         };
-        let command = format!("sleep 30 & echo $! > child-pid; {suffix}");
-        {
+        let start = if detached {
+            "setsid /bin/bash -c 'echo $$ > child-pid; exec sleep 30' >/dev/null 2>&1 & while [ ! -s child-pid ]; do sleep .01; done"
+        } else {
+            "sleep 30 & echo $! > child-pid"
+        };
+        let command = format!("{start}; while [ ! -f release ]; do sleep .01; done; {suffix}");
+        let (pid, pidfd) = {
             let pending = tools.execute(
                 ToolCall {
                     id: "child".into(),
@@ -253,23 +293,169 @@ async fn host_children_stop_on_exit_closed_stdio_and_cancellation() {
                 &events,
             );
             tokio::pin!(pending);
-            if mode == "cancel" {
-                tokio::select! {
-                    _ = &mut pending => panic!("held command completed"),
-                    _ = ready(root.path().join("child-pid")) => {},
-                }
-            } else {
+            tokio::select! {
+                _ = &mut pending => panic!("held command completed"),
+                _ = ready(root.path().join("child-pid")) => {},
+            }
+            let pid = std::fs::read_to_string(root.path().join("child-pid")).unwrap();
+            // Keep Bash alive until its child has a stable cleanup handle.
+            let pidfd = fixture_pidfd(&pid);
+            std::fs::write(root.path().join("release"), "release").unwrap();
+            if mode != "cancel" {
                 let result = tokio::time::timeout(Duration::from_secs(3), pending)
                     .await
                     .unwrap()
                     .unwrap();
                 assert_eq!(result.exit_code, Some(7), "{}", result.output);
             }
+            (pid, pidfd)
+        };
+        let cleaned = tokio::time::timeout(Duration::from_secs(2), async {
+            while !stopped(pid.trim()) {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .is_ok();
+        if !cleaned {
+            stop_fixture(&pidfd);
         }
-        let pid = std::fs::read_to_string(root.path().join("child-pid")).unwrap();
-        tokio::time::sleep(Duration::from_millis(100)).await;
-        assert!(stopped(pid.trim()), "{mode}: host child survived");
+        assert!(cleaned, "{mode}, detached={detached}: host child survived");
     }
+}
+
+#[tokio::test]
+async fn host_supervisor_handshake_deadline_exits_with_pipe_still_open() {
+    use std::process::Stdio;
+    let root = tempfile::tempdir().unwrap();
+    let mut child = tokio::process::Command::new(env!("CARGO_BIN_EXE_demoncoder"))
+        .args(["--supervise-bash", "touch should-not-run"])
+        .current_dir(root.path())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .kill_on_drop(true)
+        .spawn()
+        .unwrap();
+    let _lifetime = child.stdin.take().unwrap();
+    let result = tokio::time::timeout(Duration::from_secs(2), child.wait()).await;
+    assert!(
+        result.is_ok(),
+        "missing handshake did not terminate the supervisor"
+    );
+    assert!(!result.unwrap().unwrap().success());
+    assert!(!root.path().join("should-not-run").exists());
+}
+
+#[tokio::test]
+async fn host_supervisor_stops_detached_grandchildren_after_owner_is_killed() {
+    use std::process::Stdio;
+    let root = tempfile::tempdir().unwrap();
+    let launcher = r#"
+import pathlib, subprocess, sys
+script = "setsid /bin/bash -c 'echo $$ > detached-parent-pid; sleep 30 & echo $! > child-pid; wait' >/dev/null 2>&1 & wait"
+child = subprocess.Popen([sys.argv[1], '--supervise-bash', script], stdin=subprocess.PIPE)
+child.stdin.write(b'1')
+child.stdin.flush()
+pathlib.Path('supervisor-pid').write_text(str(child.pid))
+child.wait()
+"#;
+    let mut owner = tokio::process::Command::new("python3")
+        .args(["-c", launcher, env!("CARGO_BIN_EXE_demoncoder")])
+        .current_dir(root.path())
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .kill_on_drop(true)
+        .spawn()
+        .unwrap();
+    ready(root.path().join("child-pid")).await;
+    let pids: Vec<_> = ["supervisor-pid", "detached-parent-pid", "child-pid"]
+        .into_iter()
+        .map(|name| std::fs::read_to_string(root.path().join(name)).unwrap())
+        .collect();
+    let pidfds: Vec<_> = pids.iter().map(|pid| fixture_pidfd(pid)).collect();
+    owner.kill().await.unwrap();
+    let cleaned = tokio::time::timeout(Duration::from_secs(2), async {
+        while pids.iter().any(|pid| !stopped(pid.trim())) {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .is_ok();
+    if !cleaned {
+        for pidfd in &pidfds {
+            stop_fixture(pidfd);
+        }
+    }
+    assert!(cleaned, "detached host descendants survived owner SIGKILL");
+}
+
+#[tokio::test]
+async fn host_supervisor_stops_deep_fork_chain_within_two_seconds() {
+    use std::process::Stdio;
+    use tokio::io::AsyncWriteExt;
+    let root = tempfile::tempdir().unwrap();
+    std::fs::write(
+        root.path().join("chain.py"),
+        r#"
+import os, pathlib, time
+for depth in range(230):
+    with open('chain-pids', 'a') as output:
+        output.write(str(os.getpid()) + '\n')
+    if depth == 229:
+        pathlib.Path('chain-ready').touch()
+    if depth == 229 or os.fork():
+        break
+time.sleep(30)
+"#,
+    )
+    .unwrap();
+    let mut supervisor = tokio::process::Command::new(env!("CARGO_BIN_EXE_demoncoder"))
+        .args(["--supervise-bash", "exec python3 chain.py"])
+        .current_dir(root.path())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .kill_on_drop(true)
+        .spawn()
+        .unwrap();
+    let mut lifetime = supervisor.stdin.take().unwrap();
+    lifetime.write_all(b"1").await.unwrap();
+    let started = tokio::time::timeout(Duration::from_secs(3), async {
+        while !root.path().join("chain-ready").exists() {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .is_ok();
+    let pids = std::fs::read_to_string(root.path().join("chain-pids")).unwrap_or_default();
+    let pidfds: Vec<_> = if started {
+        pids.lines().map(fixture_pidfd).collect()
+    } else {
+        Vec::new()
+    };
+    drop(lifetime);
+    let cleaned = tokio::time::timeout(Duration::from_secs(2), async {
+        supervisor.wait().await.unwrap();
+        while pids.lines().any(|pid| !stopped(pid)) {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .is_ok();
+    if !cleaned {
+        for pidfd in &pidfds {
+            stop_fixture(pidfd);
+        }
+        let _ = tokio::time::timeout(Duration::from_secs(2), supervisor.wait()).await;
+    }
+    assert!(started, "deep host fork chain did not start");
+    assert_eq!(pids.lines().count(), 230);
+    assert!(
+        cleaned,
+        "deep host fork chain survived the two-second cleanup bound"
+    );
 }
 
 #[tokio::test]

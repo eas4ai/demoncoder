@@ -1,0 +1,20 @@
+command: bash scripts/check-advanced-orchestration.sh
+results: per-requirement
+inputs:
+  - Cargo.toml
+  - Cargo.lock
+  - src/
+  - tests/
+  - scripts/
+  - README.md
+  - docs/spec/
+  - docs/plans/
+  - docs/commitments/advanced-orchestration.md
+requirements:
+  - ORCH-001
+  - ORCH-002
+  - ORCH-003
+  - ORCH-004
+  - ORCH-005
+  - ORCH-006
+  - ORCH-007

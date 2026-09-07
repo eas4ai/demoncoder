@@ -1,0 +1,17 @@
+command: bash scripts/check-sweep-interaction.sh
+results: per-requirement
+inputs:
+  - Cargo.toml
+  - Cargo.lock
+  - src/
+  - tests/
+  - scripts/
+  - README.md
+  - handoff.md
+  - docs/spec/
+  - docs/commitments/terminal-usability-sweep.md
+  - docs/investigations/
+requirements:
+  - SWEEP-002
+  - SWEEP-003
+  - SWEEP-004

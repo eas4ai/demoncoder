@@ -37,6 +37,9 @@ def next_call(state, result=None):
 
 
 def run(codex):
+    if not codex:
+        assert "--append-system-prompt" in sys.argv, "Creator identity flag missing"
+        assert "You are Demoncoder, the Creator agent" in sys.argv[sys.argv.index("--append-system-prompt") + 1]
     state_path = Path("continuation-state.json")
     resumed = state_path.exists()
     state = json.loads(state_path.read_text()) if resumed else new_state(Path("continuation").read_text() == "cancel")
@@ -96,6 +99,7 @@ def run(codex):
         elif method == "config/read":
             send({"id": message["id"], "result": {"config": {"mcp_servers": {}}}})
         elif method in ("thread/start", "thread/resume"):
+            assert "You are Demoncoder, the Creator agent" in message["params"]["developerInstructions"], "Creator identity missing from backend thread"
             assert (method == "thread/resume") == resumed, "prior backend thread was discarded"
             if resumed:
                 assert message["params"]["threadId"] == identity

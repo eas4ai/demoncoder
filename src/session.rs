@@ -1,18 +1,33 @@
-use std::{collections::BTreeMap, path::Path};
+use std::{collections::BTreeMap, path::Path, sync::Arc};
 
 use anyhow::{Context, Result, bail};
 use async_trait::async_trait;
-use tokio::sync::mpsc;
+use tokio::sync::{OwnedSemaphorePermit, Semaphore, TryAcquireError, mpsc, oneshot};
 
 use crate::{
     config::Connection,
-    events::{Event, EventSink},
+    events::{Envelope, Event, EventSink},
 };
 
 pub const ADAPTER_INTERFACE_VERSION: u32 = 1;
 
+/// Result sent when the session owner accepts or rejects a submitted draft.
+pub type PromptAdmission = std::result::Result<(), &'static str>;
+pub(crate) const CORRECTION_CAPACITY: usize = 32;
+pub(crate) const CORRECTION_REJECTION: &str =
+    "Correction queue is full; draft retained. Wait for a tool boundary and try again.";
+pub(crate) const CORRECTION_CLOSED: &str =
+    "Session ended before prompt admission; draft retained. Start a new turn and try again.";
+const CORRECTION_ACCEPTED: &str = "\n[Correction queued for the next tool boundary]\n";
+
 pub enum Command {
     Prompt(String),
+    /// Submit a draft while retaining it in the editor until the session owner
+    /// replies. The owner replies before awaiting terminal event publication.
+    Submit {
+        text: String,
+        reply: oneshot::Sender<PromptAdmission>,
+    },
     Cancel,
     Shutdown,
 }
@@ -24,9 +39,125 @@ pub enum TurnEnd {
     Shutdown,
 }
 
+pub(crate) struct Correction {
+    text: String,
+    _slot: OwnedSemaphorePermit,
+}
+
+#[derive(Clone)]
+pub(crate) struct CorrectionSender {
+    sender: mpsc::Sender<Correction>,
+    slots: Arc<Semaphore>,
+}
+
+pub(crate) fn correction_channel() -> (CorrectionSender, mpsc::Receiver<Correction>) {
+    let (sender, receiver) = mpsc::channel(CORRECTION_CAPACITY);
+    (
+        CorrectionSender {
+            sender,
+            slots: Arc::new(Semaphore::new(CORRECTION_CAPACITY)),
+        },
+        receiver,
+    )
+}
+
+pub(crate) fn correction_prompt(corrections: Vec<Correction>) -> String {
+    corrections
+        .into_iter()
+        .map(|correction| correction.text)
+        .collect::<Vec<_>>()
+        .join("\n\n")
+}
+
+pub(crate) fn relay_command(
+    command: Option<Command>,
+    corrections: &CorrectionSender,
+    events: &EventSink,
+) -> Result<Option<TurnEnd>> {
+    let (text, reply) = match command {
+        Some(Command::Cancel) => return Ok(Some(TurnEnd::Cancelled)),
+        Some(Command::Shutdown) | None => return Ok(Some(TurnEnd::Shutdown)),
+        Some(Command::Prompt(text)) => (text, None),
+        Some(Command::Submit { text, reply }) => (text, Some(reply)),
+    };
+    if crate::workflow::is_control(&text) {
+        if let Some(reply) = reply {
+            let _ = reply.send(Err(crate::workflow::BUSY_CONTROL));
+        } else {
+            events.emit_advisory(Event::Error {
+                message: crate::workflow::BUSY_CONTROL.into(),
+            })?;
+        }
+        return Ok(None);
+    }
+    let slot = match corrections.slots.clone().try_acquire_owned() {
+        Ok(slot) => slot,
+        Err(TryAcquireError::NoPermits) => {
+            if let Some(reply) = reply {
+                let _ = reply.send(Err(CORRECTION_REJECTION));
+            }
+            events.emit_advisory(Event::Error {
+                message: CORRECTION_REJECTION.into(),
+            })?;
+            return Ok(None);
+        }
+        Err(TryAcquireError::Closed) => {
+            if let Some(reply) = reply {
+                let _ = reply.send(Err(CORRECTION_CLOSED));
+            }
+            return Ok(Some(TurnEnd::Shutdown));
+        }
+    };
+    match corrections.sender.try_reserve() {
+        Ok(permit) => {
+            let acknowledged = reply.is_none_or(|reply| reply.send(Ok(())).is_ok());
+            if acknowledged {
+                permit.send(Correction { text, _slot: slot });
+                events.emit_advisory(Event::Text {
+                    text: CORRECTION_ACCEPTED.into(),
+                })?;
+            }
+        }
+        Err(mpsc::error::TrySendError::Full(_)) => {
+            if let Some(reply) = reply {
+                let _ = reply.send(Err(CORRECTION_REJECTION));
+            }
+            events.emit_advisory(Event::Error {
+                message: CORRECTION_REJECTION.into(),
+            })?;
+        }
+        Err(mpsc::error::TrySendError::Closed(_)) => {
+            if let Some(reply) = reply {
+                let _ = reply.send(Err(CORRECTION_CLOSED));
+            }
+            return Ok(Some(TurnEnd::Shutdown));
+        }
+    }
+    Ok(None)
+}
+
 #[async_trait]
 pub trait Session: Send {
     fn owner(&self) -> &'static str;
+    fn supports_workflow(&self) -> bool {
+        false
+    }
+    fn initial_events(&self) -> Result<Vec<Event>> {
+        Ok(Vec::new())
+    }
+    fn checkpoint(&self) -> Option<serde_json::Value> {
+        None
+    }
+    fn settle_interruption(&mut self) -> Result<()> {
+        Ok(())
+    }
+    fn restore(
+        &mut self,
+        _checkpoint: &serde_json::Value,
+        _results: &[crate::tools::ToolResult],
+    ) -> Result<()> {
+        bail!("this adapter cannot restore its internal conversation")
+    }
     async fn turn(
         &mut self,
         prompt: String,
@@ -34,6 +165,9 @@ pub trait Session: Send {
         events: &EventSink,
     ) -> Result<TurnEnd>;
     async fn close(&mut self) -> Result<()> {
+        Ok(())
+    }
+    async fn cancel_background(&mut self) -> Result<()> {
         Ok(())
     }
 }
@@ -129,48 +263,139 @@ impl Registry {
     }
 }
 
+/// Lifecycle publication must keep draining controls too. A held terminal can
+/// delay display, but cannot keep the owner alive after shutdown or admit more
+/// prompts into an unbounded holding area.
+async fn publish_lifecycle(
+    event: Event,
+    allow_cancel: bool,
+    commands: &mut mpsc::Receiver<Command>,
+    events: &EventSink,
+    session: &mut dyn Session,
+) -> Result<Option<TurnEnd>> {
+    let publication = events.emit(event);
+    tokio::pin!(publication);
+    loop {
+        tokio::select! {
+            biased;
+            result = &mut publication => return match result {
+                Ok(()) => Ok(None),
+                // The UI closes its receiver on quit; that is a cleanup request,
+                // while a retained-log error must still be reported.
+                Err(error) if error.downcast_ref::<mpsc::error::SendError<Envelope>>().is_some() => Ok(Some(TurnEnd::Shutdown)),
+                Err(error) => Err(error),
+            },
+            command = commands.recv() => match command {
+                Some(Command::Shutdown) | None => return Ok(Some(TurnEnd::Shutdown)),
+                Some(Command::Cancel) => {
+                    session.cancel_background().await?;
+                    if allow_cancel { return Ok(Some(TurnEnd::Cancelled)); }
+                },
+                Some(command) => {
+                    const REASON: &str = "Session is waiting for terminal output; draft retained. Try again shortly.";
+                    let report = match command {
+                        Command::Submit { reply, .. } => reply.send(Err(REASON)).is_ok(),
+                        Command::Prompt(_) => true,
+                        _ => unreachable!("control commands handled above"),
+                    };
+                    if report {
+                        events.emit_advisory(Event::Error { message: REASON.into() })?;
+                    }
+                },
+            },
+        }
+    }
+}
+
 pub async fn run(
     mut session: Box<dyn Session>,
     mut commands: mpsc::Receiver<Command>,
     events: EventSink,
 ) -> Result<()> {
     let result = async {
-        events
-            .emit(Event::Ready {
+        if publish_lifecycle(
+            Event::Ready {
                 owner: session.owner(),
-            })
-            .await?;
+            },
+            false,
+            &mut commands,
+            &events,
+            session.as_mut(),
+        )
+        .await?
+        .is_some()
+        {
+            return Ok(());
+        }
+        for event in session.initial_events()? {
+            if publish_lifecycle(event, false, &mut commands, &events, session.as_mut())
+                .await?
+                .is_some()
+            {
+                return Ok(());
+            }
+        }
         while let Some(command) = commands.recv().await {
-            match command {
-                Command::Prompt(prompt) => {
-                    events.emit(Event::TurnStarted).await?;
-                    match session.turn(prompt, &mut commands, &events).await {
-                        Ok(TurnEnd::Shutdown) => break,
-                        Ok(end) => {
-                            events
-                                .emit(Event::TurnFinished {
-                                    status: if end == TurnEnd::Complete {
-                                        "complete"
-                                    } else {
-                                        "cancelled"
-                                    },
-                                })
-                                .await?
-                        }
-                        Err(error) => {
-                            events
-                                .emit(Event::Error {
-                                    message: error.to_string(),
-                                })
-                                .await?;
-                            events
-                                .emit(Event::TurnFinished { status: "failed" })
-                                .await?;
-                        }
-                    }
-                }
+            let prompt = match command {
+                Command::Prompt(prompt) => Some(prompt),
+                Command::Submit { text, reply } => reply.send(Ok(())).ok().map(|()| text),
                 Command::Shutdown => break,
-                Command::Cancel => {}
+                Command::Cancel => {
+                    session.cancel_background().await?;
+                    None
+                }
+            };
+            let Some(prompt) = prompt else {
+                continue;
+            };
+            let outcome = match publish_lifecycle(
+                Event::TurnStarted,
+                true,
+                &mut commands,
+                &events,
+                session.as_mut(),
+            )
+            .await?
+            {
+                Some(end) => Ok(end),
+                None => session.turn(prompt, &mut commands, &events).await,
+            };
+            let status = match outcome {
+                Ok(TurnEnd::Shutdown) => break,
+                Ok(TurnEnd::Complete) => "complete",
+                Ok(TurnEnd::Cancelled) => {
+                    session.cancel_background().await?;
+                    "cancelled"
+                }
+                Err(error) => {
+                    if publish_lifecycle(
+                        Event::Error {
+                            message: error.to_string(),
+                        },
+                        false,
+                        &mut commands,
+                        &events,
+                        session.as_mut(),
+                    )
+                    .await?
+                    .is_some()
+                    {
+                        break;
+                    }
+                    "failed"
+                }
+            };
+            if publish_lifecycle(
+                Event::TurnFinished { status },
+                false,
+                &mut commands,
+                &events,
+                session.as_mut(),
+            )
+            .await?
+            .is_some()
+            {
+                break;
             }
         }
         Ok(())
@@ -178,4 +403,119 @@ pub async fn run(
     .await;
     let close = session.close().await;
     result.and(close)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn lifecycle_backpressure_does_not_discard_background_cancellation() {
+        use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+        struct Background {
+            stopped: Arc<AtomicBool>,
+            returned: Arc<AtomicBool>,
+        }
+        #[async_trait]
+        impl Session for Background {
+            fn owner(&self) -> &'static str {
+                "background-test"
+            }
+            async fn turn(
+                &mut self,
+                _: String,
+                _: &mut mpsc::Receiver<Command>,
+                events: &EventSink,
+            ) -> Result<TurnEnd> {
+                events
+                    .emit(Event::Text {
+                        text: "Fill the held terminal queue".into(),
+                    })
+                    .await?;
+                self.returned.store(true, Ordering::SeqCst);
+                Ok(TurnEnd::Complete)
+            }
+            async fn cancel_background(&mut self) -> Result<()> {
+                self.stopped.store(true, Ordering::SeqCst);
+                Ok(())
+            }
+            async fn close(&mut self) -> Result<()> {
+                self.cancel_background().await
+            }
+        }
+        let stopped = Arc::new(AtomicBool::new(false));
+        let returned = Arc::new(AtomicBool::new(false));
+        let effects = Arc::new(AtomicUsize::new(0));
+        let child = tokio::spawn({
+            let stopped = stopped.clone();
+            let effects = effects.clone();
+            async move {
+                while !stopped.load(Ordering::SeqCst) {
+                    effects.fetch_add(1, Ordering::SeqCst);
+                    tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+                }
+            }
+        });
+        let (commands, receiver) = mpsc::channel(4);
+        let (sender, mut events) = mpsc::channel(1);
+        let owner = tokio::spawn(run(
+            Box::new(Background {
+                stopped: stopped.clone(),
+                returned: returned.clone(),
+            }),
+            receiver,
+            EventSink::new("held".into(), sender, None).unwrap(),
+        ));
+        assert!(matches!(
+            events.recv().await.unwrap().event,
+            Event::Ready { .. }
+        ));
+        commands
+            .send(Command::Prompt("start".into()))
+            .await
+            .unwrap();
+        assert!(matches!(
+            events.recv().await.unwrap().event,
+            Event::TurnStarted
+        ));
+        while !returned.load(Ordering::SeqCst) {
+            tokio::task::yield_now().await;
+        }
+        commands.send(Command::Cancel).await.unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(1), async {
+            while !stopped.load(Ordering::SeqCst) {
+                tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .expect("held lifecycle publication discarded cancellation");
+        child.await.unwrap();
+        let before = effects.load(Ordering::SeqCst);
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        assert_eq!(effects.load(Ordering::SeqCst), before);
+        commands.send(Command::Shutdown).await.unwrap();
+        owner.await.unwrap().unwrap();
+    }
+
+    #[tokio::test]
+    async fn closed_correction_handoff_returns_a_specific_admission_reason() {
+        let (corrections, receiver) = correction_channel();
+        drop(receiver);
+        let (event_tx, _event_rx) = mpsc::channel(1);
+        let events = EventSink::new("closed".into(), event_tx, None).unwrap();
+        let (reply, admission) = oneshot::channel();
+
+        let end = relay_command(
+            Some(Command::Submit {
+                text: "retained draft".into(),
+                reply,
+            }),
+            &corrections,
+            &events,
+        )
+        .unwrap();
+
+        assert!(matches!(end, Some(TurnEnd::Shutdown)));
+        assert_eq!(admission.await.unwrap(), Err(CORRECTION_CLOSED));
+    }
 }

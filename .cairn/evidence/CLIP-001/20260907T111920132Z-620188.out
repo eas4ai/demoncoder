@@ -1,0 +1,61 @@
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.33s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.26s
+     Running unittests src/lib.rs (target/debug/deps/demoncoder-0773d5cb978cf781)
+
+running 34 tests
+test context::tests::context_message_start_resets_previous_request_and_deltas_replace_counts ... ok
+test context::tests::context_uses_last_request_and_counts_cached_anthropic_input ... ok
+test context::tests::context_estimate_includes_instructions_and_tools_without_inventing_capacity ... ok
+test chat::tests::final_tool_receipt_replaces_streamed_output ... ok
+test developer_access::tests::cancelled_preparation_yields_and_stops_without_starting_a_command ... ok
+test chat::tests::full_view_anchor_survives_new_output_resize_and_toggle ... ok
+test chat::tests::compact_wrapped_rows_expand_without_losing_content ... ok
+test adapters::process::tests::group_cleanup_covers_drop_and_exited_leader ... ok
+test selection::tests::reverse_unicode_selection_uses_display_columns_and_keeps_snapshot_bytes ... ok
+test selection::tests::snapshot_rejects_excess_bytes_or_rows ... ok
+test status::tests::status_context_and_cost_keep_unknown_estimates_and_zero_distinct ... ok
+test status::tests::status_output_and_diff_parsing_are_bounded_and_nul_delimited ... ok
+test native::tests::cancellation_during_result_publication_preserves_completed_receipt ... ok
+test terminal::tests::empty_output_deltas_do_not_accumulate_transcript_entries ... ok
+test status::tests::status_uses_actual_workspace_and_never_runs_configured_filters ... ok
+test terminal::tests::scrollbar_drag_endpoints_follow_compact_full_and_resized_geometry ... ok
+test terminal::tests::scrollbar_tracks_full_history_and_leaves_two_empty_outer_columns ... ok
+test terminal::tests::selection_survives_final_receipt_resize_and_reselection ... ok
+test highlight::tests::fenced_code_is_colored_and_unknown_languages_remain_plain ... ok
+test terminal::tests::fenced_code_renders_styles_without_interpreting_control_sequences ... ok
+test terminal::tests::status_and_oracle_omit_unknown_money_but_keep_zero_and_reset_context ... ok
+test highlight::tests::multiline_code_state_and_oversized_fallback_are_bounded ... ok
+test chat::tests::retained_blocks_and_indexes_remain_bounded ... ok
+test transcript::tests::empty_fragments_and_many_newlines_have_bounded_metadata ... ok
+test transcript::tests::scroll_anchor_survives_new_output_and_resize_until_expiry ... ok
+test transcript::tests::rows_beyond_u16_are_reachable_and_controls_stay_literal ... ok
+test transcript::tests::streaming_graphemes_match_a_single_complete_append ... ok
+test transcript::tests::streamed_fences_and_unicode_keep_the_same_text_and_colors ... ok
+test transcript::tests::oversized_unicode_retains_a_bounded_valid_tail_and_expires_old_anchors ... ok
+test transcript::tests::idle_layout_and_visible_rows_do_not_scan_the_history ... ok
+test transcript::tests::many_lines_and_resizes_keep_the_index_bounded_and_visit_only_visible_lines ... ok
+test developer_access::tests::cold_cache_keeps_installed_tools_and_does_not_write_the_host_cache ... ok
+test native::tests::presentation_error_preserves_actual_failure_for_the_next_prompt ... ok
+test adapters::process::tests::interrupted_receive_retains_partial_json ... ok
+
+test result: ok. 34 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.01s
+
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.10s
+....
+----------------------------------------------------------------------
+Ran 4 tests in 3.141s
+
+OK
+CODE-005 openai-api provider stopped within two seconds; next prompt accepted
+CODE-005 openai-api tool stopped within two seconds; next prompt accepted
+CODE-005 anthropic-api provider stopped within two seconds; next prompt accepted
+CODE-005 anthropic-api tool stopped within two seconds; next prompt accepted
+CODE-005 codex provider stopped within two seconds; next prompt accepted
+CODE-005 codex tool stopped within two seconds; next prompt accepted
+CODE-005 claude provider stopped within two seconds; next prompt accepted
+CODE-005 claude tool stopped within two seconds; next prompt accepted
+cairn: CODE-005: pass
+spec lint: docs/spec clean
+cairn: SWEEP-008: pass
+cairn: CLIP-001: pass
+cairn: CLIP-002: pass

@@ -1,0 +1,6 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.09s
+     Running tests/reliability_streams.rs (target/debug/deps/reliability_streams-74b062508a434b79)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s
+     Running tests/reliability_utf8.rs (target/debug/deps/reliability_utf8-9c69b08df3b01c3c)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.09s
+     Running unittests src/lib.rs (target/debug/deps/demoncoder-50ea58c1cf5481a1)

@@ -1,8 +1,10 @@
 use super::process::{BackendProcess, executable};
 use crate::{
     config::Connection,
-    events::{Event, EventSink},
-    session::{Command, Session, TurnEnd},
+    events::{ContextUsage, Event, EventSink},
+    session::{
+        Command, Correction, Session, TurnEnd, correction_channel, correction_prompt, relay_command,
+    },
     tools::{ToolCall, ToolExecutor},
 };
 use anyhow::{Context, Result, bail};
@@ -147,6 +149,9 @@ impl Codex {
             "model":self.model,"cwd":self.workspace,"sandbox":if self.tools.unrestricted() {"danger-full-access"} else {"workspace-write"},"approvalPolicy":"never",
             "config":{"mcp_servers":disabled_servers},
         });
+        if !dynamic_tools.is_empty() {
+            params["developerInstructions"] = super::CREATOR_INSTRUCTIONS.into();
+        }
         let method = if let Some(thread) = &self.thread {
             params["threadId"] = json!(thread);
             "thread/resume"
@@ -173,15 +178,21 @@ impl Codex {
     async fn run_turn(
         &mut self,
         mut prompt: String,
-        steering: &mut mpsc::Receiver<String>,
+        steering: &mut mpsc::Receiver<Correction>,
         events: &EventSink,
     ) -> Result<TurnEnd> {
         self.connect().await?;
         'turns: loop {
+            events
+                .emit(Event::Context {
+                    usage: ContextUsage::default(),
+                })
+                .await?;
             self.tools.set_intent(&prompt);
             let id = self.next_id;
             self.next_id += 1;
             let process = self.process.as_mut().context("Codex process unavailable")?;
+            let admission = events.begin_backend()?;
             process
                 .send(json!({"id":id,"method":"turn/start","params":{
                     "threadId":self.thread,"input":[{"type":"text","text":prompt}],
@@ -211,7 +222,7 @@ impl Codex {
                         Some(tokio::time::Instant::now() + std::time::Duration::from_secs(30));
                 }
                 if completed && interrupt_ack {
-                    prompt = corrections.join("\n\n");
+                    prompt = correction_prompt(corrections);
                     continue 'turns;
                 }
                 let message = tokio::select! {
@@ -305,6 +316,7 @@ impl Codex {
                             params["turn"]["id"].as_str() == turn.as_deref() && turn.is_some(),
                             "Codex completed an unrelated turn"
                         );
+                        events.finish_model(admission)?;
                         if !corrections.is_empty() {
                             anyhow::ensure!(
                                 matches!(
@@ -323,6 +335,18 @@ impl Codex {
                         }
                     }
                     Some("thread/tokenUsage/updated") => {
+                        if !corrections.is_empty()
+                            || params["turnId"]
+                                .as_str()
+                                .is_some_and(|id| Some(id) != turn.as_deref())
+                        {
+                            continue;
+                        }
+                        events
+                            .emit(Event::Context {
+                                usage: ContextUsage::codex(&params["tokenUsage"]),
+                            })
+                            .await?;
                         let usage = &params["tokenUsage"]["last"];
                         events
                             .emit(Event::Usage {
@@ -355,23 +379,14 @@ impl Session for Codex {
         commands: &mut mpsc::Receiver<Command>,
         events: &EventSink,
     ) -> Result<TurnEnd> {
-        let (corrections, mut steering) = mpsc::channel(32);
+        let (corrections, mut steering) = correction_channel();
         let outcome = {
             let run = self.run_turn(prompt, &mut steering, events);
             tokio::pin!(run);
             loop {
                 tokio::select! {
                     biased;
-                    command = commands.recv() => match command {
-                        Some(Command::Cancel) => break Ok(TurnEnd::Cancelled),
-                        Some(Command::Shutdown) | None => break Ok(TurnEnd::Shutdown),
-                        Some(Command::Prompt(text)) => {
-                            match corrections.try_send(text) {
-                                Ok(()) => events.emit(Event::Text { text:"\n[Correction queued for the next tool boundary]\n".into() }).await?,
-                                Err(_) => events.emit(Event::Error { message:"Correction queue is full; wait for the current tool boundary and submit again.".into() }).await?,
-                            }
-                        },
-                    },
+                    command = commands.recv() => if let Some(end) = relay_command(command, &corrections, events)? { break Ok(end); },
                     result = &mut run => break result,
                 }
             }

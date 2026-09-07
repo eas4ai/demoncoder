@@ -92,10 +92,11 @@ def descendants(pid):
     return found
 
 
-def case(adapter, server, drop_cancel):
+def case(adapter, server, drop_cancel, quit_turn=False):
     with tempfile.TemporaryDirectory(prefix="demoncoder-cancel-") as directory:
-        workspace = Path(directory)
-        subprocess.run(["git", "init", "-q", directory], check=True)
+        workspace = Path(directory) / "project"
+        workspace.mkdir()
+        subprocess.run(["git", "init", "-q", str(workspace)], check=True)
         (workspace / "cancellation").write_text(server.scenario)
         token = uuid.uuid4().hex[:12]
         settings = f'default_connection = "selected"\n[connections.selected]\nadapter = "{adapter}"\nmodel = "fixture-model"\n'
@@ -105,13 +106,13 @@ def case(adapter, server, drop_cancel):
             settings += f'endpoint = "http://127.0.0.1:{server.server_port}/{route}"\n'
         else:
             settings += f'binary = {json.dumps(str(FIXTURE))}\n'
-        config = workspace / "connection.toml"
+        config = Path(directory) / "connection.toml"
         config.write_text(settings)
-        log = workspace / "events.jsonl"
+        log = Path(directory) / "events.jsonl"
         master, slave = pty.openpty()
         fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 35, 160, 0, 0))
         env = {"PATH": "/usr/bin:/bin", "HOME": directory, "TERM": "xterm-256color", "LANG": "C.UTF-8", "OPENAI_API_KEY": "fixture-key", "ANTHROPIC_API_KEY": "fixture-key"}
-        process = subprocess.Popen([str(BINARY), "--trust-workspace", "--workspace", directory, "--config", str(config), "--event-log", str(log)], stdin=slave, stdout=slave, stderr=slave, env=env, start_new_session=True)
+        process = subprocess.Popen([str(BINARY), "--trust-workspace", "--workspace", str(workspace), "--config", str(config), "--event-log", str(log)], stdin=slave, stdout=slave, stderr=slave, env=env, start_new_session=True)
         os.close(slave)
         output = bytearray()
         owned = {}
@@ -129,20 +130,27 @@ def case(adapter, server, drop_cancel):
                 assert len(owned) >= 2, "fixture did not start a child process"
             started = time.monotonic()
             if not drop_cancel:
-                os.write(master, b"\x1b")
+                os.write(master, b"\x11" if quit_turn else b"\x1b")
             deadline = started + 2
             while time.monotonic() < deadline:
                 time.sleep(min(.02, max(0, deadline - time.monotonic())))
             alive = [pid for pid, birth in owned.items() if birth and identity(pid) == birth]
             assert not alive, f"owned subprocesses still active after two seconds: {alive}"
+            if quit_turn:
+                assert process.poll() == 0, "quit did not finish successfully within two seconds"
             if native and server.scenario == "provider":
                 assert server.disconnected_at is not None, "HTTP request still open after two seconds"
                 assert server.disconnected_at <= deadline, "HTTP abort exceeded two seconds"
             size = heartbeat.stat().st_size if heartbeat.exists() else 0
             time.sleep(.15)
             assert not heartbeat.exists() or heartbeat.stat().st_size == size, "subprocess continued marker activity after grace period"
+            if quit_turn:
+                return
             events = [json.loads(line) for line in log.read_text().splitlines()]
             assert any(row["event"]["type"] == "turn_finished" and row["event"].get("status") == "cancelled" for row in events), "cancelled outcome missing"
+            if native or server.scenario == "tool":
+                os.write(master, b"/reconcile inspected interrupted request and heartbeat; owned work stopped, retained effects and unknown billing reviewed\r")
+                until(master, process, output, b"Inspection recorded", timeout=3)
             os.write(master, ("NEXT-" + token).encode() + b"\r")
             until(master, process, output, ("READY-NEXT-" + token).encode(), timeout=3)
             os.write(master, b"\x11")

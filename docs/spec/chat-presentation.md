@@ -12,7 +12,7 @@ Terminals use character cells; the right gutter is two columns.
 Falsifier: Assistant and tool output remain an undifferentiated text wall, a tool is marked successful before its result, its command/target is absent, or streamed output is repeated in its final block.
 Mechanism: chat-presentation; production terminal cases for assistant text and successful, failed and interrupted tools, including streaming and final results.
 
-[CHAT-002] Long assistant and tool output MUST have a compact preview after wrapping, with an explicit hidden-row count and Ctrl+O expansion hint. Ctrl+O MUST toggle all retained output between compact and full views without modifying provider input, tool execution or event evidence. Existing scrolling, history anchors, resize, cancellation and input during work MUST remain usable. Retention MUST stay bounded and expired output MUST remain visibly identified.
+[CHAT-002] Long assistant and tool output MUST have a compact preview after wrapping, with an explicit hidden-row count and Ctrl+O expansion hint. Ctrl+O MUST toggle all retained output between compact and full views without modifying provider input, tool execution or event evidence. Existing scrolling, history anchors, resize, cancellation and input during work MUST remain usable. Retention MUST stay bounded. Expired output MUST remain visibly identified.
 Falsifier: One long wrapped line floods the compact view, retained middle content is unreachable after expansion, toggling loses text or submits a prompt, incoming output moves an anchored reader, or retained text/index memory grows without bound.
 Mechanism: chat-presentation; deterministic layout/retention tests and current-screen keyboard, resize, streaming and continuation cases.
 

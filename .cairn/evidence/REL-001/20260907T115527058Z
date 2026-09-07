@@ -1,0 +1,20 @@
+requirement: REL-001
+requirement_digest: sha256:c5eb064fc5ce180b5a79756f9d7f3e6f8823dc48985ebb269a7c6f508127cb3e
+sequence: 2
+history_digest: sha256:2bf1e2cd444878454a3d163172ff6926cb4977a9eabd9b30ce098f9213729364
+mechanism: reliability-sockets
+commit: dd8ce77
+inputs_digest: sha256:dd252e5a76f15ab10cf3d4685d8d8080aa2dfc7782c0d1df1e56274fff8a84ba
+mechanism_digest: sha256:348d90fb1c461fc1801c76d41944957645c6ef6869d5f1ad50974c99e4a5cb84
+command: bash scripts/check-reliability-sockets.sh
+cwd: .
+exit: 0
+output_digest: sha256:152ee61749d8db6a173cbd56ef64631eed560e01da4dc1588c74e6cf0c371804
+output: .cairn/evidence/REL-001/20260907T115525711Z-885986.out
+stderr_output: .cairn/evidence/REL-001/20260907T115525711Z-885986.err
+stderr_digest: sha256:02ecb38df646f6b0e9ec92d8dd9eca6a6c7467397911555799ef3c6a94c00bb7
+signal: none
+execution_error: null
+result: pass
+source: line
+recorded: 2026-09-07T11:55:27.058Z

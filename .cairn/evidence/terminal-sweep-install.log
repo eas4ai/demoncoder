@@ -1,0 +1,16 @@
+Installed: /home/shawn/.cargo/bin/demoncoder
+Version: demoncoder 0.1.2
+SHA256: eaa5ade8e0788bacaba11ae9fe8319ac166999e5f8488433dec2a4e96ca18e1f
+Matches target/release/demoncoder; PATH resolves to installed binary; help includes --context-window.
+test_explicit_context_capacity_and_latest_request_are_not_accumulated (status_sweep.StatusSweep.test_explicit_context_capacity_and_latest_request_are_not_accumulated) ... ok
+test_hung_git_does_not_block_input_or_quit (status_sweep.StatusSweep.test_hung_git_does_not_block_input_or_quit) ... ok
+test_status_order_and_selected_workspace_git (status_sweep.StatusSweep.test_status_order_and_selected_workspace_git) ... ok
+test_drag_scrollbar_preserves_history_when_output_arrives (terminal_sweep.TerminalSweep.test_drag_scrollbar_preserves_history_when_output_arrives) ... ok
+test_indicator_advances_without_streamed_text_and_stops_after_completion (terminal_sweep.TerminalSweep.test_indicator_advances_without_streamed_text_and_stops_after_completion) ... ok
+test_reverse_unicode_selection_survives_resize_in_real_terminal (terminal_sweep.TerminalSweep.test_reverse_unicode_selection_survives_resize_in_real_terminal) ... ok
+test_selected_displayed_text_survives_new_output_and_copies_only_on_request (terminal_sweep.TerminalSweep.test_selected_displayed_text_survives_new_output_and_copies_only_on_request) ... ok
+
+----------------------------------------------------------------------
+Ran 7 tests in 6.867s
+
+OK

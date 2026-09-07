@@ -1,0 +1,20 @@
+command: bash scripts/check-assignable-subagents.sh
+results: per-requirement
+inputs:
+  - Cargo.toml
+  - Cargo.lock
+  - src/
+  - tests/
+  - scripts/
+  - README.md
+  - docs/spec/
+  - docs/plans/
+  - docs/commitments/assignable-subagents.md
+requirements:
+  - SUB-001
+  - SUB-002
+  - SUB-003
+  - SUB-004
+  - SUB-005
+  - SUB-006
+  - SUB-007

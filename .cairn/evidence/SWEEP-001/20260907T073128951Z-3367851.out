@@ -1,0 +1,27 @@
+   Compiling demoncoder v0.1.2 (/home/shawn/workspace2/demoncoder)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.42s
+     Running tests/developer_access.rs (target/debug/deps/developer_access-a7db3c5eefb1fca4)
+
+running 3 tests
+SWEEP nested namespace: exit Some(1); unshare: write failed /proc/self/uid_map: Operation not permitted
+
+SWEEP skill read: public native/Bash reads pass; selected credential remains denied
+test sweep_public_skill_read_preserves_private_canary ... ok
+SWEEP temporary storage: writable session TMPDIR
+SWEEP PTY: opened and transferred bytes
+
+test sweep_temporary_files_and_pty_work_inside_the_production_sandbox ... ok
+test sweep_nested_namespace_probe_retains_its_actual_disposition ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 11 filtered out; finished in 0.26s
+
+   Compiling demoncoder v0.1.2 (/home/shawn/workspace2/demoncoder)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.76s
+     Running unittests src/lib.rs (target/debug/deps/demoncoder-0773d5cb978cf781)
+
+running 1 test
+test native::tests::presentation_error_preserves_actual_failure_for_the_next_prompt ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 33 filtered out; finished in 0.28s
+
+cairn: SWEEP-001: pass

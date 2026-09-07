@@ -1,0 +1,20 @@
+requirement: CLIP-002
+requirement_digest: sha256:626b884b3e4453548bda06297af068cb857e1a0add1bb025783ef55c20be334f
+sequence: 3
+history_digest: sha256:4abd2b77aa4c38fa2da4caf38893e39199718f58f52e077033bc407b623a8179
+mechanism: clipboard-shortcuts
+commit: 3845492
+inputs_digest: sha256:f2d94af71c7ab50fc6f85578db51b47aa962ff197bba6da3aff14ee6f43589c4
+mechanism_digest: sha256:e18218b2454ca184fbc544159a18c8694ad4deb8e62e158650ebcc34c121ed98
+command: bash scripts/check-clipboard-shortcuts.sh
+cwd: .
+exit: 101
+output_digest: sha256:08b297de70b5dc22fd4ac61707c04784611a0c8b5338d7d2ecea13298ef6dd6a
+output: .cairn/evidence/CLIP-001/20260907T112150741Z-639073.out
+stderr_output: .cairn/evidence/CLIP-001/20260907T112150741Z-639073.err
+stderr_digest: sha256:08b297de70b5dc22fd4ac61707c04784611a0c8b5338d7d2ecea13298ef6dd6a
+signal: none
+execution_error: null
+result: unverified
+source: none
+recorded: 2026-09-07T11:21:51.912Z

@@ -1,8 +1,10 @@
 use super::process::{BackendProcess, executable};
 use crate::{
     config::Connection,
-    events::{Event, EventSink},
-    session::{Command, Session, TurnEnd},
+    events::{ContextUsage, Event, EventSink},
+    session::{
+        Command, Correction, Session, TurnEnd, correction_channel, correction_prompt, relay_command,
+    },
     tools::{ToolCall, ToolExecutor},
 };
 use anyhow::{Context, Result, bail};
@@ -45,7 +47,7 @@ impl Claude {
     async fn run_turn(
         &mut self,
         mut prompt: String,
-        steering: &mut mpsc::Receiver<String>,
+        steering: &mut mpsc::Receiver<Correction>,
         events: &EventSink,
     ) -> Result<TurnEnd> {
         if self.process.is_none() {
@@ -70,6 +72,12 @@ impl Claude {
             .into_iter()
             .map(str::to_owned)
             .collect();
+            if !self.tools.definitions().is_empty() {
+                args.extend([
+                    "--append-system-prompt".into(),
+                    super::CREATOR_INSTRUCTIONS.into(),
+                ]);
+            }
             if let Some(model) = &self.model {
                 args.extend(["--model".into(), model.clone()]);
             }
@@ -115,8 +123,15 @@ impl Claude {
             .as_mut()
             .context("Claude process unavailable")?;
         'turns: loop {
+            events
+                .emit(Event::Context {
+                    usage: ContextUsage::default(),
+                })
+                .await?;
             self.tools.set_intent(&prompt);
+            let admission = events.begin_backend()?;
             process.send(json!({"type":"user","message":{"role":"user","content":prompt},"parent_tool_use_id":null,"session_id":self.session.as_deref().unwrap_or("")})).await?;
+            let mut context_usage = crate::context::MessageContext::default();
             let mut corrections = Vec::new();
             let mut interrupting = false;
             let interrupt_id = format!("steering-{}", self.next_control_id);
@@ -135,7 +150,7 @@ impl Claude {
                         Some(tokio::time::Instant::now() + std::time::Duration::from_secs(30));
                 }
                 if completed && interrupt_ack {
-                    prompt = corrections.join("\n\n");
+                    prompt = correction_prompt(corrections);
                     continue 'turns;
                 }
                 let message = tokio::select! {
@@ -180,7 +195,14 @@ impl Claude {
                             self.subscription_confirmed,
                             "Claude returned model output before confirming subscription authentication"
                         );
-                        let delta = &message["event"]["delta"];
+                        let event = &message["event"];
+                        if corrections.is_empty()
+                            && message["parent_tool_use_id"].is_null()
+                            && let Some(usage) = context_usage.observe(event)
+                        {
+                            events.emit(Event::Context { usage }).await?;
+                        }
+                        let delta = &event["delta"];
                         if delta["type"] == "text_delta" && corrections.is_empty() {
                             events
                                 .emit(Event::Text {
@@ -188,6 +210,21 @@ impl Claude {
                                         .as_str()
                                         .context("Claude text delta missing")?
                                         .into(),
+                                })
+                                .await?;
+                        }
+                    }
+                    Some("assistant")
+                        if corrections.is_empty() && message["parent_tool_use_id"].is_null() =>
+                    {
+                        anyhow::ensure!(
+                            self.subscription_confirmed,
+                            "Claude returned usage before confirming subscription authentication"
+                        );
+                        if message["message"]["usage"].is_object() {
+                            events
+                                .emit(Event::Context {
+                                    usage: ContextUsage::anthropic(&message["message"]["usage"]),
                                 })
                                 .await?;
                         }
@@ -213,6 +250,7 @@ impl Claude {
                                 cost_usd: message["total_cost_usd"].as_f64(),
                             })
                             .await?;
+                        events.finish_model(admission)?;
                         if interrupting {
                             completed = true;
                         } else {
@@ -252,13 +290,15 @@ async fn handle_control(
     let response = match request["subtype"].as_str() {
         Some("can_use_tool") => {
             let name = request["tool_name"].as_str().unwrap_or("");
-            let allowed = ["read", "write", "edit", "bash"]
-                .iter()
-                .any(|tool| name == format!("mcp__demoncoder__{tool}"));
+            let allowed = tools.definitions().iter().any(|tool| {
+                tool["name"]
+                    .as_str()
+                    .is_some_and(|tool| name == format!("mcp__demoncoder__{tool}"))
+            });
             if allowed && admit_tools {
                 json!({"behavior":"allow", "updatedInput":request["input"]})
             } else {
-                json!({"behavior":"deny", "message":"Only DemonCoder's four coding tools are authorized."})
+                json!({"behavior":"deny", "message":"Only this session's registered DemonCoder tools are authorized."})
             }
         }
         Some("mcp_message") if request["server_name"] == "demoncoder" => {
@@ -323,23 +363,14 @@ impl Session for Claude {
         commands: &mut mpsc::Receiver<Command>,
         events: &EventSink,
     ) -> Result<TurnEnd> {
-        let (corrections, mut steering) = mpsc::channel(32);
+        let (corrections, mut steering) = correction_channel();
         let outcome = {
             let run = self.run_turn(prompt, &mut steering, events);
             tokio::pin!(run);
             loop {
                 tokio::select! {
                     biased;
-                    command = commands.recv() => match command {
-                        Some(Command::Cancel) => break Ok(TurnEnd::Cancelled),
-                        Some(Command::Shutdown) | None => break Ok(TurnEnd::Shutdown),
-                        Some(Command::Prompt(text)) => {
-                            match corrections.try_send(text) {
-                                Ok(()) => events.emit(Event::Text { text:"\n[Correction queued for the next tool boundary]\n".into() }).await?,
-                                Err(_) => events.emit(Event::Error { message:"Correction queue is full; wait for the current tool boundary and submit again.".into() }).await?,
-                            }
-                        },
-                    },
+                    command = commands.recv() => if let Some(end) = relay_command(command, &corrections, events)? { break Ok(end); },
                     result = &mut run => break result,
                 }
             }

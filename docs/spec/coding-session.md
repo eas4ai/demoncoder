@@ -2,6 +2,7 @@
 
 Status: Agreed 2026-09-06
 Prefix: CODE
+Host paths: /tmp
 
 This domain specifies the first usable session. The initial platform is
 Linux, matching the developer's current environment. Platform expansion is

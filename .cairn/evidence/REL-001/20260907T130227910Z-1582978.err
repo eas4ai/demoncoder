@@ -1,0 +1,10 @@
+   Compiling demoncoder v0.1.2 (/home/shawn/workspace2/demoncoder)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.49s
+     Running tests/developer_access.rs (target/debug/deps/developer_access-c37c03e0691e2a3f)
+    Blocking waiting for file lock on artifact directory
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.23s
+     Running unittests src/lib.rs (target/debug/deps/demoncoder-50ea58c1cf5481a1)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.09s
+     Running unittests src/lib.rs (target/debug/deps/demoncoder-50ea58c1cf5481a1)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s
+     Running tests/host_guard.rs (target/debug/deps/host_guard-c468cba85b9fd1fc)

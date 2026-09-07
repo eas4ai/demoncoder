@@ -9,6 +9,12 @@ The implemented first release provides four connections, four coding tools,
 guided setup, named model assignments, typed hooks, and an optional Oracle guard
 for explicit host execution. It runs on Linux.
 
+The Creator agent identifies as Demoncoder across all four connections,
+regardless of the selected model. It can still report the underlying model or
+provider when asked. Its shared prompt in `src/adapters/creator.md` also sets
+production coding, verification, delivery, and plain-language rules. The Oracle
+retains its separate review role.
+
 ## Contents
 
 - [Quick start](#quick-start)
@@ -21,6 +27,9 @@ for explicit host execution. It runs on Linux.
 - [Project trust and execution modes](#project-trust-and-execution-modes)
 - [Steering, cancellation, and continuation](#steering-cancellation-and-continuation)
 - [Usage, results, and event logs](#usage-results-and-event-logs)
+- [Task verification and recovery](#task-verification-and-recovery)
+- [Assignable subagents](#assignable-subagents)
+- [Advanced orchestration](#advanced-orchestration)
 - [Extending DemonCoder](#extending-demoncoder)
 - [Limits and troubleshooting](#limits-and-troubleshooting)
 - [Development and verification](#development-and-verification)
@@ -116,33 +125,242 @@ The model chooses tool calls and interprets their results. A completed turn mean
 the runtime finished that turn; inspect the actual test results before treating a
 coding task as correct.
 
+## Task verification and recovery
+
+Native OpenAI and Anthropic API sessions support an explicit task workflow.
+Select checks and a configured reviewer before starting:
+
+```bash
+demoncoder --workspace /path/to/project --check 'cargo test --locked' \
+  --reviewer review-model --correction-rounds 2 \
+  --task-seconds 900 --task-model-calls 64 --task-tool-calls 128
+```
+
+The reviewer name refers to a connection in your private settings. Ordinary
+conversation still works on all four connections. External agent backends cannot
+currently enforce individual call allocations or restore their opaque internal
+state, so explicit tasks and `--resume` require a native API connection.
+
+| Prompt | Behavior |
+|---|---|
+| `/task <objective>` | Start a task with the selected checks, reviewer and cumulative allocation. |
+| `/verify` | Run the selected commands under the current tool-access policy and retain their original results. |
+| `/review` | Give the tool-free reviewer the objective, actual workspace changes, source and check history. |
+| `/correct` | Return retained findings to the worker, then rerun checks and obtain a fresh review. |
+| `/accept` | Explicitly accept only when all selected checks pass and review is clear for the current workspace. |
+| `/task-status` | Display stopped work, verification, review, acceptance and remaining allocation. |
+| `/abandon` | Archive the task and its evidence, preserving all workspace files. |
+| `/reconcile <inspection explanation>` | Record your inspection of uncertain or changed work so execution can continue. |
+| `/workflow-help` | Display workflow controls. |
+
+No checks means unverified. Model completion never accepts a task. An edit after
+verification or review invalidates that evidence for acceptance. After evidence
+has been collected, use `/correct` to continue work; ordinary prompts cannot
+bypass the correction allowance. Commands require stopped work: cancel or wait
+before submitting them. Escape cancels checks, review and correction too.
+
+The default two correction rounds can be configured from zero to twenty before a
+task starts. The deadline includes time between prompts and time while the app is
+closed. Worker, Oracle, checks, review and corrections share the same finite call
+and tool allowances; resuming does not reset them. Limits are 1–86,400 seconds
+and 1–4,096 model or tool admissions. Reported token and cost totals retain unknown
+values when the connection does not report them. `--task-token-limit` and
+`--task-cost-limit` are rejected because the current adapters cannot enforce hard
+total token or monetary caps.
+
+Each session prints its private recovery directory under
+`~/.demoncoder/sessions/`. Resume with the same workspace, connection, access mode
+and task reviewer:
+
+```bash
+demoncoder --workspace /path/to/project --reviewer review-model \
+  --resume /home/you/.demoncoder/sessions/PRINTED-SESSION
+```
+
+Records contain conversation, tool arguments and results, source evidence and
+decisions. Directories use mode `0700`, files use `0600`, and concurrent writers
+are refused. Preserve these sensitive records privately. A damaged record or
+failed durable write holds execution. Interrupted operations are uncertain and
+are never automatically repeated. Inspect the actual files and effects, then use
+`/reconcile` with what you found. This records your judgment; it does not undo an
+effect or infer whether an interrupted command succeeded. A changed workspace
+while closed also requires inspection. Ordinary conversations have no acceptance
+snapshot and require workspace inspection on every resume. Their reconciliation
+records your explanation without capturing private files in a home workspace.
+
+Task capture includes untracked files and pre-existing changes, excluding only
+the root `.git` entry. It uses repeated bounded scans, not an atomic filesystem
+snapshot; avoid concurrent edits during checks and review. Limits are 8 MiB per
+file, 64 MiB total content, 20,000 entries, depth 64 and ten seconds per capture.
+Special files, hard links, mounted subtrees and unsupported path names block
+capture. Symbolic links are recorded without following targets. Review evidence
+is limited to 1 MiB; changed binary files or evidence that cannot fit block review
+visibly. The project must exclude private session and credential paths.
+
+Retention is finite: 32 archived tasks, 128 evidence generations, 4,096 operations,
+128 recorded decisions and an 8 MiB conversation within a 64 MiB session record.
+Reaching a retention limit stops further affected work; preserve the record and
+start a new session. No automatic checkout, cleanup, commit or deletion occurs.
+
+## Assignable subagents
+
+Enable named child connections before starting a session:
+
+```bash
+demoncoder --workspace /path/to/project --agent-connection worker-model \
+  --agent-connection codex --check 'test -s result.txt' --reviewer review-model
+```
+
+Enabled children can use OpenAI API, Anthropic API, Codex subscription or Claude
+subscription connections independently of the parent. Each gets a real Git
+worktree containing the parent's current files, including uncommitted and
+untracked content. The parent can delegate through its `delegate` tool and inspect
+results with `agent_status`. Without `--agent-connection`, the four original tools
+remain the complete tool surface.
+
+| Control | Behavior |
+|---|---|
+| `/delegate CONNECTION OWNED,PATHS OBJECTIVE` | Assign work using the selected connection, owned paths, startup checks and reviewer. |
+| `/agents` | List retained assignments and their current states. |
+| `/agent ID` | Inspect the assignment, original activity, results and validation evidence. |
+| `/agent-cancel ID` | Stop one child or cancel a completed assignment while retaining its files. |
+| `/agent-validate ID` | Run the selected checks and obtain an independent review of the current child patch. |
+| `/agent-integrate ID` | Explicitly apply a completed child's current validated changes to the parent. |
+| `/agent-reconcile ID EXPLANATION` | Record inspection of an interrupted assignment without replaying its work. |
+
+Child tools and validation commands always use worktree confinement, including
+under a `--yolo` parent. They cannot access user home files, credentials, other
+repositories or shared Git administration. Oracle approval cannot expand this
+boundary. Shell tools have minimal system executables and libraries, no network
+and no home-installed toolchains. Failure to establish confinement blocks work.
+
+Completion prose does not authorize integration. Checks must pass and review must
+be clear for the current child files. Integration preserves unrelated parent
+edits and rejects conflicts or changes outside ownership. Keep files stable during
+integration: freshness checks do not provide an atomic filesystem transaction
+against arbitrary external writers. Successful integration invalidates parent
+acceptance and requires fresh verification. Worktrees and retained commits remain
+available for inspection; the parent index is preserved.
+
+The default limit is two active children (`--agent-limit`, range 1–8). Parent,
+children, checks and review share the absolute `--task-seconds` deadline and
+`--task-tool-calls` allowance. Native calls consume `--task-model-calls`; external
+backend invocations use the separately named `--agent-backend-turns` allowance
+(default 64, range 1–4,096). A backend's internal calls, tokens and spending cannot
+be capped by that invocation count. Unreported usage remains unknown.
+
+Escape cancels active children with parent work; quitting closes their owners.
+Inspection and individual cancellation remain available during parent work.
+Starting work, validation and integration require the parent to stop first.
+Interrupted children and integrations become uncertain; resume never replays
+them. Resume the native parent with the original enabled connections, inspect
+each uncertain child, and reconcile the parent too when requested. Opaque backend
+conversations are not automatically restored. Retention is bounded to 32
+assignments and 2 MiB/2,048 activity entries per child, within the shared record.
+
+## Advanced orchestration
+
+Enable dependency scheduling and automatic supervision with the same named
+connections and checks used for subagents:
+
+```bash
+demoncoder --workspace /path/to/project --agent-connection worker-model \
+  --check 'test -s result.txt' --reviewer advisor-model \
+  --orchestrate --judge judge-model
+```
+
+`--orchestrate` requires enabled child connections, at least one check, a reviewer
+and a judge. The reviewer acts as advisor. Each supervision role has a fresh,
+tool-free context and retains its selected connection and model. Connections can
+use any of the four adapters. Selecting the same connection for different roles
+still creates separate contexts.
+
+Ordinary `/delegate` assignments run when capacity is available. Add prerequisites
+with `/delegate-after IDS CONNECTION OWNED,PATHS OBJECTIVE`, for example:
+
+```text
+/delegate worker-model parser.rs implement the parser
+/delegate-after 1 worker-model parser_test.rs test the integrated parser
+```
+
+The parent `delegate` tool accepts the equivalent `depends_on: [1]` field only
+when orchestration is enabled. Prerequisites must name earlier assignment IDs;
+unknown, repeated, self and forward references are refused. Waiting assignments
+remain visible and count toward the 32-assignment retention limit. Independent
+work runs within `--agent-limit`; preparation, checks and supervision also occupy
+active slots.
+
+A dependent waits until every prerequisite has passed current validation and you
+have explicitly run `/agent-integrate ID`. Completion or a clear advisor verdict
+alone does not release it. The dependent's worktree is created when it starts, so
+it contains the integrated prerequisite changes. Failed, cancelled or uncertain
+prerequisites hold their dependents with a reason; unrelated work can continue.
+
+After worker completion, the runtime checks the actual child files and gives the
+advisor the patch, source and check results. A clear advisor verdict and passing
+checks make the assignment ready for your integration command. Findings go to a
+tool-free response under the worker connection, then to the judge with the original
+findings and runtime evidence. The judge can resolve the dispute or request
+correction. Every correction reruns checks and supervision. At most two corrective
+worker turns are admitted per assignment; revalidation and restart do not reset
+that count. Invalid output, unresolved findings, exhausted allowances or failed
+checks hold the result. Agent messages cannot authorize integration.
+
+Use `/agents` for waiting reasons and active roles, and `/agent ID` for original
+findings, responses, judgments and correction counts. Parent prompts and inspection
+remain available while children run. `/agent-cancel ID` stops one assignment;
+Escape and shutdown also cancel queued work before stopping active descendants.
+Every role and correction uses the existing shared deadline and applicable native,
+tool or backend invocation allowances described above.
+
+Resume with the original orchestration options and connections. Interrupted work
+remains uncertain, and queued work never starts automatically on recovery. Inspect
+the retained files and evidence, reconcile uncertain assignments and the parent
+when requested, then use `/agents-resume` to resume eligible queued assignments.
+Recovery retains prerequisite IDs, integration state, original role evidence and
+spent correction counts. It cannot restore an external backend's opaque internal
+conversation or infer whether an interrupted effect succeeded.
+
 ## Terminal controls
 
 | Input | Behavior |
 |---|---|
 | Enter with nonempty text while idle | Start a new turn. |
 | Enter with nonempty text while working | Queue a correction for the next safe tool boundary. |
-| Escape while working | Cancel the active turn. |
+| Escape | Clear a selection first; otherwise cancel an active turn. |
 | Ctrl-C while working | Cancel the active turn. |
 | Ctrl-C while idle | Clear the input editor. |
+| Ctrl+Shift+C forwarded to the application | Copy the current prompt text. |
+| Ctrl+Shift+V | Paste from the terminal clipboard into the prompt. |
 | Ctrl-Q | Quit the application and close the session runtime. |
 | Ctrl-O | Toggle all retained assistant/tool output between compact and full views. |
 | Page Up / Page Down | Scroll backward or forward one page. |
 | Up / Down | Scroll one visual row. |
+| Drag the scrollbar | Move the compact or full chat viewport. |
+| Drag over chat text | Freeze visible rows and select text. |
+| Ctrl-Y with selected text | Request clipboard copy through OSC 52. |
 | Mouse wheel over the chat | Scroll three visual rows. |
 | Home / End | Show the oldest retained chat / return to the latest output. |
 | Backspace | Remove the final character of the input. |
 | Ordinary text | Append to the input, including while output is streaming. |
 
-The header shows the named connection, execution mode, and status. The body shows
-assistant text, tool activity, original results, and Oracle decisions. The editor
-changes from `Prompt` to `Correction` while work runs. The footer displays usage
-when reported, with scrolling controls on a separate line. The usage row stays
-hidden until at least one current-turn value is reported, including a measured
-zero; starting a new turn clears it. New output does not
-move a viewport that you have scrolled back; End resumes following live output.
-Submitting a new prompt also returns to the latest output. Resizing preserves the
-reading position. Hold Shift for terminal-emulator text selection where supported.
+The header shows the named connection, execution mode, and status. Its working
+indicator animates during silent waits and shows the active tool target when
+available. The body shows assistant text, tool activity, original results, and
+Oracle decisions. The editor changes from `Prompt` to `Correction` while work runs.
+The strip below it shows model, context used/remaining, dirty files and branch,
+diff additions/deletions, active subagents, then reported tokens and cost. Narrow
+screens clip trailing fields. The separate help line retains scroll controls.
+New output preserves a viewport you scrolled back; End or a new prompt returns to
+the latest output. Resizing preserves the reading position.
+
+Mouse selection freezes up to 256 KiB and 1,024 visible rows while the session
+continues. New output and final tool receipts cannot change selected bytes.
+Ctrl-Y requests copying those bytes; the terminal must support and allow OSC 52.
+The application reports a copy request, not confirmation that the system clipboard
+changed. Resize clips the frozen display without changing the selected bytes.
+Escape, scrolling, expansion, a new selection or a prompt clears the selection.
+Hold Shift for terminal-emulator selection where supported.
 
 Chat uses labeled markers for prompts, assistant responses, and tool activity.
 Tool headings show the operation and target, then update to the actual result or
@@ -152,6 +370,14 @@ without resubmitting anything. Source reads and supported fenced code use syntax
 colors. Unknown languages and oversized highlighting inputs remain plain text;
 Markdown prose and links retain their literal notation. A scrollbar follows the
 current compact/full view, with two empty terminal columns outside it.
+
+Prompt shortcuts are separate from transcript selection. Ctrl+Shift+C copies the
+whole current prompt; Ctrl+Shift+V uses the terminal emulator's paste action.
+Bracketed paste stays in the editor until Enter: newlines and control characters
+are removed, and the 64 KiB input limit still applies. Terminal emulators may
+reserve Ctrl+Shift+C for native selection; to copy the application prompt, they
+must forward that key with distinguishable modifiers. Compatible terminals are
+asked for enhanced key reporting. Clipboard copying still requires OSC 52 support.
 
 The editor currently appends and backspaces at the end. Cursor navigation,
 command history, multiline composition, transcript search, and a connection picker
@@ -163,6 +389,12 @@ only visible rows. Older displayed chat expires at the retention limit and the
 terminal shows an explicit notice. This bounds display storage, separately from
 the model's conversation history; it is not provider-context compaction or session
 recovery.
+
+Prompt submission keeps the draft until the runtime accepts it. A full command or
+correction queue leaves the draft editable and shows a reason. If you edit while
+admission is pending, acceptance preserves the edited draft. At most one submission
+waits for admission, and each active turn queues at most 32 unapplied corrections. Cancellation
+and quit remain responsive while either queue is full.
 
 ## How the coding loop works
 
@@ -304,6 +536,9 @@ for the same adapter. For example, `everyday` and `reviewer` may select differen
 models through one provider.
 
 ## CLI reference
+
+`--context-window N` supplies a positive context capacity for the status display.
+It does not set the provider output limit.
 
 ```text
 demoncoder [OPTIONS]
@@ -575,6 +810,15 @@ such as `~/.codex/RTK.md`, `TILTH.md`, `PARTNERSHIP.md`, and
 `~/.claude/BEST_PRACTICES.md`, plus installed skill/plugin trees, remain readable.
 An explicit configuration file containing saved API keys is protected too.
 
+Confined Bash blocks Unix socket creation, including pathname and abstract sockets,
+to prevent access to host control services. TCP/UDP networking and anonymous stream
+socketpairs remain available. Local Docker, database and SSH-agent sockets require
+the existing explicit host mode; Unix sockets created only for a local test are
+also blocked. A syscall filter rejects io_uring creation and non-native/compatibility
+syscall ABIs to prevent bypasses. The filter supports native little-endian x86_64,
+aarch64 and riscv64 Linux. Filter setup failure stops the command. The launcher
+closes unrelated inherited file descriptors before entering confinement.
+
 Normal build hard links whose aliases are all in the project remain usable.
 Symlinks resolve within the sandbox's read/write mounts. An alias to an outside
 file is read-only; a credential alias is inaccessible. These restrictions affect
@@ -681,15 +925,37 @@ inspect the workspace before retrying uncertain work.
 
 ### Usage display
 
-The footer shows the latest usage report for the active turn: input tokens, output
-tokens, cached input tokens, and cost. It is not a cumulative session total.
+The status strip's token segment shows the latest usage report for the active
+turn. It stays absent until at least one dimension is reported and resets for a
+new turn. Missing token dimensions remain `unknown`; measured zero remains `0`.
+Normal and Oracle displays omit cost unless the complete reported amount is known,
+including known zero. Oracle usage retains its reviewer identity. These reports
+are provider/backend billing data; a Claude result can aggregate several requests.
+A network abort cannot establish the provider's eventual billing outcome.
 
-- New turns begin with `usage unknown`.
-- Missing dimensions remain `unknown`; an explicit measured zero remains `0`.
-- Claude's reported dollar cost is displayed when available. Other adapters do
-  not invent a price from token counts.
-- Oracle usage is shown separately with the reviewer identity.
-- A network abort cannot establish the provider's eventual billing outcome.
+Context is separate from billing. `Ctx used/capacity · remaining free` describes
+the latest request, including output when reported. Native requests first show a
+`~` estimate based on serialized request bytes divided by four, including history,
+instructions and tools. This is not a tokenizer measurement. Reported native usage
+replaces it; Anthropic cached reads and cache creation are included, with `~` if a
+component is missing. Codex uses its latest request report, never its cumulative
+total. Claude uses assistant/message-stream usage, never aggregate result usage.
+Missing values remain `?`, and each new turn clears the prior measurement.
+
+Pass `--context-window N` with a known positive capacity to override the displayed
+limit. Otherwise only a reported Codex context limit is used; unsupported capacity
+stays `?`. This flag does not change provider limits or compact conversation history.
+The model field shows the selected identifier, or `backend-default` when omitted.
+`agents 0` describes this release, which does not yet execute subagents.
+
+Git reads the selected workspace asynchronously, with a two-second snapshot timeout,
+a two-second pause between snapshots, and 256 KiB per command output stream.
+Dirty counts include tracked and untracked files. Diff counts compare tracked
+content against HEAD; binary changes contribute no line counts. Submodule working
+contents are excluded. Missing Git, a non-repository or failed status shows
+`Git unavailable`; missing HEAD or a failed diff shows `diff ?`. Snapshot values
+can lag workspace changes. Configured content filters, fsmonitor, external diff
+and textconv commands are disabled for these passive reads.
 
 ### Original tool evidence
 
@@ -724,6 +990,7 @@ Each line has a selected connection and a typed event:
 | `tool_review` | Reviewer, call identity, reviewing/allowed/blocked decision, and reason. |
 | `oracle_usage` | Reviewer identity and optional usage/cost fields. |
 | `usage` | Optional coding-model usage/cost fields. |
+| `context` | Latest request occupancy, optional capacity and estimate label. |
 | `turn_finished` | `complete`, `cancelled`, or `failed`. |
 | `error` | Runtime error message. |
 
@@ -769,6 +1036,12 @@ normal configuration selection do not require provider-specific branches in the
 terminal or native coding loop. Additional adapter-specific configuration controls
 may need validation code; the current shared effort validation names the built-ins.
 
+Custom session implementations must handle both legacy `Command::Prompt` and
+`Command::Submit`. The latter carries a reply for immediate acceptance or rejection
+of a prompt; do not await event delivery before replying or checking cancellation.
+The terminal uses this acknowledgement to retain rejected drafts. Exhaustive command
+matches need the added variant; the `Session::turn` signature is unchanged.
+
 The [independent registry driver](tests/registry_driver.rs) is an executable
 example. Capability declarations are promises made by trusted adapter code;
 behavioral tests must establish that those promises hold.
@@ -799,11 +1072,11 @@ code. No configuration flag loads hooks or enables unrecognized plugins.
 |---|---|
 | Platform | Linux. |
 | Native text file | Up to 1 MiB; whole-file operations. |
-| Serialized tool arguments | Up to 1 MiB. |
+| Serialized tool arguments | Up to 1 MiB. Anthropic checks inline input and each streamed fragment before admitting any calls from that response. |
 | Tool path | Up to 4096 bytes. |
 | Tool call ID | Nonempty, up to 256 bytes. |
 | Bash command | Nonempty, up to 65,536 bytes. |
-| Bash duration/output | 120 seconds and 1 MiB combined captured output. |
+| Bash duration/output | 120 seconds and 1 MiB of combined raw stdout/stderr bytes. Each pipe preserves split UTF-8 characters; incomplete endings become replacement characters. |
 | Cancellation grace | Two seconds. |
 | External steering transition | 30 seconds. |
 | Oracle review | 60 seconds; bounded response and reason; errors block access. |
@@ -883,9 +1156,16 @@ excluded. Cairn itself is separate development tooling and is not vendored here.
 cargo fmt --check
 cargo clippy --locked --all-targets -- -D warnings
 cargo test --locked --all-targets
+bash scripts/check-verification-review-recovery.sh
+bash scripts/check-assignable-subagents.sh
+bash scripts/check-advanced-orchestration.sh
 bash scripts/check-startup.sh
 bash scripts/check-developer-usability.sh
 bash scripts/check-chat-presentation.sh
+bash scripts/check-sweep-interaction.sh
+bash scripts/check-sweep-status.sh
+bash scripts/check-sweep-investigation.sh
+bash scripts/check-sweep-docs.sh
 bash scripts/check-coding-session.sh
 bash scripts/check-connections.sh
 ```
@@ -896,10 +1176,11 @@ They require Linux confinement support and the installed Codex/Claude executable
 for their installed-backend cases. Python 3, Git, and the Rust toolchain are test
 prerequisites.
 
-Two Rust test entry points are intentionally ignored in an ordinary Cargo test
-run: the independent adapter driver is launched by `tests/registry.py` in a PTY,
-and the live Oracle test is launched by its explicit live driver. An ignored
-entry point alone is not passing evidence.
+Some Rust test entry points need explicit drivers: `tests/registry.py` and
+`tests/reliability_queues.py` launch their terminal drivers in a PTY; the live
+Oracle test has its own driver; the selected-repository assessment requires an
+explicit workspace and public network access. These entry points are ignored in
+an ordinary Cargo test run. An ignored entry point alone is not passing evidence.
 
 ### Live evidence
 
@@ -947,8 +1228,13 @@ specified by [AGENTS.md](AGENTS.md).
 | [adapters/](src/adapters/) | Native API and external backend protocol implementations. |
 | [tools.rs](src/tools.rs) | Four tools, typed hooks, final admission, confinement, host execution. |
 | [oracle.rs](src/oracle.rs) | Separate no-tools outside-access review. |
+| [subagents/](src/subagents/) | Confined assignments, dependency scheduling, supervision and explicit integration. |
+| [workflow/](src/workflow/) | Task acceptance, workspace evidence, review, shared allocation and private recovery. |
+| [supervisor.rs](src/supervisor.rs) | Own host Bash descendants through cancellation and runtime crashes. |
 | [events.rs](src/events.rs) | Attributed events and optional JSONL publication. |
-| [terminal.rs](src/terminal.rs) | Responsive editor, scrolling, tool results, usage display. |
+| [terminal.rs](src/terminal.rs) | Responsive editor, scrolling, selection, activity and status. |
+| [selection.rs](src/selection.rs) | Bounded frozen visible text and Unicode selection. |
+| [status.rs](src/status.rs), [context.rs](src/context.rs) | Bounded Git polling and current-request context presentation. |
 | [chat.rs](src/chat.rs) | Activity grouping, compact previews, full-view anchors and scrollbar metrics. |
 | [highlight.rs](src/highlight.rs) | Cached, bounded Syntect colors for code. |
 | [transcript.rs](src/transcript.rs) | Bounded chat storage, cached wrapping, and visible-row lookup. |
@@ -964,11 +1250,11 @@ was challenged and what the checks do not establish. Installed-backend evidence
 covers Codex 0.153.4 and Claude Code 2.1.263; it is not a compatibility promise for
 all future versions or models.
 
-The [roadmap](docs/spec/roadmap.md) retains later commitments for verification,
-review and recovery, assignable subagents, advanced orchestration, and
-experience-based improvement. Those features are not implemented in this release.
-Other pending capabilities include a dynamic extension loader, hash-anchored edits,
-and durable application session recovery. The current `edit` tool uses exact text
+Task verification, private native session recovery, assignable subagents and
+advanced orchestration are described above. The [roadmap](docs/spec/roadmap.md)
+retains evidence-based improvement as the next commitment. Other pending
+capabilities include a dynamic
+extension loader and hash-anchored edits. The current `edit` tool uses exact text
 matching, and the current session has one loop owner.
 
 ## Co-developer attribution

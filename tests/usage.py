@@ -96,19 +96,21 @@ def run_case(adapter, peer):
         output = bytearray()
         try:
             until(master, process, output, b"Prompt")
-            current_footer(master, process, output, "└", row=-2)
+            current_footer(master, process, output, "Model fixture-model", row=-2)
+            assert " · in " not in screen_text(output, 180, 40).splitlines()[-2]
             current_footer(master, process, output, "Ctrl-Q quit", row=-1)
             offset = {"openai-api":0, "anthropic-api":1, "codex":2, "claude":3}[adapter]
             for mode in ("known", "partial", "zero", "absent"):
                 peer.release.clear()
                 os.write(master, mode.encode() + b"\r")
                 until(master, process, output, ("USAGE-WAIT-" + mode).encode())
-                current_footer(master, process, output, "└", row=-2)
+                current_footer(master, process, output, "Model fixture-model", row=-2)
+                assert " · in " not in screen_text(output, 180, 40).splitlines()[-2]
                 current_footer(master, process, output, "Ctrl-Q quit", row=-1)
                 peer.release.set()
                 (root / ("release-" + mode)).touch()
                 if mode == "known":
-                    expected = {"input":11 + offset, "output":7 + offset, "cached":2 + offset, "cost_usd":.0123 if adapter == "claude" else None}
+                    expected = {"input":11 + offset + (90000 if adapter == "claude" else 0), "output":7 + offset, "cached":2 + offset, "cost_usd":.0123 if adapter == "claude" else None}
                 elif mode == "partial":
                     expected = {"input":0, "output":None, "cached":None, "cost_usd":None}
                 elif mode == "zero":
@@ -117,12 +119,14 @@ def run_case(adapter, peer):
                     expected = {"input":None, "output":None, "cached":None, "cost_usd":None}
                 count = lambda value: "unknown" if value is None else str(value)
                 cost = "unknown" if expected["cost_usd"] is None else f"${expected['cost_usd']:.4f}"
-                expected_text = f"in {count(expected['input'])} · out {count(expected['output'])} · cached {count(expected['cached'])} · cost {cost}"
+                expected_text = f"in {count(expected['input'])} · out {count(expected['output'])} · cached {count(expected['cached'])}" + (f" · cost {cost}" if expected["cost_usd"] is not None else "")
                 if mode == "absent":
-                    expected_text = "└"
+                    expected_text = "Model fixture-model"
                 current_footer(master, process, output, "complete", row=0)
                 current_footer(master, process, output, expected_text)
                 screen = screen_text(output, 180, 40)
+                if expected["cost_usd"] is None:
+                    assert "cost" not in screen.splitlines()[-2], "unknown monetary cost is still displayed"
                 assert name in screen, "selected connection is missing from the screen"
                 rows = [json.loads(line) for line in log.read_text().splitlines()]
                 assert all(row["connection"] == name for row in rows), "misattributed connection usage"
@@ -132,6 +136,24 @@ def run_case(adapter, peer):
                 assert turn[-1] == {"type":"turn_finished", "status":"complete"}
                 usages = [e for e in turn if e["type"] == "usage"]
                 assert usages == ([] if adapter == "codex" and mode == "absent" else [{"type":"usage", **expected}]), (adapter, mode, usages)
+                contexts = [e["usage"] for e in turn if e["type"] == "context"]
+                assert contexts, (adapter, mode, "no context event")
+                if adapter.endswith("-api"):
+                    assert contexts[0]["estimated"] and contexts[0]["used"] > 0
+                    assert contexts[0]["capacity"] is None
+                if mode == "known":
+                    expected_context = (11 + offset) + (7 + offset)
+                    if adapter in ("anthropic-api", "claude"):
+                        expected_context += (2 + offset) + 5
+                    assert contexts[-1]["used"] == expected_context, (adapter, contexts)
+                    assert not contexts[-1]["estimated"], (adapter, contexts)
+                    if adapter == "claude":
+                        assert contexts[-2] == contexts[-1], "Claude partial and full per-request usage differ"
+                if adapter == "codex" and mode != "absent":
+                    assert contexts[-1]["capacity"] == 20000
+                if mode == "absent":
+                    assert contexts[-1]["used"] is None, (adapter, contexts)
+                    assert " · in " not in screen.splitlines()[-2]
                 assert not any(e["type"].startswith("tool_") for e in turn)
             os.write(master, b"\x11")
             process.wait(timeout=5)

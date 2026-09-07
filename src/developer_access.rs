@@ -57,6 +57,7 @@ pub(crate) struct DeveloperAccess {
     caches: Vec<Cache>,
     scratch: tempfile::TempDir,
     denied_file: tempfile::NamedTempFile,
+    socket_filter: File,
 }
 
 struct Links {
@@ -80,7 +81,7 @@ impl Drop for InspectionGuard {
     }
 }
 
-async fn inspect<T: Send + 'static>(
+pub(crate) async fn inspect<T: Send + 'static>(
     work: impl FnOnce(&AtomicBool) -> Result<T> + Send + 'static,
 ) -> Result<T> {
     let guard = InspectionGuard(Arc::new(AtomicBool::new(false)));
@@ -203,6 +204,7 @@ impl DeveloperAccess {
             caches,
             scratch,
             denied_file,
+            socket_filter: crate::socket_filter::file()?,
         })
     }
 
@@ -311,7 +313,35 @@ impl DeveloperAccess {
         let private = inspect_links(workspace, &mut links, cancelled)?;
         let protected_inodes = self.private_links(&private, cancelled)?;
 
-        let mut command = Command::new("/usr/bin/bwrap");
+        // The fixed host launcher opens the policy, closes ambient descriptors,
+        // and execs bwrap. Only the pinned root (stdin), output pipes and policy
+        // cross this boundary. The task script stays an argument to inner Bash.
+        // Opening through proc gives each launch an independent file offset.
+        let mut command = Command::new("/bin/bash");
+        command
+            .args([
+                "--noprofile",
+                "--norc",
+                "-c",
+                r#"exec 3<"$1" || exit
+shift
+for task_fd_path in /proc/self/fd/*; do
+    task_fd=${task_fd_path##*/}
+    case "$task_fd" in
+        0|1|2|3) ;;
+        *) [[ "$task_fd" =~ ^[0-9]+$ ]] || exit 1
+           exec {task_fd}>&- || exit ;;
+    esac
+done
+exec "$@""#,
+                "demoncoder-sandbox",
+            ])
+            .arg(format!(
+                "/proc/{}/fd/{}",
+                std::process::id(),
+                self.socket_filter.as_raw_fd()
+            ))
+            .args(["/usr/bin/bwrap", "--seccomp", "3"]);
         command.args([
             "--unshare-all",
             "--share-net",

@@ -40,6 +40,12 @@ responsible for choosing sound requirements and meaningful checks.
 | [output-limits.md](output-limits.md) | OUTPUT | Model output settings, discovery and incomplete-response handling. |
 | [usage-display.md](usage-display.md) | DISPLAY | Visibility of current-turn usage. |
 | [chat-presentation.md](chat-presentation.md) | CHAT | Activity hierarchy, expandable output, syntax colors and spacing. |
+| [terminal-usability-sweep.md](terminal-usability-sweep.md) | SWEEP | The selected reliability investigation, mouse interaction, activity and status sweep. |
+| [clipboard-shortcuts.md](clipboard-shortcuts.md) | CLIP | Corrected clipboard shortcuts and safe terminal paste. |
+| [reliability.md](reliability.md) | REL | Host sockets, queue responsiveness and bounded, correct streamed data. |
+| [verification-review-recovery.md](verification-review-recovery.md) | VERIFY | Durable verification, review, bounded correction, allocations and safe recovery. |
+| [assignable-subagents.md](assignable-subagents.md) | SUB | Independently assigned, confined worktree agents and validated integration. |
+| [advanced-orchestration.md](advanced-orchestration.md) | ORCH | Bounded dependency scheduling and advisor/worker/judge supervision. |
 | [roadmap.md](roadmap.md) | — | The selected commitment and intended delivery sequence. |
 
 The broader [design narrative](../spec.md) retains product direction,

@@ -14,10 +14,12 @@ use std::{
 
 use anyhow::{Context, Result, bail, ensure};
 use rustix::fs::{Mode, OFlags, ResolveFlags, openat2};
-use rustix::process::{Pid, Signal, WaitId, WaitIdOptions, kill_process_group, waitid};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use tokio::{io::AsyncReadExt, process::Command};
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    process::Command,
+};
 
 use crate::events::{Event, EventSink};
 
@@ -27,23 +29,40 @@ const RESOLVE: ResolveFlags = ResolveFlags::BENEATH.union(ResolveFlags::NO_SYMLI
 #[derive(Clone)]
 pub struct AccessPolicy {
     pub unrestricted: bool,
+    /// Runtime-only child boundary; cannot be expanded by Oracle approval.
+    pub strict_worktree: bool,
     pub tools_enabled: bool,
     pub oracle: Option<Box<crate::config::Connection>>,
     pub credential_paths: Vec<PathBuf>,
+    /// Trusted runtime executable that supervises host Bash through a lifetime pipe.
+    pub supervisor: Option<PathBuf>,
+    /// Trusted parent-only operations, attached by the session owner.
+    pub extension: Option<Arc<dyn ToolExtension>>,
 }
 
 impl Default for AccessPolicy {
     fn default() -> Self {
         Self {
             unrestricted: false,
+            strict_worktree: false,
             tools_enabled: true,
             oracle: None,
             credential_paths: Vec::new(),
+            supervisor: None,
+            extension: None,
         }
     }
 }
 
 impl AccessPolicy {
+    pub fn worktree_only(credential_paths: Vec<PathBuf>) -> Self {
+        Self {
+            strict_worktree: true,
+            credential_paths,
+            ..Self::default()
+        }
+    }
+
     pub fn review_only() -> Self {
         Self {
             tools_enabled: false,
@@ -100,12 +119,20 @@ pub trait ToolHook: Send + Sync {
     }
 }
 
+/// Extensions share admission, hooks and receipts with the four coding tools.
+#[async_trait::async_trait]
+pub trait ToolExtension: Send + Sync {
+    fn definitions(&self) -> Vec<Value>;
+    async fn execute(&self, call: &ToolCall, events: &EventSink) -> Result<String>;
+}
+
 pub struct ToolExecutor {
     root: Arc<File>,
     workspace: PathBuf,
     scratch: Option<PathBuf>,
     access: AccessPolicy,
     developer: Option<Arc<crate::developer_access::DeveloperAccess>>,
+    worktree: Option<Arc<crate::worktree_access::WorktreeAccess>>,
     intent: Mutex<String>,
     hooks: Vec<Box<dyn ToolHook>>,
     // Execution is sequential. Keep the current receipt across cancellation
@@ -121,6 +148,40 @@ impl ToolExecutor {
 
     pub fn with_policy(workspace: &Path, access: &AccessPolicy) -> Result<Self> {
         ensure!(cfg!(target_os = "linux"), "coding tools require Linux");
+        ensure!(
+            !(access.unrestricted && access.strict_worktree),
+            "worktree-only policy cannot enable host tools"
+        );
+        ensure!(
+            access.extension.is_none() || (access.tools_enabled && !access.strict_worktree),
+            "child and reviewer policies cannot expose parent tool extensions"
+        );
+        if let Some(extension) = &access.extension {
+            let mut names = std::collections::BTreeSet::from([
+                "read".to_owned(),
+                "write".to_owned(),
+                "edit".to_owned(),
+                "bash".to_owned(),
+            ]);
+            let definitions = extension.definitions();
+            ensure!(definitions.len() <= 16, "too many parent tool extensions");
+            for definition in definitions {
+                let name = definition["name"]
+                    .as_str()
+                    .context("extension tool requires a name")?;
+                ensure!(
+                    !name.is_empty()
+                        && name.len() <= 64
+                        && name.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'_'),
+                    "invalid extension tool name"
+                );
+                ensure!(names.insert(name.to_owned()), "duplicate tool name: {name}");
+                ensure!(
+                    definition["input_schema"].is_object(),
+                    "extension tool requires an input schema"
+                );
+            }
+        }
         let root = File::open(workspace).context("open authorized workspace")?;
         ensure!(root.metadata()?.is_dir(), "workspace must be a directory");
         // Probe the required primitive up front. There is no path-based fallback.
@@ -149,11 +210,19 @@ impl ToolExecutor {
                 None
             },
             access: access.clone(),
-            developer: if !access.unrestricted && access.tools_enabled {
+            developer: if !access.unrestricted && !access.strict_worktree && access.tools_enabled {
                 Some(Arc::new(crate::developer_access::DeveloperAccess::new(
                     &workspace
                         .canonicalize()
                         .context("resolve developer workspace")?,
+                    &access.credential_paths,
+                )?))
+            } else {
+                None
+            },
+            worktree: if access.strict_worktree && access.tools_enabled {
+                Some(Arc::new(crate::worktree_access::WorktreeAccess::new(
+                    &workspace.canonicalize()?,
                     &access.credential_paths,
                 )?))
             } else {
@@ -170,7 +239,15 @@ impl ToolExecutor {
             return Vec::new();
         }
         let mut tools = definitions();
-        if self.access.unrestricted {
+        if self.access.strict_worktree {
+            for tool in &mut tools {
+                tool["description"] = Value::String(if tool["name"] == "bash" {
+                    "Run Bash with system executables and libraries in the child worktree. Only the worktree is writable. Home, other repositories, credentials, Git administration, and networking are unavailable. Hard links prevent launch. Limit 120 seconds and 1 MiB output.".into()
+                } else {
+                    "Access a UTF-8 file up to 1 MiB using a relative path inside the child worktree. Parent traversal, symlinks, hard links, credentials, and Git administration are forbidden. Edit requires exactly one old_text match; write requires an existing parent directory.".into()
+                });
+            }
+        } else if self.access.unrestricted {
             for tool in &mut tools {
                 let detail = if tool["name"] == "bash" {
                     format!(
@@ -187,6 +264,9 @@ impl ToolExecutor {
                 };
                 tool["description"] = Value::String(detail);
             }
+        }
+        if let Some(extension) = &self.access.extension {
+            tools.extend(extension.definitions());
         }
         tools
     }
@@ -282,7 +362,24 @@ impl ToolExecutor {
                     }
                     self.bash(&call.id, &args.command, events).await
                 }
-                _ => bail!("tool is not authorized: {}", call.name),
+                _ => {
+                    let extension = self
+                        .access
+                        .extension
+                        .as_ref()
+                        .context("tool is not authorized")?;
+                    ensure!(
+                        extension
+                            .definitions()
+                            .iter()
+                            .any(|definition| definition["name"] == call.name),
+                        "tool is not authorized: {}",
+                        call.name
+                    );
+                    let output = extension.execute(&call, events).await?;
+                    ensure!(output.len() <= MAX_BYTES, "parent tool result exceeds 1 MiB; inspect the retained agent record with /agent ID");
+                    Ok((output, None))
+                }
             }
         }
         .await;
@@ -324,12 +421,22 @@ impl ToolExecutor {
 
     fn open(&self, path: &str, flags: OFlags, create: bool) -> Result<File> {
         validate_path(path)?;
-        self.developer
-            .as_ref()
-            .context("developer tools are disabled")?
-            .check_mutation(&self.workspace.join(path))?;
+        if let Some(worktree) = &self.worktree {
+            worktree.check_path(&self.workspace.join(path))?;
+        } else {
+            self.developer
+                .as_ref()
+                .context("developer tools are disabled")?
+                .check_mutation(&self.workspace.join(path))?;
+        }
+        // BENEATH alone permits bind mounts that alias files outside the tree.
+        let resolve = if self.access.strict_worktree {
+            RESOLVE | ResolveFlags::NO_XDEV
+        } else {
+            RESOLVE
+        };
         let flags = flags | OFlags::CLOEXEC | OFlags::NONBLOCK;
-        let fd = openat2(&*self.root, path, flags, Mode::empty(), RESOLVE);
+        let fd = openat2(&*self.root, path, flags, Mode::empty(), resolve);
         let file = match fd {
             Ok(fd) => File::from(fd),
             Err(rustix::io::Errno::NOENT) if create => File::from(
@@ -338,7 +445,7 @@ impl ToolExecutor {
                     path,
                     flags | OFlags::CREATE | OFlags::EXCL,
                     Mode::RUSR | Mode::WUSR,
-                    RESOLVE,
+                    resolve,
                 )
                 .context("create file beneath workspace; parent directory must exist")?,
             ),
@@ -363,6 +470,9 @@ impl ToolExecutor {
         create: bool,
         events: &EventSink,
     ) -> Result<File> {
+        if self.access.strict_worktree {
+            return self.open(path, flags, create);
+        }
         if !self.access.unrestricted {
             if flags == OFlags::RDONLY {
                 return self
@@ -523,6 +633,19 @@ impl ToolExecutor {
         }
     }
 
+    async fn confined_command(&self, script: &str) -> Result<Command> {
+        if let Some(worktree) = &self.worktree {
+            return worktree
+                .command(self.root.clone(), self.workspace.clone(), script.to_owned())
+                .await;
+        }
+        self.developer
+            .as_ref()
+            .context("developer tools are disabled")?
+            .command(self.root.clone(), self.workspace.clone(), script.to_owned())
+            .await
+    }
+
     async fn bash(
         &self,
         id: &str,
@@ -533,9 +656,14 @@ impl ToolExecutor {
         // takes this branch; a confined launch never falls back to it.
         let root_path = format!("/proc/{}/fd/{}", std::process::id(), self.root.as_raw_fd());
         let mut command = if self.access.unrestricted {
-            let mut command = Command::new("/bin/bash");
+            let mut command = Command::new(
+                self.access
+                    .supervisor
+                    .as_ref()
+                    .context("host Bash requires a configured runtime supervisor")?,
+            );
             command
-                .args(["--noprofile", "--norc", "-c", script])
+                .args(["--supervise-bash", script])
                 .current_dir(&root_path)
                 .env_clear();
             for variable in [
@@ -555,19 +683,14 @@ impl ToolExecutor {
             }
             command.env("TMPDIR", self.scratch.as_ref().expect("host scratch"));
             command
-                .stdin(Stdio::null())
+                .stdin(Stdio::piped())
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped())
                 .process_group(0)
-                .kill_on_drop(true);
+                .kill_on_drop(false);
             command
         } else {
-            let mut command = self
-                .developer
-                .as_ref()
-                .context("developer tools are disabled")?
-                .command(self.root.clone(), self.workspace.clone(), script.to_owned())
-                .await?;
+            let mut command = self.confined_command(script).await?;
             command
                 .env_clear()
                 .stdin(Stdio::from(self.root.try_clone()?))
@@ -583,30 +706,27 @@ impl ToolExecutor {
                 "Bash requires /usr/bin/bwrap; no host fallback"
             }
         })?;
-        // This guard drops before the child and signals before its PID can be
-        // reaped and reused. WNOWAIT lets normal completion use the same rule.
-        let mut group = HostGroup(if self.access.unrestricted {
-            Some(
-                Pid::from_raw(child.id().context("missing Bash PID")? as i32)
-                    .context("invalid Bash PID")?,
-            )
-        } else {
-            None
-        });
+        // Only this future owns the pipe writer. Cancellation or runtime death
+        // closes it, allowing the independent supervisor to kill Bash and its descendants.
+        let mut lifetime = child.stdin.take();
+        if self.access.unrestricted {
+            lifetime
+                .as_mut()
+                .context("missing host lifetime pipe")?
+                .write_all(b"1")
+                .await?;
+        }
         let mut stdout = child.stdout.take().context("missing Bash stdout")?;
         let mut stderr = child.stderr.take().context("missing Bash stderr")?;
         let collect = async {
             let (mut out_open, mut err_open) = (true, true);
             let (mut out_buf, mut err_buf) = ([0u8; 4096], [0u8; 4096]);
-            let mut output = Vec::new();
-            let mut root_exited = false;
-            let mut monitor = tokio::time::interval(Duration::from_millis(20));
-            while out_open || err_open || (self.access.unrestricted && !root_exited) {
+            let mut output = String::new();
+            let mut received_bytes = 0;
+            let (mut out_decoder, mut err_decoder) =
+                (Utf8Decoder::default(), Utf8Decoder::default());
+            while out_open || err_open {
                 let (stream, bytes) = tokio::select! {
-                    _ = monitor.tick(), if self.access.unrestricted && !root_exited => {
-                        if group.exited()? { group.stop()?; root_exited = true; }
-                        continue;
-                    },
                     n = stdout.read(&mut out_buf), if out_open => {
                         let n = n?; out_open = n != 0; ("stdout", &out_buf[..n])
                     },
@@ -615,25 +735,29 @@ impl ToolExecutor {
                     },
                 };
                 ensure!(
-                    output.len() + bytes.len() <= MAX_BYTES,
+                    bytes.len() <= MAX_BYTES - received_bytes,
                     "Bash output exceeds 1 MiB"
                 );
-                output.extend_from_slice(bytes);
-                if !bytes.is_empty() {
+                received_bytes += bytes.len();
+                let decoder = if stream == "stdout" {
+                    &mut out_decoder
+                } else {
+                    &mut err_decoder
+                };
+                let text = decoder.decode(bytes, bytes.is_empty());
+                output.push_str(&text);
+                if !text.is_empty() {
                     events
                         .emit(Event::ToolOutput {
                             call_id: id.into(),
                             stream,
-                            text: String::from_utf8_lossy(bytes).into_owned(),
+                            text,
                         })
                         .await?;
                 }
             }
             let status = child.wait().await?;
-            Ok((
-                String::from_utf8_lossy(&output).into_owned(),
-                Some(status.code().unwrap_or(-1)),
-            ))
+            Ok((output, Some(status.code().unwrap_or(-1))))
         };
         match tokio::time::timeout(Duration::from_secs(120), collect).await {
             Ok(result) => result,
@@ -649,35 +773,6 @@ fn descriptor_path(file: &File) -> Result<PathBuf> {
         file.as_raw_fd()
     ))
     .context("resolve opened tool target")
-}
-
-struct HostGroup(Option<Pid>);
-impl HostGroup {
-    fn exited(&self) -> Result<bool> {
-        let pid = self.0.context("host process group already closed")?;
-        match waitid(
-            WaitId::Pid(pid),
-            WaitIdOptions::EXITED | WaitIdOptions::NOHANG | WaitIdOptions::NOWAIT,
-        ) {
-            Ok(status) => Ok(status.is_some()),
-            Err(rustix::io::Errno::INTR) => Ok(false),
-            Err(error) => Err(error).context("observe host Bash completion without reaping"),
-        }
-    }
-    fn stop(&mut self) -> Result<()> {
-        if let Some(pid) = self.0 {
-            match kill_process_group(pid, Signal::KILL) {
-                Ok(()) | Err(rustix::io::Errno::SRCH) => self.0 = None,
-                Err(error) => return Err(error).context("stop host Bash process group"),
-            }
-        }
-        Ok(())
-    }
-}
-impl Drop for HostGroup {
-    fn drop(&mut self) {
-        let _ = self.stop();
-    }
 }
 
 fn validate_path(path: &str) -> Result<()> {
@@ -719,4 +814,79 @@ pub fn definitions() -> Vec<Value> {
     ].into_iter().map(|(name, description, properties, required)| json!({
         "name":name,"description":description,"input_schema":{"type":"object","properties":properties,"required":required,"additionalProperties":false}
     })).collect()
+}
+
+/// Keep only an incomplete code point between reads, separately for each pipe.
+#[derive(Default)]
+struct Utf8Decoder {
+    pending: Vec<u8>,
+}
+
+impl Utf8Decoder {
+    fn decode(&mut self, bytes: &[u8], eof: bool) -> String {
+        self.pending.extend_from_slice(bytes);
+        let mut text = String::new();
+        let mut consumed = 0;
+        while consumed < self.pending.len() {
+            match std::str::from_utf8(&self.pending[consumed..]) {
+                Ok(valid) => {
+                    text.push_str(valid);
+                    consumed = self.pending.len();
+                }
+                Err(error) => {
+                    let valid_end = consumed + error.valid_up_to();
+                    text.push_str(
+                        std::str::from_utf8(&self.pending[consumed..valid_end])
+                            .expect("validated UTF-8 prefix"),
+                    );
+                    consumed = valid_end;
+                    match error.error_len() {
+                        Some(length) => {
+                            text.push('\u{fffd}');
+                            consumed += length;
+                        }
+                        None => break,
+                    }
+                }
+            }
+        }
+        self.pending.drain(..consumed);
+        if eof && !self.pending.is_empty() {
+            text.push('\u{fffd}');
+            self.pending.clear();
+        }
+        text
+    }
+}
+
+#[cfg(test)]
+mod utf8_tests {
+    use super::Utf8Decoder;
+
+    #[test]
+    fn every_partition_matches_whole_stream_lossy_decoding() {
+        for bytes in [
+            "Aé€🙂Z".as_bytes(),
+            &[0xff, b'a', 0xe2, b'b', 0xf0, 0x9f],
+            &[0xe0, 0x80, 0x80, 0xed, 0xa0, 0x80],
+            &[0xf4, 0x90, 0x80, 0x80, 0xc3],
+        ] {
+            for boundaries in 0..(1 << (bytes.len() - 1)) {
+                let mut decoder = Utf8Decoder::default();
+                let mut decoded = String::new();
+                let mut start = 0;
+                for end in 1..=bytes.len() {
+                    if end == bytes.len() || boundaries & (1 << (end - 1)) != 0 {
+                        decoded.push_str(&decoder.decode(&bytes[start..end], false));
+                        assert!(decoder.pending.len() <= 3);
+                        start = end;
+                    }
+                }
+                decoded.push_str(&decoder.decode(&[], true));
+                assert_eq!(decoded, String::from_utf8_lossy(bytes));
+                assert!(decoder.pending.is_empty());
+                assert!(decoder.decode(&[], true).is_empty());
+            }
+        }
+    }
 }
