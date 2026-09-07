@@ -355,8 +355,12 @@ impl WorkflowSession {
         let check_commands = task.commands.clone();
         let executor = ToolExecutor::with_policy(&self.workspace, &self.connection.access)?;
         executor.set_intent(&task.objective);
-        self.runtime.save_task(&self.task, self.next_id, None)?;
+        // Tool admission copies this attribution into the durable operation,
+        // retaining it even if capture or receipt publication is interrupted.
+        self.runtime
+            .save_task(&self.task, self.next_id, Some(&before.digest))?;
         self.runtime.begin_phase("verification", None)?;
+        let events = events.for_phase("verification");
         for (index, command) in check_commands.into_iter().enumerate() {
             let call = ToolCall {
                 id: format!("verify-{task_id}-{generation}-{index}"),
@@ -364,8 +368,10 @@ impl WorkflowSession {
                 arguments: json!({"command":command}),
             };
             let result = {
-                let run =
-                    tokio::time::timeout(self.runtime.remaining()?, executor.execute(call, events));
+                let run = tokio::time::timeout(
+                    self.runtime.remaining()?,
+                    executor.execute(call, &events),
+                );
                 tokio::pin!(run);
                 loop {
                     tokio::select! {
@@ -380,12 +386,31 @@ impl WorkflowSession {
                     }
                 }
             };
-            let after = self.snapshot().await?;
-            let stable = before.digest == after.digest;
-            self.task.as_mut().expect("active verification task").checks.push(CheckReceipt {
-                command, snapshot: before.digest.clone(), success: result.success && stable,
-                output: if stable { result.output } else { format!("{}\nWorkspace changed during verification; rerun checks on stable files.", result.output) }, exit_code: result.exit_code,
-            });
+            let limitation = match self.snapshot().await {
+                Ok(after) if before.digest == after.digest => None,
+                Ok(_) => Some(
+                    "Workspace changed during verification; rerun checks on stable files."
+                        .to_owned(),
+                ),
+                Err(error) => Some(format!(
+                    "Workspace capture failed after verification: {error:#}; result retained, but verification is unusable. Restore a capturable workspace and rerun checks."
+                )),
+            };
+            let stable = limitation.is_none();
+            self.task
+                .as_mut()
+                .expect("active verification task")
+                .checks
+                .push(CheckReceipt {
+                    command,
+                    snapshot: before.digest.clone(),
+                    success: result.success && stable,
+                    output: match limitation {
+                        Some(reason) => format!("{}\n{reason}", result.output),
+                        None => result.output,
+                    },
+                    exit_code: result.exit_code,
+                });
             self.runtime.save_task(&self.task, self.next_id, None)?;
             if !stable {
                 break;

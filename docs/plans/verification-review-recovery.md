@@ -89,13 +89,17 @@ SHA-256 for workspace identity and existing private-file primitives.
 
 ## Task 5: commitment acceptance
 
-- [ ] Run `cargo fmt --check`, `cargo clippy --locked --all-targets -- -D warnings`,
+- Run `cargo fmt --check`, `cargo clippy --locked --all-targets -- -D warnings`,
   `cargo test --locked --all-targets`, required terminal mechanisms and release build.
-- [ ] Run each Cairn-named check against committed inputs; commit every receipt.
-- [ ] Review the complete change for correctness, permission/cancellation gaps,
+- Run each Cairn-named check against committed inputs; commit every receipt.
+- Review the complete change for correctness, permission/cancellation gaps,
   lost evidence, stale acceptance and unsafe recovery. Record findings before fixes.
-- [ ] Install and exercise the installed binary through the controlled workflow.
-- [ ] Record the 14-rule production self-audit and limitations; require Cairn Done.
+- Install and exercise the installed binary through the controlled workflow.
+- Record the 14-rule production self-audit and limitations; require Cairn Done.
+
+Record completion of these release steps in `.cairn/reviews/verification-review-recovery.md`
+against the final committed candidate. The plan describes the required sequence;
+the review and evidence receipts record its execution.
 
 The four implementation tasks cover every agreed requirement. Unit checks alone
 cannot complete any requirement whose falsifier names the actual terminal.

@@ -65,9 +65,19 @@ impl From<&Connection> for Identity {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
+pub struct VerificationAttribution {
+    pub task_id: u64,
+    pub generation: u64,
+    pub snapshot: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct Operation {
     pub id: u64,
     pub phase: String,
+    #[serde(default)]
+    pub verification: Option<VerificationAttribution>,
     pub call: Option<ToolCall>,
     pub result: Option<ToolResult>,
     pub complete: bool,
@@ -378,6 +388,7 @@ impl SharedRuntime {
             r.operations.push(Operation {
                 id,
                 phase: phase.into(),
+                verification: None,
                 call: None,
                 result: None,
                 complete: false,
@@ -436,6 +447,7 @@ impl SharedRuntime {
                 r.operations.push(Operation {
                     id,
                     phase: phase.into(),
+                    verification: verification_attribution(r, phase)?,
                     call: Some(call.clone()),
                     result: None,
                     complete: false,
@@ -464,6 +476,7 @@ impl SharedRuntime {
                     r.operations.push(Operation {
                         id: r.operations.len() as u64 + 1,
                         phase: phase.into(),
+                        verification: verification_attribution(r, phase)?,
                         call: Some(ToolCall {
                             id: result.call_id.clone(),
                             name: result.tool.clone(),
@@ -509,6 +522,27 @@ impl SharedRuntime {
             _ => Ok(()),
         }
     }
+}
+
+fn verification_attribution(
+    record: &Record,
+    phase: &str,
+) -> Result<Option<VerificationAttribution>> {
+    if phase != "verification" {
+        return Ok(None);
+    }
+    let task = record
+        .task
+        .as_ref()
+        .context("verification requires an active task")?;
+    Ok(Some(VerificationAttribution {
+        task_id: task.id,
+        generation: task.verification_generation,
+        snapshot: record
+            .last_snapshot
+            .clone()
+            .context("verification requires a captured snapshot")?,
+    }))
 }
 
 fn append_message(record: &mut Record, role: &str, text: &str) -> Result<()> {

@@ -272,6 +272,75 @@ def verification_confinement_and_cancel(server):
             app.close()
 
 
+def verification_snapshot_failure_retains_result(server):
+    with tempfile.TemporaryDirectory(prefix="demoncoder-verification-capture-") as directory:
+        command = "printf retained-check-output; truncate -s 9000000 generated-output"
+        app = App(directory, server, ["--check", command])
+        try:
+            app.send("/task retain verification when workspace capture fails")
+            (app.workspace / "input-after-task").write_text("actual verification input")
+            app.send("/verify")
+            path, record = app.record()
+            task = record["task"]
+            operation = next(o for o in record["operations"] if o.get("call") and o["call"]["id"].startswith("verify-"))
+            assert operation["phase"] == "verification", operation
+            attribution = operation["verification"]
+            assert attribution["task_id"] == task["id"]
+            assert attribution["generation"] == task["verification_generation"]
+            assert attribution["snapshot"] != task["baseline"]["digest"], "verification attributed to task baseline"
+            assert operation["result"]["success"] is True
+            assert operation["result"]["output"] == "retained-check-output"
+            receipt = task["checks"][0]
+            assert receipt["snapshot"] == attribution["snapshot"]
+            assert receipt["command"] == command and receipt["exit_code"] == 0
+            assert not receipt["success"] and "retained-check-output" in receipt["output"]
+            assert "capture failed" in receipt["output"]
+            assert task["accepted"] is None
+        finally:
+            app.close()
+        (Path(directory) / "project/generated-output").unlink()
+        app = App(directory, server, ["--resume", str(path)])
+        try:
+            _, restored = app.record()
+            assert restored["task"]["checks"] == task["checks"]
+            assert not (app.workspace / "generated-output").exists(), "completed verification was replayed"
+            app.send("/accept")
+            assert not app.state()["accepted"]
+        finally:
+            app.close()
+
+
+def interrupted_verification_attribution(server):
+    with tempfile.TemporaryDirectory(prefix="demoncoder-verification-interrupted-") as directory:
+        app = App(directory, server, ["--check", "printf x >> check-counter; sleep 30"])
+        try:
+            app.send("/task retain interrupted verification attribution")
+            (app.workspace / "input-after-task").write_text("actual verification input")
+            os.write(app.master, b"/verify\r")
+            app.wait_for(lambda: (app.workspace / "check-counter").exists())
+            path, record = app.record()
+            operation = next(o for o in record["operations"] if o.get("call") and o["call"]["id"].startswith("verify-"))
+            assert operation["phase"] == "verification"
+            assert operation["verification"]["task_id"] == record["task"]["id"]
+            assert operation["verification"]["generation"] == record["task"]["verification_generation"]
+            assert operation["verification"]["snapshot"] != record["task"]["baseline"]["digest"]
+            assert not operation["complete"]
+            app.process.kill()
+            app.process.wait(timeout=3)
+        finally:
+            app.close()
+        app = App(directory, server, ["--resume", str(path)])
+        try:
+            _, restored = app.record()
+            assert restored["recovery_pending"]
+            assert operation in restored["operations"]
+            app.send("/verify")
+            assert (app.workspace / "check-counter").read_text() == "x"
+            assert not restored["task"]["accepted"]
+        finally:
+            app.close()
+
+
 def reviewer_negative_cases(server):
     for verdict, tool in [("malformed verdict", None), ({"verdict":"blocked", "findings":[], "explanation":"Missing a behavior check"}, None),
                           ({"verdict":"clear", "findings":["contradiction"], "explanation":"invalid"}, None),
@@ -786,6 +855,7 @@ def main():
             failed_corrected_and_stale(server)
         elif args.requirement == "VERIFY-002":
             verification_confinement_and_cancel(server)
+            verification_snapshot_failure_retains_result(server)
         elif args.requirement == "VERIFY-003":
             reviewer_negative_cases(server)
         elif args.requirement == "VERIFY-004":
@@ -797,6 +867,7 @@ def main():
         elif args.requirement == "VERIFY-006":
             for adapter in ("anthropic-api", "openai-api"):
                 server.adapter = adapter
+                interrupted_verification_attribution(server)
                 recovery_cases(server)
                 recovery_refusals(server)
                 recovery_completed_tool(server)

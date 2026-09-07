@@ -3,7 +3,7 @@
 commitment: verification-review-recovery
 commit: 1ca2dd5b4f10bde845c6e121f7f18a1c2dc1b0f4
 findings:
-  - open: VERIFY-002/006 verification snapshot and attribution are lost when post-check capture fails
+  - none: recorded verification capture finding repaired; final evidence and installed-release verification pending
 Status: in progress
 
 ## VERIFY-004 mechanism review
@@ -117,3 +117,24 @@ Other examined acceptance, correction, allocation, checkpoint and reviewer paths
 had no new concrete finding. Full Rust checks passed 127 tests with six ignored;
 Clippy and release build passed. Retained live-provider checks report stale
 evidence; no fresh paid provider execution was requested or claimed.
+
+### Verification capture repair demonstration
+
+The new production regression first failed with a verification operation labeled
+worker. The repair scopes the existing event sink to verification and persists
+task, generation and the actual pre-check snapshot in the same durable admission
+as the command. Post-check capture failure retains the exact ToolResult and a
+failed receipt with an explicit limitation; it cannot establish acceptance.
+
+The original capture-failure case now passes. A second case kills the app during
+verification, then proves attribution survives and the command does not replay.
+Independent specification review ran both cases on both native adapters: all
+four passed. The complete VERIFY-002 and VERIFY-006 drivers passed, as did seven
+workflow unit tests, formatting and Clippy. The optional attribution field keeps
+older records readable. A crash between durable completion and receipt publication
+retains the original attributed operation for inspection, without synthesizing
+a passing receipt.
+
+Independent quality review approved this repair after checking state safety,
+record compatibility, phase observers and error boundaries. It was source review;
+it did not claim another test run.

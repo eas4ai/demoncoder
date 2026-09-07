@@ -155,6 +155,13 @@ impl EventSink {
         self
     }
 
+    pub(crate) fn for_phase(&self, phase: &str) -> Self {
+        Self {
+            phase: phase.into(),
+            ..self.clone()
+        }
+    }
+
     pub(crate) fn child(&self, phase: &str, sender: mpsc::Sender<Envelope>) -> Self {
         Self {
             connection: phase.into(),
