@@ -43,3 +43,16 @@ Sources inspected: rust-vmm/seccompiler (https://github.com/rust-vmm/seccompiler
 its installed 0.5.0 compiler source, rustix 1.1.4 memfd/seal APIs, and local Linux
 manuals/headers plus bubblewrap help. The independent socket assessment supports
 this boundary; it is not the final fresh implementation review.
+
+## REL-002 mechanism design and baseline
+
+A separate test executable calls the production terminal with a capacity-one
+command queue already filled and a live consumer deliberately held. Python sends
+real PTY keys, replays the rendered screen, requires a visible full-queue notice
+and editable retained draft, then requires quit within two seconds. A separate
+cancel-key case checks that cancellation input cannot freeze quit. The initial
+local prompt case failed: the terminal took the draft and awaited queue capacity,
+so no notice or subsequent frame arrived. This is a real held-consumer failure,
+not a source-shape assertion. Runtime cancellation under event backpressure and
+normal accepted-prompt continuation still need adding before this requirement
+can be considered proved.
