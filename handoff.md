@@ -2,6 +2,9 @@
 
 Written: 2026-09-07
 
+Latest update: the developer selected the remaining terminal usability sweep.
+See the final dated section below; the earlier state is historical.
+
 ## Repository boundary — read first
 
 The intended project is `/home/shawn/workspace2/demoncoder`.
@@ -178,3 +181,26 @@ contains the previously confirmed usability spec and commitment. The Demoncoder
 mapping is now `docs/proposals/normal-task-usability.md`, and `docs/recon.md`
 records current source evidence and outstanding findings. The other repository
 was inspected read-only; its implementation and receipts were not imported.
+
+## 2026-09-07 — selected terminal usability sweep
+
+The developer said "proceed to sweep the rest". Current is now
+`terminal-usability-sweep`; the specification names SWEEP-001 through SWEEP-008.
+Creator identity remains complete. The four reported access/test symptoms have
+separate dispositions in `docs/investigations/terminal-sweep.md`; missing original
+commands are not claimed repaired, and nested user namespace refusal remains.
+
+The implementation adds timer-driven working activity, scrollbar dragging,
+bounded Unicode selection with explicit Ctrl-Y/OSC 52 copying, and the ordered
+model/context/Git/agents/tokens strip. Native context estimates include the request;
+reported context uses the latest request, never aggregate billing. Unknown cost
+is omitted for normal and Oracle reports. `--context-window N` overrides displayed
+capacity. Git is asynchronous and bounded; submodule working contents are excluded.
+The specification lint's eight recorded findings are corrected. README documents
+controls, estimates, unknown fields, clipboard support and Git limits.
+
+The implementation and evidence are separate commits under Cairn. Run `cairn wake`
+for the authoritative disposition; `.cairn/reviews/terminal-usability-sweep.md`
+records executed checks, final review and installation. No live-provider evidence
+was refreshed for this sweep. The broader harness and existing source-review
+backlog remain later work. Do not resume work in suprnova-coder.

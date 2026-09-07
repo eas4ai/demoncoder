@@ -1,0 +1,15 @@
+command: bash scripts/check-sweep-docs.sh
+results: per-requirement
+inputs:
+  - Cargo.toml
+  - Cargo.lock
+  - src/
+  - tests/
+  - scripts/
+  - README.md
+  - handoff.md
+  - docs/spec/
+  - docs/commitments/terminal-usability-sweep.md
+  - docs/investigations/
+requirements:
+  - SWEEP-008

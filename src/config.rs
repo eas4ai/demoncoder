@@ -26,6 +26,9 @@ pub struct Args {
     /// Model identifier accepted by the selected connection.
     #[arg(long)]
     pub model: Option<String>,
+    /// Known context capacity for display; does not change provider limits.
+    #[arg(long, value_parser = clap::value_parser!(u64).range(1..))]
+    pub context_window: Option<u64>,
     /// Reasoning effort accepted by the selected connection and model.
     #[arg(long)]
     pub effort: Option<String>,

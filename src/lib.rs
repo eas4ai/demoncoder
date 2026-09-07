@@ -1,13 +1,16 @@
 pub mod adapters;
 mod chat;
 pub mod config;
+mod context;
 mod developer_access;
 pub mod events;
 mod highlight;
 pub mod native;
 pub mod oracle;
+mod selection;
 pub mod session;
 pub mod startup;
+pub mod status;
 pub mod terminal;
 pub mod tools;
 mod transcript;

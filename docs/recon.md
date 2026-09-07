@@ -1,6 +1,14 @@
 # Demoncoder reconnaissance
 
-Status: Observed 2026-09-07
+Status: Historical pre-sweep observations, retained 2026-09-07
+
+The developer subsequently selected `terminal-usability-sweep`. The implementation
+adds animated activity, mouse dragging and bounded snapshot selection, ordered
+status with asynchronous Git, current-request context, and omitted unknown cost.
+The eight specification lint findings below are corrected. See
+`docs/spec/terminal-usability-sweep.md`, `docs/investigations/terminal-sweep.md`,
+and `.cairn/reviews/terminal-usability-sweep.md` for scope, investigation limits
+and verification. The following tables describe the earlier baseline.
 Baseline: application commit `99e9ae8`; current CHAT receipts committed in `9eda67d`.
 Scope: resume `handoff.md`, reconcile completed Creator identity, verify the current
 chat commitment, and recover the already confirmed usability work from the wrong

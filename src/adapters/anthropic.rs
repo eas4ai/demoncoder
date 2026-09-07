@@ -1,7 +1,7 @@
 use super::http;
 use crate::{
     config::Connection,
-    events::{Event, EventSink},
+    events::{ContextUsage, Event, EventSink},
     native::{Model, NativeSession},
     session::Session,
     tools::{ToolCall, ToolExecutor, ToolResult},
@@ -146,6 +146,11 @@ impl Model for Anthropic {
         if let Some(effort) = &self.effort {
             body["output_config"] = json!({"effort":effort});
         }
+        events
+            .emit(Event::Context {
+                usage: ContextUsage::estimate_request(&body),
+            })
+            .await?;
         let request = self
             .client
             .post(self.endpoint.clone())
@@ -158,8 +163,12 @@ impl Model for Anthropic {
         let mut partial: Vec<String> = Vec::new();
         let (mut input, mut output, mut cached) = (None, None, None);
         let mut stop_reason = None;
+        let mut context_usage = crate::context::MessageContext::default();
         while let Some(event) = stream.next().await {
             let event = event?;
+            if let Some(usage) = context_usage.observe(&event) {
+                events.emit(Event::Context { usage }).await?;
+            }
             match event["type"].as_str() {
                 Some("message_start") => {
                     let usage = &event["message"]["usage"];

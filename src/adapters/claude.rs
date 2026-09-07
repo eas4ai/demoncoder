@@ -1,7 +1,7 @@
 use super::process::{BackendProcess, executable};
 use crate::{
     config::Connection,
-    events::{Event, EventSink},
+    events::{ContextUsage, Event, EventSink},
     session::{Command, Session, TurnEnd},
     tools::{ToolCall, ToolExecutor},
 };
@@ -121,8 +121,14 @@ impl Claude {
             .as_mut()
             .context("Claude process unavailable")?;
         'turns: loop {
+            events
+                .emit(Event::Context {
+                    usage: ContextUsage::default(),
+                })
+                .await?;
             self.tools.set_intent(&prompt);
             process.send(json!({"type":"user","message":{"role":"user","content":prompt},"parent_tool_use_id":null,"session_id":self.session.as_deref().unwrap_or("")})).await?;
+            let mut context_usage = crate::context::MessageContext::default();
             let mut corrections = Vec::new();
             let mut interrupting = false;
             let interrupt_id = format!("steering-{}", self.next_control_id);
@@ -186,7 +192,14 @@ impl Claude {
                             self.subscription_confirmed,
                             "Claude returned model output before confirming subscription authentication"
                         );
-                        let delta = &message["event"]["delta"];
+                        let event = &message["event"];
+                        if corrections.is_empty()
+                            && message["parent_tool_use_id"].is_null()
+                            && let Some(usage) = context_usage.observe(event)
+                        {
+                            events.emit(Event::Context { usage }).await?;
+                        }
+                        let delta = &event["delta"];
                         if delta["type"] == "text_delta" && corrections.is_empty() {
                             events
                                 .emit(Event::Text {
@@ -194,6 +207,21 @@ impl Claude {
                                         .as_str()
                                         .context("Claude text delta missing")?
                                         .into(),
+                                })
+                                .await?;
+                        }
+                    }
+                    Some("assistant")
+                        if corrections.is_empty() && message["parent_tool_use_id"].is_null() =>
+                    {
+                        anyhow::ensure!(
+                            self.subscription_confirmed,
+                            "Claude returned usage before confirming subscription authentication"
+                        );
+                        if message["message"]["usage"].is_object() {
+                            events
+                                .emit(Event::Context {
+                                    usage: ContextUsage::anthropic(&message["message"]["usage"]),
                                 })
                                 .await?;
                         }

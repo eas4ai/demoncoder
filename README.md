@@ -128,27 +128,38 @@ coding task as correct.
 |---|---|
 | Enter with nonempty text while idle | Start a new turn. |
 | Enter with nonempty text while working | Queue a correction for the next safe tool boundary. |
-| Escape while working | Cancel the active turn. |
+| Escape | Clear a selection first; otherwise cancel an active turn. |
 | Ctrl-C while working | Cancel the active turn. |
 | Ctrl-C while idle | Clear the input editor. |
 | Ctrl-Q | Quit the application and close the session runtime. |
 | Ctrl-O | Toggle all retained assistant/tool output between compact and full views. |
 | Page Up / Page Down | Scroll backward or forward one page. |
 | Up / Down | Scroll one visual row. |
+| Drag the scrollbar | Move the compact or full chat viewport. |
+| Drag over chat text | Freeze visible rows and select text. |
+| Ctrl-Y with selected text | Request clipboard copy through OSC 52. |
 | Mouse wheel over the chat | Scroll three visual rows. |
 | Home / End | Show the oldest retained chat / return to the latest output. |
 | Backspace | Remove the final character of the input. |
 | Ordinary text | Append to the input, including while output is streaming. |
 
-The header shows the named connection, execution mode, and status. The body shows
-assistant text, tool activity, original results, and Oracle decisions. The editor
-changes from `Prompt` to `Correction` while work runs. The footer displays usage
-when reported, with scrolling controls on a separate line. The usage row stays
-hidden until at least one current-turn value is reported, including a measured
-zero; starting a new turn clears it. New output does not
-move a viewport that you have scrolled back; End resumes following live output.
-Submitting a new prompt also returns to the latest output. Resizing preserves the
-reading position. Hold Shift for terminal-emulator text selection where supported.
+The header shows the named connection, execution mode, and status. Its working
+indicator animates during silent waits and shows the active tool target when
+available. The body shows assistant text, tool activity, original results, and
+Oracle decisions. The editor changes from `Prompt` to `Correction` while work runs.
+The strip below it shows model, context used/remaining, dirty files and branch,
+diff additions/deletions, active subagents, then reported tokens and cost. Narrow
+screens clip trailing fields. The separate help line retains scroll controls.
+New output preserves a viewport you scrolled back; End or a new prompt returns to
+the latest output. Resizing preserves the reading position.
+
+Mouse selection freezes up to 256 KiB and 1,024 visible rows while the session
+continues. New output and final tool receipts cannot change selected bytes.
+Ctrl-Y requests copying those bytes; the terminal must support and allow OSC 52.
+The application reports a copy request, not confirmation that the system clipboard
+changed. Resize clips the frozen display without changing the selected bytes.
+Escape, scrolling, expansion, a new selection or a prompt clears the selection.
+Hold Shift for terminal-emulator selection where supported.
 
 Chat uses labeled markers for prompts, assistant responses, and tool activity.
 Tool headings show the operation and target, then update to the actual result or
@@ -310,6 +321,9 @@ for the same adapter. For example, `everyday` and `reviewer` may select differen
 models through one provider.
 
 ## CLI reference
+
+`--context-window N` supplies a positive context capacity for the status display.
+It does not set the provider output limit.
 
 ```text
 demoncoder [OPTIONS]
@@ -687,15 +701,37 @@ inspect the workspace before retrying uncertain work.
 
 ### Usage display
 
-The footer shows the latest usage report for the active turn: input tokens, output
-tokens, cached input tokens, and cost. It is not a cumulative session total.
+The status strip's token segment shows the latest usage report for the active
+turn. It stays absent until at least one dimension is reported and resets for a
+new turn. Missing token dimensions remain `unknown`; measured zero remains `0`.
+Normal and Oracle displays omit cost unless the complete reported amount is known,
+including known zero. Oracle usage retains its reviewer identity. These reports
+are provider/backend billing data; a Claude result can aggregate several requests.
+A network abort cannot establish the provider's eventual billing outcome.
 
-- New turns begin with `usage unknown`.
-- Missing dimensions remain `unknown`; an explicit measured zero remains `0`.
-- Claude's reported dollar cost is displayed when available. Other adapters do
-  not invent a price from token counts.
-- Oracle usage is shown separately with the reviewer identity.
-- A network abort cannot establish the provider's eventual billing outcome.
+Context is separate from billing. `Ctx used/capacity · remaining free` describes
+the latest request, including output when reported. Native requests first show a
+`~` estimate based on serialized request bytes divided by four, including history,
+instructions and tools. This is not a tokenizer measurement. Reported native usage
+replaces it; Anthropic cached reads and cache creation are included, with `~` if a
+component is missing. Codex uses its latest request report, never its cumulative
+total. Claude uses assistant/message-stream usage, never aggregate result usage.
+Missing values remain `?`, and each new turn clears the prior measurement.
+
+Pass `--context-window N` with a known positive capacity to override the displayed
+limit. Otherwise only a reported Codex context limit is used; unsupported capacity
+stays `?`. This flag does not change provider limits or compact conversation history.
+The model field shows the selected identifier, or `backend-default` when omitted.
+`agents 0` describes this release, which does not yet execute subagents.
+
+Git reads the selected workspace asynchronously, with a two-second snapshot timeout,
+a two-second pause between snapshots, and 256 KiB per command output stream.
+Dirty counts include tracked and untracked files. Diff counts compare tracked
+content against HEAD; binary changes contribute no line counts. Submodule working
+contents are excluded. Missing Git, a non-repository or failed status shows
+`Git unavailable`; missing HEAD or a failed diff shows `diff ?`. Snapshot values
+can lag workspace changes. Configured content filters, fsmonitor, external diff
+and textconv commands are disabled for these passive reads.
 
 ### Original tool evidence
 
@@ -730,6 +766,7 @@ Each line has a selected connection and a typed event:
 | `tool_review` | Reviewer, call identity, reviewing/allowed/blocked decision, and reason. |
 | `oracle_usage` | Reviewer identity and optional usage/cost fields. |
 | `usage` | Optional coding-model usage/cost fields. |
+| `context` | Latest request occupancy, optional capacity and estimate label. |
 | `turn_finished` | `complete`, `cancelled`, or `failed`. |
 | `error` | Runtime error message. |
 
@@ -892,6 +929,10 @@ cargo test --locked --all-targets
 bash scripts/check-startup.sh
 bash scripts/check-developer-usability.sh
 bash scripts/check-chat-presentation.sh
+bash scripts/check-sweep-interaction.sh
+bash scripts/check-sweep-status.sh
+bash scripts/check-sweep-investigation.sh
+bash scripts/check-sweep-docs.sh
 bash scripts/check-coding-session.sh
 bash scripts/check-connections.sh
 ```
@@ -902,9 +943,10 @@ They require Linux confinement support and the installed Codex/Claude executable
 for their installed-backend cases. Python 3, Git, and the Rust toolchain are test
 prerequisites.
 
-Two Rust test entry points are intentionally ignored in an ordinary Cargo test
-run: the independent adapter driver is launched by `tests/registry.py` in a PTY,
-and the live Oracle test is launched by its explicit live driver. An ignored
+Three Rust test entry points are intentionally ignored in an ordinary Cargo test
+run: the independent adapter driver is launched by `tests/registry.py` in a PTY;
+the live Oracle test has its explicit driver; the selected-repository assessment
+requires an explicit workspace and public network access. An ignored
 entry point alone is not passing evidence.
 
 ### Live evidence
@@ -954,7 +996,9 @@ specified by [AGENTS.md](AGENTS.md).
 | [tools.rs](src/tools.rs) | Four tools, typed hooks, final admission, confinement, host execution. |
 | [oracle.rs](src/oracle.rs) | Separate no-tools outside-access review. |
 | [events.rs](src/events.rs) | Attributed events and optional JSONL publication. |
-| [terminal.rs](src/terminal.rs) | Responsive editor, scrolling, tool results, usage display. |
+| [terminal.rs](src/terminal.rs) | Responsive editor, scrolling, selection, activity and status. |
+| [selection.rs](src/selection.rs) | Bounded frozen visible text and Unicode selection. |
+| [status.rs](src/status.rs), [context.rs](src/context.rs) | Bounded Git polling and current-request context presentation. |
 | [chat.rs](src/chat.rs) | Activity grouping, compact previews, full-view anchors and scrollbar metrics. |
 | [highlight.rs](src/highlight.rs) | Cached, bounded Syntect colors for code. |
 | [transcript.rs](src/transcript.rs) | Bounded chat storage, cached wrapping, and visible-row lookup. |

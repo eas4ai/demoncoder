@@ -9,6 +9,13 @@ use anyhow::{Context, Result};
 use serde::Serialize;
 use tokio::sync::mpsc;
 
+#[derive(Clone, Copy, Debug, Default, Serialize)]
+pub struct ContextUsage {
+    pub used: Option<u64>,
+    pub capacity: Option<u64>,
+    pub estimated: bool,
+}
+
 #[derive(Clone, Debug, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Event {
@@ -16,6 +23,9 @@ pub enum Event {
         owner: &'static str,
     },
     TurnStarted,
+    Context {
+        usage: ContextUsage,
+    },
     Text {
         text: String,
     },

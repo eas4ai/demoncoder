@@ -29,7 +29,17 @@ async fn main() -> Result<()> {
             "Project writes · normal reads/network"
         }
     );
-    let ui_result = terminal::run(&label, command_tx.clone(), event_rx).await;
+    let ui_result = terminal::run_with_status(
+        &label,
+        command_tx.clone(),
+        event_rx,
+        demoncoder::status::DisplayOptions {
+            model: selection.connection.model.clone(),
+            workspace: Some(selection.workspace.clone()),
+            context_window: args.context_window,
+        },
+    )
+    .await;
     let _ = command_tx.send(Command::Shutdown).await;
     let worker_result = tokio::time::timeout(Duration::from_secs(3), worker)
         .await

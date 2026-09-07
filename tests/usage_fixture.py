@@ -11,11 +11,11 @@ ADAPTERS = ("openai-api", "anthropic-api", "codex", "claude")
 def reported(adapter, mode):
     offset = ADAPTERS.index(adapter)
     if mode == "known":
-        return {"input_tokens": 11 + offset, "output_tokens": 7 + offset, "cache_read_input_tokens": 2 + offset}
+        return {"input_tokens": 11 + offset, "output_tokens": 7 + offset, "cache_read_input_tokens": 2 + offset, "cache_creation_input_tokens":5}
     if mode == "partial":
         return {"input_tokens": 0}
     if mode == "zero":
-        return {"input_tokens": 0, "output_tokens": 0, "cache_read_input_tokens": 0}
+        return {"input_tokens": 0, "output_tokens": 0, "cache_read_input_tokens": 0, "cache_creation_input_tokens":0}
     assert mode == "absent"
     return {}
 
@@ -53,10 +53,16 @@ def run():
             if codex:
                 if mode != "absent":
                     names = {"input_tokens":"inputTokens", "output_tokens":"outputTokens", "cache_read_input_tokens":"cachedInputTokens"}
-                    send({"method":"thread/tokenUsage/updated", "params":{"threadId":identity, "turnId":turn, "tokenUsage":{"last":{names[k]:v for k,v in usage.items()}}}})
+                    send({"method":"thread/tokenUsage/updated", "params":{"threadId":identity, "turnId":turn, "tokenUsage":{"last":{names[k]:v for k,v in usage.items() if k in names}, "total":{"totalTokens":999999}, "modelContextWindow":20000}}})
                 send({"method":"turn/completed", "params":{"threadId":identity, "turn":{"id":turn, "status":"completed"}}})
             else:
+                send({"type":"stream_event", "session_id":identity, "event":{"type":"message_start", "message":{"usage":{k:v for k,v in usage.items() if k != "output_tokens"}}}})
+                send({"type":"stream_event", "session_id":identity, "event":{"type":"message_delta", "usage":{k:v for k,v in usage.items() if k == "output_tokens"}}})
+                # Per-request assistant usage is independent of aggregate result usage.
+                send({"type":"assistant", "session_id":identity, "message":{"usage":usage}})
                 result = {"type":"result", "subtype":"success", "is_error":False, "session_id":identity, "usage":usage}
+                if mode == "known":
+                    result["usage"] = {**usage, "input_tokens":usage["input_tokens"] + 90000}
                 if mode in ("known", "zero"):
                     result["total_cost_usd"] = .0123 if mode == "known" else 0
                 send(result)

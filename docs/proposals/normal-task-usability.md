@@ -1,6 +1,6 @@
 # Recovered terminal usability work
 
-Status: Recovered developer-confirmed intent; Demoncoder implementation mapping for review.
+Status: Selected as terminal-usability-sweep on 2026-09-07; mapping below preserves the pre-implementation observations.
 Recorded: 2026-09-07
 Source: suprnova-coder commit `6f433cb3a2ad599d60255a9347a58a70ad7a2ac2`,
 `suprnova-coder@6f433cb:docs/spec/normal-task-usability.md`,
@@ -9,15 +9,16 @@ and their promoted backlog. The developer identified the repository mistake in
 this session. `handoff.md` records the intended Demoncoder project boundary.
 
 Creator identity is complete, as the developer explicitly corrected in this
-session; its pending implementation is now recorded in commit `99e9ae8`.
+session; its implementation is recorded in commit `99e9ae8`.
 See `.cairn/reviews/creator-identity.md` for the checks run during reconciliation.
 It is not a candidate next commitment.
 
 ## Requested behavior and Demoncoder mapping
 
 The original NTU identifiers below are provenance, not newly Agreed Demoncoder
-requirements. The current roadmap still names `chat-presentation`; the recovered
-work is tracked in `.cairn/backlog/recover-the-confirmed-terminal-usability-sweep-in-demoncoder.md`.
+requirements. The developer subsequently selected `terminal-usability-sweep`;
+`docs/spec/terminal-usability-sweep.md` and its commitment define the delivered
+scope. The recovery backlog retains provenance.
 
 | Original request | Confirmed intent | Current code and proposed falsifier/check |
 |---|---|---|

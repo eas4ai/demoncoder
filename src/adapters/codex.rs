@@ -1,7 +1,7 @@
 use super::process::{BackendProcess, executable};
 use crate::{
     config::Connection,
-    events::{Event, EventSink},
+    events::{ContextUsage, Event, EventSink},
     session::{Command, Session, TurnEnd},
     tools::{ToolCall, ToolExecutor},
 };
@@ -181,6 +181,11 @@ impl Codex {
     ) -> Result<TurnEnd> {
         self.connect().await?;
         'turns: loop {
+            events
+                .emit(Event::Context {
+                    usage: ContextUsage::default(),
+                })
+                .await?;
             self.tools.set_intent(&prompt);
             let id = self.next_id;
             self.next_id += 1;
@@ -326,6 +331,18 @@ impl Codex {
                         }
                     }
                     Some("thread/tokenUsage/updated") => {
+                        if !corrections.is_empty()
+                            || params["turnId"]
+                                .as_str()
+                                .is_some_and(|id| Some(id) != turn.as_deref())
+                        {
+                            continue;
+                        }
+                        events
+                            .emit(Event::Context {
+                                usage: ContextUsage::codex(&params["tokenUsage"]),
+                            })
+                            .await?;
                         let usage = &params["tokenUsage"]["last"];
                         events
                             .emit(Event::Usage {

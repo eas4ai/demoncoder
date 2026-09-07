@@ -10,7 +10,7 @@ publish = false
 anyhow = "1"
 async-trait = "0.1"
 clap = { version = "4", features = ["derive"] }
-crossterm = { version = "0.29", features = ["event-stream"] }
+crossterm = { version = "0.29", features = ["event-stream", "osc52"] }
 futures-util = "0.3"
 ratatui = { version = "0.30", features = ["unstable-rendered-line-info"] }
 reqwest = { version = "0.12.28", default-features = false, features = ["json", "stream", "rustls-tls"] }
