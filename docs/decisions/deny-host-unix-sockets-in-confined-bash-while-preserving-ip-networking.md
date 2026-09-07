@@ -12,3 +12,5 @@ Attach a syscall filter only to confined Bash. Deny creation of Unix sockets, de
 ## Realized by
 
 (none yet: recorded, not built)
+
+- e4246a3f02e189db4274ca2294675260fd840e8a Block host Unix socket access from confined Bash
