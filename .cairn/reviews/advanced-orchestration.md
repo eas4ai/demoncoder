@@ -293,3 +293,26 @@ test's overbroad global-hold assertion with a real unrelated model admission;
 keep both real-parent-effect cancellation regressions. This records the newly
 introduced behavior error before its repair, rather than relaxing the recovery
 requirement. No timing-based terminal reproduction is claimed.
+
+### Final runtime approval and merge
+
+The corrected af54b0d9631784ca8052a4a2877914512add579d passed both independent
+re-reviews with no remaining finding. Each reviewer ran all five manager lifecycle
+tests; specification review also ran the ORCH-002 production workflow. Native,
+backend and tool admissions continue during healthy integration. Cancellation and
+shutdown preserve uncertain integration and recovery before draining. Late
+settlement cannot fabricate success, and success cannot clear another recovery
+requirement. The focused and overall nonzero quality reports were reviewed and
+accepted as scoped tradeoffs, including the shared substantive test fixture.
+
+The parent reran ORCH-001/002/006/007 and SUB-004/005/007 successfully on the exact
+af54b0d debug candidate. The final full Rust suite passed 192 tests, with six opt-in
+cases ignored; formatting and strict Clippy passed. The reviewed branch merged
+without fast-forward as 143195ae89ed53554b660e158a86e34d3b7bcb00. A direct diff
+confirmed its Rust sources, Rust tests and Cargo inputs equal the reviewed tree.
+Release installation completed, with identical target and installed SHA-256
+dc278b0f0b040cc90721670d0538d3f8fd8f14b925f21d87034baabc24a0f216.
+All seven installed orchestration requirements passed, including the complete
+cancellation and recovery cases. The shell mechanism also passes Bash syntax
+validation. Implementation and installed verification steps are complete; formal
+Cairn receipt collection and the final recorded audit remain pending.
