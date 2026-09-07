@@ -1,0 +1,53 @@
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.09s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s
+     Running tests/queue_runtime.rs (target/debug/deps/queue_runtime-d90e29479dd941ae)
+
+running 5 tests
+test shutdown_closes_the_session_while_lifecycle_events_are_backpressured ... ok
+test native_cancel_is_not_blocked_by_a_full_advisory_event_queue ... ok
+test bounded_correction_admission_rejects_the_thirty_third_draft_without_blocking_cancel ... ok
+test subscription_adapters_cancel_when_the_advisory_event_queue_is_full ... ok
+test drained_subscription_corrections_still_count_toward_the_turn_limit ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.57s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s
+     Running unittests src/lib.rs (target/debug/deps/demoncoder-50ea58c1cf5481a1)
+
+running 1 test
+test session::tests::closed_correction_handoff_returns_a_specific_admission_reason ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 37 filtered out; finished in 0.00s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s
+     Running unittests src/lib.rs (target/debug/deps/demoncoder-50ea58c1cf5481a1)
+
+running 1 test
+test native::tests::cancellation_during_result_publication_preserves_completed_receipt ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 37 filtered out; finished in 0.03s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s
+REL-002 full command queue, delayed admission, edited/rejected drafts, repeated Enter, cancel input and quit passed
+REL-002 openai-api: quit stopped owned tool processes within two seconds
+REL-002 anthropic-api: quit stopped owned tool processes within two seconds
+REL-002 codex: quit stopped owned tool processes within two seconds
+REL-002 claude: quit stopped owned tool processes within two seconds
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s
+CONN-002 independent registration, configured selection, native read, and terminal rendering passed
+cairn: CONN-002: pass
+CODE-004 openai-api correction acknowledged, old tools denied, corrected model input and effect passed
+CODE-004 anthropic-api correction acknowledged, old tools denied, corrected model input and effect passed
+CODE-004 codex correction acknowledged, old tools denied, corrected model input and effect passed
+CODE-004 claude correction acknowledged, old tools denied, corrected model input and effect passed
+cairn: CODE-004: pass
+CODE-005 openai-api provider stopped within two seconds; next prompt accepted
+CODE-005 openai-api tool stopped within two seconds; next prompt accepted
+CODE-005 anthropic-api provider stopped within two seconds; next prompt accepted
+CODE-005 anthropic-api tool stopped within two seconds; next prompt accepted
+CODE-005 codex provider stopped within two seconds; next prompt accepted
+CODE-005 codex tool stopped within two seconds; next prompt accepted
+CODE-005 claude provider stopped within two seconds; next prompt accepted
+CODE-005 claude tool stopped within two seconds; next prompt accepted
+cairn: CODE-005: pass
+cairn: REL-002: pass
