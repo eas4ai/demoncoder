@@ -5,6 +5,7 @@ mod context;
 mod developer_access;
 pub mod events;
 mod highlight;
+mod inspection;
 pub mod native;
 pub mod oracle;
 mod selection;

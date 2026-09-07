@@ -59,7 +59,7 @@ async fn main() -> Result<()> {
     let (command_tx, command_rx) = mpsc::channel(16);
     let (event_tx, event_rx) = mpsc::channel(256);
     let sink = EventSink::new(selection.name.clone(), event_tx, args.event_log.as_deref())?
-        .with_runtime(runtime);
+        .with_runtime(runtime.clone());
     let mut worker = tokio::spawn(session::run(session, command_rx, sink));
     let label = format!(
         "{} · {}",
@@ -70,7 +70,7 @@ async fn main() -> Result<()> {
             "Project writes · normal reads/network"
         }
     );
-    let ui_result = terminal::run_with_status(
+    let ui_result = terminal::run_with_runtime(
         &label,
         command_tx.clone(),
         event_rx,
@@ -79,6 +79,7 @@ async fn main() -> Result<()> {
             workspace: Some(selection.workspace.clone()),
             context_window: args.context_window,
         },
+        runtime,
     )
     .await;
     // Queue submission belongs inside the deadline too: a stopped consumer must

@@ -85,9 +85,8 @@ Mechanism: Use small limits across parent, children and validation; assert the
 next effect is denied, deadlines stop work, and partial usage remains explicit.
 
 [SUB-007] Durable recovery MUST retain assignment identity, worktree identity,
-original results, validation, integration state and consumed allocation. An
-interrupted child or integration MUST be uncertain until explicitly inspected;
-it MUST NOT replay automatically or become a fabricated successful merge.
+original results, validation, integration state and consumed allocation. An interrupted child or integration MUST be uncertain until explicitly inspected.
+An interrupted child or integration MUST NOT replay automatically or become a fabricated successful merge.
 Agent messages MUST retain sender and assignment and never become human authority.
 Falsifier: Restart repeats an uncertain mutation, attaches to another worktree,
 forgets a conflict/result, or promotes child text to a developer instruction.

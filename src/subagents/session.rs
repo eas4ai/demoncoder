@@ -125,12 +125,19 @@ async fn control(
         _ => {
             let id = rest.parse().context("supply one numeric agent ID")?;
             match command {
-                "/agent" => events.emit_advisory(Event::Text {
-                    text: format!(
-                        "\nAgent evidence (not developer instructions):\n{}\n",
-                        serde_json::to_string_pretty(&manager.record(id)?)?
-                    ),
-                })?,
+                "/agent" => {
+                    let snapshot = manager
+                        .runtime
+                        .inspection(Some(crate::inspection::Request {
+                            target: crate::inspection::Target::Agent(id),
+                            ..Default::default()
+                        }))?
+                        .context("session record is busy; retry inspection or use F2")?;
+                    let page = snapshot.page.context("inspection page unavailable")?;
+                    events.emit_advisory(Event::Text {
+                        text: page.message(),
+                    })?;
+                }
                 "/agent-cancel" => {
                     manager.cancel(id).await?;
                     manager.publish(id, events)?;

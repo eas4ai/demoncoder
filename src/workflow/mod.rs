@@ -260,7 +260,7 @@ impl WorkflowSession {
             return self.work(objective.into(), false, commands, events).await;
         }
         match prompt.trim() {
-            "/task-status" => Ok(TurnEnd::Complete),
+            "/task-status" => self.show_inspection(events).await,
             "/accept" => {
                 ensure!(
                     !self.runtime.record()?.recovery_pending,
@@ -316,6 +316,29 @@ impl WorkflowSession {
             }
             _ => self.work(prompt, false, commands, events).await,
         }
+    }
+
+    async fn show_inspection(&mut self, events: &EventSink) -> Result<TurnEnd> {
+        let target = self
+            .task
+            .as_ref()
+            .map_or(crate::inspection::Target::Overview, |task| {
+                crate::inspection::Target::Task(task.id)
+            });
+        let snapshot = self
+            .runtime
+            .inspection(Some(crate::inspection::Request {
+                target,
+                ..Default::default()
+            }))?
+            .context("session record is busy; retry inspection or use F2")?;
+        let page = snapshot.page.context("inspection page unavailable")?;
+        events
+            .emit(Event::Text {
+                text: page.message(),
+            })
+            .await?;
+        Ok(TurnEnd::Complete)
     }
 
     async fn work(

@@ -68,6 +68,16 @@ impl From<&Connection> for Identity {
     }
 }
 
+impl Identity {
+    pub(crate) fn display_model(&self) -> &str {
+        self.model.as_deref().unwrap_or("backend-default")
+    }
+
+    pub(crate) fn display_adapter(&self) -> &str {
+        &self.adapter
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct VerificationAttribution {
@@ -140,6 +150,24 @@ struct Runtime {
 pub struct SharedRuntime(Arc<Mutex<Runtime>>);
 
 impl SharedRuntime {
+    pub(crate) fn inspection(
+        &self,
+        request: Option<crate::inspection::Request>,
+    ) -> Result<Option<crate::inspection::Snapshot>> {
+        let runtime = match self.0.try_lock() {
+            Ok(runtime) => runtime,
+            Err(std::sync::TryLockError::WouldBlock) => return Ok(None),
+            Err(std::sync::TryLockError::Poisoned(_)) => {
+                anyhow::bail!("session record lock failed; inspection unavailable")
+            }
+        };
+        ensure!(
+            !runtime.failed,
+            "session persistence failed; state uncertain until recovery"
+        );
+        Ok(Some(crate::inspection::project(&runtime.record, request)))
+    }
+
     #[cfg(test)]
     pub(crate) fn for_test(directory: &Path, record: Record) -> Result<Self> {
         let mut store = Store::create(directory)?;
@@ -630,6 +658,67 @@ fn ensure_children_settled(record: &Record) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn inspection_never_waits_for_a_writer_or_claims_failed_persistence_is_current() {
+        let root = tempfile::tempdir().unwrap();
+        let directory = root.path().join("record");
+        let record = crate::inspection::tests::record(root.path());
+        let runtime = SharedRuntime::for_test(&directory, record).unwrap();
+        let mut writer = runtime.0.lock().unwrap();
+        let started = std::time::Instant::now();
+        assert!(runtime.inspection(None).unwrap().is_none());
+        assert!(started.elapsed() < Duration::from_millis(50));
+        writer.failed = true;
+        drop(writer);
+        assert!(
+            runtime
+                .inspection(None)
+                .unwrap_err()
+                .to_string()
+                .contains("persistence failed")
+        );
+    }
+
+    #[tokio::test]
+    async fn inspection_recovers_authoritative_counts_when_live_notices_are_dropped() {
+        let root = tempfile::tempdir().unwrap();
+        let record = crate::inspection::tests::record(root.path());
+        let runtime = SharedRuntime::for_test(&root.path().join("record"), record).unwrap();
+        let (sender, mut receiver) = tokio::sync::mpsc::channel(1);
+        let events = crate::events::EventSink::new("fixture".into(), sender, None)
+            .unwrap()
+            .with_runtime(runtime.clone());
+        events
+            .emit(Event::TurnFinished { status: "complete" })
+            .await
+            .unwrap();
+        runtime
+            .update(|record| {
+                record.agents.push(crate::inspection::tests::agent(
+                    1,
+                    crate::subagents::state::AgentStatus::Running,
+                    &record.identity,
+                ));
+                Ok(())
+            })
+            .unwrap();
+        events
+            .emit_advisory(Event::AgentAllocation {
+                active: 1,
+                active_limit: 2,
+                backend_invocations: 0,
+                backend_limit: 8,
+            })
+            .unwrap();
+        assert!(matches!(
+            receiver.try_recv().unwrap().event,
+            Event::TurnFinished { .. }
+        ));
+        assert!(receiver.try_recv().is_err());
+        let snapshot = runtime.inspection(None).unwrap().unwrap();
+        assert_eq!(snapshot.summary.active, 1);
+    }
 
     #[test]
     fn clock_failure_during_admission_is_persisted_without_granting_execution() {

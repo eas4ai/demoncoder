@@ -83,8 +83,8 @@ and receipts before and after correction, and interrupt then inspect spent round
 
 [ORCH-006] The terminal MUST expose waiting reasons, active roles, original
 findings, responses, judgments and correction counts without blocking parent
-interaction. Individual cancellation MUST stop the selected assignment; parent
-cancellation and shutdown MUST stop active descendants within two seconds and
+interaction. Individual cancellation MUST stop the selected assignment.
+Parent cancellation and shutdown MUST stop active descendants within two seconds and
 prevent queued work from starting afterward.
 Falsifier: A waiting control freezes the editor, role events lose attribution,
 cancellation affects the wrong assignment, or later queued effects occur.
@@ -92,8 +92,8 @@ Mechanism: Use delayed role responses and heartbeat workers beside parent work;
 inspect labels, cancel individual and parent work, and observe effects after exit.
 
 [ORCH-007] Durable recovery MUST preserve dependency identity, original supervision
-evidence, correction counts and integration state. Interrupted execution MUST
-remain uncertain until explicitly inspected and MUST NOT replay automatically.
+evidence, correction counts and integration state. Interrupted execution MUST remain uncertain until explicitly inspected.
+Interrupted execution MUST NOT replay automatically.
 Resumed execution MUST retain the original connection authority and allowances.
 Falsifier: Restart forgets a dependency or finding, resets a correction budget,
 replays an interrupted role or mutation, or fabricates a successful prerequisite.

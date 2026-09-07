@@ -1,3 +1,5 @@
+mod inspection_panel;
+
 use crate::{
     chat::{Anchor, Chat, Role},
     events::{ContextUsage, Envelope, Event},
@@ -51,6 +53,7 @@ struct View {
     copy_notice: Option<&'static str>,
     pending_prompt: Option<PendingPrompt>,
     cancel_pending: bool,
+    inspection: inspection_panel::Inspection,
 }
 
 struct PendingPrompt {
@@ -624,8 +627,28 @@ pub async fn run(
 pub async fn run_with_status(
     connection: &str,
     commands: mpsc::Sender<Command>,
+    events: mpsc::Receiver<Envelope>,
+    options: DisplayOptions,
+) -> Result<()> {
+    run_terminal(connection, commands, events, options, None).await
+}
+
+pub async fn run_with_runtime(
+    connection: &str,
+    commands: mpsc::Sender<Command>,
+    events: mpsc::Receiver<Envelope>,
+    options: DisplayOptions,
+    runtime: crate::workflow::runtime::SharedRuntime,
+) -> Result<()> {
+    run_terminal(connection, commands, events, options, Some(runtime)).await
+}
+
+async fn run_terminal(
+    connection: &str,
+    commands: mpsc::Sender<Command>,
     mut events: mpsc::Receiver<Envelope>,
     options: DisplayOptions,
+    runtime: Option<crate::workflow::runtime::SharedRuntime>,
 ) -> Result<()> {
     if !std::io::stdin().is_terminal() || !std::io::stdout().is_terminal() {
         bail!("DemonCoder requires an interactive terminal");
@@ -633,7 +656,15 @@ pub async fn run_with_status(
     let mut terminal = ratatui::try_init().context("initialize terminal")?;
     let result = async {
         let _mouse = MouseCapture::enable()?;
-        run_view(connection, &commands, &mut events, &mut terminal, options).await
+        run_view(
+            connection,
+            &commands,
+            &mut events,
+            &mut terminal,
+            options,
+            runtime,
+        )
+        .await
     }
     .await;
     ratatui::restore();
@@ -673,6 +704,7 @@ async fn run_view(
     events: &mut mpsc::Receiver<Envelope>,
     terminal: &mut ratatui::DefaultTerminal,
     options: DisplayOptions,
+    runtime: Option<crate::workflow::runtime::SharedRuntime>,
 ) -> Result<()> {
     let (git_tx, mut git_rx) = mpsc::channel(1);
     let _git = GitPoller::start(options.workspace.clone(), git_tx);
@@ -681,10 +713,13 @@ async fn run_view(
         status: "Connecting".into(),
         ..View::default()
     };
+    view.inspection.enabled = runtime.is_some();
+    let mut inspector = runtime.map(crate::inspection::poller::Poller::start);
     let mut input_events = EventStream::new();
     let mut refresh = tokio::time::interval(Duration::from_millis(33));
     loop {
         view.poll_commands(commands);
+        view.inspection.poll(&mut inspector);
         tokio::select! {
             Some(status) = git_rx.recv() => view.git = Some(status),
             event = events.recv() => match event {
@@ -703,6 +738,7 @@ async fn run_view(
             input = input_events.next() => {
                 let Some(input) = input else { return Ok(()); };
                 match input.context("read terminal input")? {
+                    InputEvent::Key(key) if key.kind == KeyEventKind::Press && view.inspection.key(key) => {},
                     InputEvent::Key(key) if key.kind == KeyEventKind::Press => match key.code {
                         KeyCode::Char('q') if key.modifiers.contains(KeyModifiers::CONTROL) => return Ok(()),
                         KeyCode::Char('c' | 'C') if key.modifiers.contains(KeyModifiers::CONTROL | KeyModifiers::SHIFT) && !view.input.is_empty() => {
@@ -710,7 +746,7 @@ async fn run_view(
                                 view.copy_notice = Some("Prompt copy requested · terminal must allow OSC 52");
                         }
                         KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) && !key.modifiers.contains(KeyModifiers::SHIFT) => {
-                            view.request_cancellation(true);
+                            view.request_cancellation(!view.inspection.open);
                         }
                         KeyCode::Esc if view.selection.is_some() => { view.selection = None; view.copy_notice = None; },
                         KeyCode::Char('y') if key.modifiers.contains(KeyModifiers::CONTROL) => {
@@ -748,6 +784,7 @@ async fn run_view(
                             view.input.push(c);
                         }
                     }
+                    InputEvent::Mouse(mouse) if view.inspection.mouse(mouse) => {},
                     InputEvent::Mouse(mouse) => view.mouse(mouse),
 
                     _ => {}
@@ -770,10 +807,11 @@ fn status_line(view: &View) -> String {
         None => "Git ? · diff ?".into(),
     };
     let mut text = format!(
-        "Model {} · {} · {} · agents 0",
+        "Model {} · {} · {} · {}",
         visible_text(view.options.model.as_deref().unwrap_or("backend-default")),
         context_text(view.context, view.options.context_window),
-        git
+        git,
+        view.inspection.counts()
     );
     if !view.usage.is_empty() {
         text.push_str(" · ");
@@ -788,8 +826,10 @@ fn draw(view: &mut View, connection: &str, frame: &mut ratatui::Frame<'_>) {
     area.width = area
         .width
         .saturating_sub(if area.width >= 8 { 3 } else { 0 });
-    let [header, notice, body, editor, usage, help] = Layout::vertical([
+    let task_status = view.inspection.task_line();
+    let [header, task_row, notice, body, editor, usage, help] = Layout::vertical([
         Constraint::Length(1),
+        Constraint::Length(u16::from(task_status.is_some())),
         Constraint::Length(u16::from(view.chat.expired())),
         Constraint::Min(1),
         Constraint::Length(3),
@@ -797,6 +837,12 @@ fn draw(view: &mut View, connection: &str, frame: &mut ratatui::Frame<'_>) {
         Constraint::Length(1),
     ])
     .areas(area);
+    if let Some(status) = task_status {
+        frame.render_widget(
+            Paragraph::new(visible_text(&status)).style(Style::default().fg(Color::Yellow)),
+            task_row,
+        );
+    }
     frame.render_widget(
         Paragraph::new(format!(
             "DemonCoder · {}{}{} · {}",
@@ -824,22 +870,7 @@ fn draw(view: &mut View, connection: &str, frame: &mut ratatui::Frame<'_>) {
             notice,
         );
     }
-    view.chat_area = body;
-    view.chat.layout(body.width);
-    if let Some(selection) = &view.selection {
-        frame.render_widget(Paragraph::new(selection.lines(body.height)), body);
-    } else if view.chat.is_empty() {
-        view.displayed = None;
-        frame.render_widget(
-            Paragraph::new("Conversation starts with your next prompt.")
-                .style(Style::default().fg(Color::DarkGray)),
-            body,
-        );
-    } else {
-        let window = view.chat.window(view.anchor, body.height);
-        view.displayed = Selection::snapshot(&window);
-        frame.render_widget(Paragraph::new(window), body);
-    }
+    draw_body(view, frame, body);
     let width = editor.width.saturating_sub(2) as usize;
     let mut start = view.input.len();
     let mut columns = 0;
@@ -868,7 +899,9 @@ fn draw(view: &mut View, connection: &str, frame: &mut ratatui::Frame<'_>) {
         usage,
     );
     frame.render_widget(
-        Paragraph::new(if let Some(notice) = view.copy_notice {
+        Paragraph::new(if view.inspection.open {
+            "Tab target · Left/Right pages · PgUp/Dn scroll · F5 refresh · F2/Esc close · Ctrl-C cancel"
+        } else if let Some(notice) = view.copy_notice {
             notice
         } else if view.selection.is_some() {
             "Selection frozen · Ctrl-Y copy · Esc clears · Ctrl-Q quit"
@@ -881,7 +914,7 @@ fn draw(view: &mut View, connection: &str, frame: &mut ratatui::Frame<'_>) {
                 (false, true) => {
                     "History · PgUp/PgDn scroll · End latest · Ctrl-O full output · Ctrl-Q quit"
                 }
-                (false, false) => "PgUp/PgDn scroll · Ctrl-O full output · Ctrl-Q quit",
+                (false, false) => "F2 inspect · PgUp/PgDn scroll · Ctrl-O full output · Ctrl-Q quit",
             }
         })
         .style(Style::default().fg(Color::DarkGray)),
@@ -890,7 +923,11 @@ fn draw(view: &mut View, connection: &str, frame: &mut ratatui::Frame<'_>) {
 
     let (length, position) = view.chat.scroll_metrics(view.anchor, body.height);
     view.rail = None;
-    if frame.area().width >= 8 && length > usize::from(body.height) && body.height > 0 {
+    if !view.inspection.open
+        && frame.area().width >= 8
+        && length > usize::from(body.height)
+        && body.height > 0
+    {
         let rail = ScrollRail::new(
             Rect {
                 x: area.right(),
@@ -914,6 +951,27 @@ fn draw(view: &mut View, connection: &str, frame: &mut ratatui::Frame<'_>) {
             );
         }
         view.rail = Some(rail);
+    }
+}
+
+fn draw_body(view: &mut View, frame: &mut ratatui::Frame<'_>, body: Rect) {
+    view.chat_area = body;
+    view.chat.layout(body.width);
+    if view.inspection.open {
+        view.inspection.draw(frame, body);
+    } else if let Some(selection) = &view.selection {
+        frame.render_widget(Paragraph::new(selection.lines(body.height)), body);
+    } else if view.chat.is_empty() {
+        view.displayed = None;
+        frame.render_widget(
+            Paragraph::new("Conversation starts with your next prompt.")
+                .style(Style::default().fg(Color::DarkGray)),
+            body,
+        );
+    } else {
+        let window = view.chat.window(view.anchor, body.height);
+        view.displayed = Selection::snapshot(&window);
+        frame.render_widget(Paragraph::new(window), body);
     }
 }
 

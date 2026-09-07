@@ -148,7 +148,7 @@ state, so explicit tasks and `--resume` require a native API connection.
 | `/review` | Give the tool-free reviewer the objective, actual workspace changes, source and check history. |
 | `/correct` | Return retained findings to the worker, then rerun checks and obtain a fresh review. |
 | `/accept` | Explicitly accept only when all selected checks pass and review is clear for the current workspace. |
-| `/task-status` | Display stopped work, verification, review, acceptance and remaining allocation. |
+| `/task-status` | Display a readable first page of task evidence, actions and recorded status; F2 opens retained history. |
 | `/abandon` | Archive the task and its evidence, preserving all workspace files. |
 | `/reconcile <inspection explanation>` | Record your inspection of uncertain or changed work so execution can continue. |
 | `/workflow-help` | Display workflow controls. |
@@ -222,7 +222,7 @@ remain the complete tool surface.
 |---|---|
 | `/delegate CONNECTION OWNED,PATHS OBJECTIVE` | Assign work using the selected connection, owned paths, startup checks and reviewer. |
 | `/agents` | List retained assignments and their current states. |
-| `/agent ID` | Inspect the assignment, original activity, results and validation evidence. |
+| `/agent ID` | Show a readable first page of assignment and validation evidence; F2 opens the full paginated inspector. |
 | `/agent-cancel ID` | Stop one child or cancel a completed assignment while retaining its files. |
 | `/agent-validate ID` | Run the selected checks and obtain an independent review of the current child patch. |
 | `/agent-integrate ID` | Explicitly apply a completed child's current validated changes to the parent. |
@@ -322,6 +322,39 @@ spent correction counts. It cannot restore an external backend's opaque internal
 conversation or infer whether an interrupted effect succeeded.
 
 ## Terminal controls
+
+F2 opens a read-only inspection view while preserving the prompt draft and the
+conversation scroll position. Tab/Shift-Tab select the overview, current task,
+agents and archived tasks. Left/Right change evidence pages; Page Up/Down, arrows
+and the mouse wheel scroll the selected page. F5 refreshes saved evidence. F2 or
+Escape closes inspection; Ctrl-C cancels work even while inspection is open.
+Navigation does not run a command, accept a task or integrate an agent.
+
+The status strip reads actual active, waiting, held and ready counts from the
+shared runtime instead of counting chat notices. Held includes stopped, failed,
+cancelled and uncertain assignments; integrated assignments remain inspectable.
+A separate task row distinguishes work, verification, review and acceptance.
+These are recorded results, not a new filesystem check. The inspector repeats
+that freshness limit as "files not rechecked" and displays the original snapshot identity. Acceptance and
+integration still recheck actual files and authority through their existing
+commands. A ready count does not mean changes are integrated.
+
+The background reader samples saved state every 250 ms without waiting for the
+record lock. If a snapshot is more than one second old, counts become unknown
+with a refresh notice. Persistence errors show unavailable state. No model call,
+filesystem scan or durable write is triggered by F2. Inspection keeps one page
+of up to 8 KiB of source text (plus a crossing Unicode character); original
+control characters are rendered inert. Evidence pages stay fixed until F5 or a
+page/target change, so arriving output does not move the text being read. Current
+counts continue to refresh. A page-limit or missing-state condition is explicit.
+
+Labeled sections show objectives, model identity, ownership, original checks,
+findings, responses and judgments. Source evidence is captured for review;
+missing source is named rather than fabricated. Supplemental original role and
+activity inputs remain available on later pages. Suggested commands explain
+consequences and remain requests: the runtime can refuse changed state, exhausted
+allowances, missing evidence or a conflicting workspace.
+
 
 | Input | Behavior |
 |---|---|
@@ -1085,7 +1118,7 @@ code. No configuration flag loads hooks or enables unrecognized plugins.
 | Anthropic model discovery | 30-second timeout; metadata bounded to 64 KiB. |
 | Terminal input / retained chat | 64 KiB / up to 1 MiB and 16,384 logical lines; older chat expires visibly. |
 | Settings file | 64 KiB. |
-| Total session allocation | No cumulative token, spend, or wall-clock budget in this release. |
+| Total session allocation | Explicit tasks and delegation share finite deadlines and admission limits. Hard cumulative token and monetary caps are unsupported; unreported usage stays unknown. |
 
 File changes happen in place. Tool success describes the operation's actual
 outcome; it does not provide transactional multi-file edits or automatic rollback.
