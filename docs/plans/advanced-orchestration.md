@@ -21,7 +21,7 @@ adapter factories and Python production terminal/transport fixtures.
 Files: create src/subagents/schedule.rs and tests/orchestration_schedule.rs;
 export schedule from src/subagents/mod.rs. This component has no runtime effects.
 
-- [ ] Add the pure projection and API below. It deliberately distinguishes
+- [x] Add the pure projection and API below. It deliberately distinguishes
   completion from integration and does not represent provider/model internals.
 
 ```rust
@@ -40,7 +40,7 @@ pub fn gate(id: u64, nodes: &[Node]) -> anyhow::Result<Gate>;
 pub fn admit_ready(nodes: &[Node], limit: usize) -> anyhow::Result<Vec<u64>>;
 ```
 
-- [ ] Write failing tests first. Reject more than 32 nodes, zero/duplicate IDs,
+- [x] Write failing tests first. Reject more than 32 nodes, zero/duplicate IDs,
   more than 31 dependencies, repeated/unknown/self/forward dependencies. Requiring
   earlier IDs makes cycles impossible; validate recovered graphs too. Compute
   waiting and blocked prerequisite IDs deterministically. Only Integrated releases
@@ -57,7 +57,7 @@ assert_eq!(gate(2, &nodes).unwrap(), Gate::Waiting(vec![1]));
 assert_eq!(admit_ready(&nodes, 2).unwrap(), vec![3]);
 ```
 
-- [ ] Implement validation and scheduling with bounded ordered collections.
+- [x] Implement validation and scheduling with bounded ordered collections.
   Never consume capacity for waiting work or treat a blocked sibling as a reason
   to stop independent work. Run `cargo test --locked --test orchestration_schedule`
   and `cargo fmt --check`. Record failing demonstrations, review spec then quality,

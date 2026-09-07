@@ -28,6 +28,8 @@ retains its separate review role.
 - [Steering, cancellation, and continuation](#steering-cancellation-and-continuation)
 - [Usage, results, and event logs](#usage-results-and-event-logs)
 - [Task verification and recovery](#task-verification-and-recovery)
+- [Assignable subagents](#assignable-subagents)
+- [Advanced orchestration](#advanced-orchestration)
 - [Extending DemonCoder](#extending-demoncoder)
 - [Limits and troubleshooting](#limits-and-troubleshooting)
 - [Development and verification](#development-and-verification)
@@ -255,6 +257,69 @@ them. Resume the native parent with the original enabled connections, inspect
 each uncertain child, and reconcile the parent too when requested. Opaque backend
 conversations are not automatically restored. Retention is bounded to 32
 assignments and 2 MiB/2,048 activity entries per child, within the shared record.
+
+## Advanced orchestration
+
+Enable dependency scheduling and automatic supervision with the same named
+connections and checks used for subagents:
+
+```bash
+demoncoder --workspace /path/to/project --agent-connection worker-model \
+  --check 'test -s result.txt' --reviewer advisor-model \
+  --orchestrate --judge judge-model
+```
+
+`--orchestrate` requires enabled child connections, at least one check, a reviewer
+and a judge. The reviewer acts as advisor. Each supervision role has a fresh,
+tool-free context and retains its selected connection and model. Connections can
+use any of the four adapters. Selecting the same connection for different roles
+still creates separate contexts.
+
+Ordinary `/delegate` assignments run when capacity is available. Add prerequisites
+with `/delegate-after IDS CONNECTION OWNED,PATHS OBJECTIVE`, for example:
+
+```text
+/delegate worker-model parser.rs implement the parser
+/delegate-after 1 worker-model parser_test.rs test the integrated parser
+```
+
+The parent `delegate` tool accepts the equivalent `depends_on: [1]` field only
+when orchestration is enabled. Prerequisites must name earlier assignment IDs;
+unknown, repeated, self and forward references are refused. Waiting assignments
+remain visible and count toward the 32-assignment retention limit. Independent
+work runs within `--agent-limit`; preparation, checks and supervision also occupy
+active slots.
+
+A dependent waits until every prerequisite has passed current validation and you
+have explicitly run `/agent-integrate ID`. Completion or a clear advisor verdict
+alone does not release it. The dependent's worktree is created when it starts, so
+it contains the integrated prerequisite changes. Failed, cancelled or uncertain
+prerequisites hold their dependents with a reason; unrelated work can continue.
+
+After worker completion, the runtime checks the actual child files and gives the
+advisor the patch, source and check results. A clear advisor verdict and passing
+checks make the assignment ready for your integration command. Findings go to a
+tool-free response under the worker connection, then to the judge with the original
+findings and runtime evidence. The judge can resolve the dispute or request
+correction. Every correction reruns checks and supervision. At most two corrective
+worker turns are admitted per assignment; revalidation and restart do not reset
+that count. Invalid output, unresolved findings, exhausted allowances or failed
+checks hold the result. Agent messages cannot authorize integration.
+
+Use `/agents` for waiting reasons and active roles, and `/agent ID` for original
+findings, responses, judgments and correction counts. Parent prompts and inspection
+remain available while children run. `/agent-cancel ID` stops one assignment;
+Escape and shutdown also cancel queued work before stopping active descendants.
+Every role and correction uses the existing shared deadline and applicable native,
+tool or backend invocation allowances described above.
+
+Resume with the original orchestration options and connections. Interrupted work
+remains uncertain, and queued work never starts automatically on recovery. Inspect
+the retained files and evidence, reconcile uncertain assignments and the parent
+when requested, then use `/agents-resume` to resume eligible queued assignments.
+Recovery retains prerequisite IDs, integration state, original role evidence and
+spent correction counts. It cannot restore an external backend's opaque internal
+conversation or infer whether an interrupted effect succeeded.
 
 ## Terminal controls
 
@@ -1092,6 +1157,8 @@ cargo fmt --check
 cargo clippy --locked --all-targets -- -D warnings
 cargo test --locked --all-targets
 bash scripts/check-verification-review-recovery.sh
+bash scripts/check-assignable-subagents.sh
+bash scripts/check-advanced-orchestration.sh
 bash scripts/check-startup.sh
 bash scripts/check-developer-usability.sh
 bash scripts/check-chat-presentation.sh
@@ -1161,6 +1228,7 @@ specified by [AGENTS.md](AGENTS.md).
 | [adapters/](src/adapters/) | Native API and external backend protocol implementations. |
 | [tools.rs](src/tools.rs) | Four tools, typed hooks, final admission, confinement, host execution. |
 | [oracle.rs](src/oracle.rs) | Separate no-tools outside-access review. |
+| [subagents/](src/subagents/) | Confined assignments, dependency scheduling, supervision and explicit integration. |
 | [workflow/](src/workflow/) | Task acceptance, workspace evidence, review, shared allocation and private recovery. |
 | [supervisor.rs](src/supervisor.rs) | Own host Bash descendants through cancellation and runtime crashes. |
 | [events.rs](src/events.rs) | Attributed events and optional JSONL publication. |
@@ -1182,10 +1250,10 @@ was challenged and what the checks do not establish. Installed-backend evidence
 covers Codex 0.153.4 and Claude Code 2.1.263; it is not a compatibility promise for
 all future versions or models.
 
-The [roadmap](docs/spec/roadmap.md) retains later commitments for assignable
-subagents, advanced orchestration and evidence-based improvement. Those features
-are not implemented in this release. Task verification, review and private native
-session recovery are described above. Other pending capabilities include a dynamic
+Task verification, private native session recovery, assignable subagents and
+advanced orchestration are described above. The [roadmap](docs/spec/roadmap.md)
+retains evidence-based improvement as the next commitment. Other pending
+capabilities include a dynamic
 extension loader and hash-anchored edits. The current `edit` tool uses exact text
 matching, and the current session has one loop owner.
 

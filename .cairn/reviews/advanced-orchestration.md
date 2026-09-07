@@ -50,3 +50,14 @@ from a relabeled prior success; add a correction that fails a formerly passing
 check. Status/owner shutdown alone does not establish subscription role process
 termination; observe launched peer process identities and an active worker
 heartbeat during shutdown. These findings are recorded before those repairs.
+
+### Draft proof coverage repair
+
+The specification reviewer approved the repaired fixture design. Actual role
+transport input is compared with persisted evidence and configured model identity;
+dispute inputs must contain the exact original preceding receipts. Stripped source
+and summary-only evidence were rejected in an independent peer experiment for all
+three roles. Added failed-check correction, subscription process termination,
+launch/request replay detection, changed-authority refusal, retained integration
+and spent-admission recovery cases. This closes the draft coverage findings;
+production execution and final mechanism assessment remain pending.

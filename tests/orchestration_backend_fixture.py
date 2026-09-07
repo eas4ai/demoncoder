@@ -43,6 +43,14 @@ def role_reply(role, evidence):
     request = evidence["assignment"]
     settings = fixture(request)
     round_number = evidence["correction_round"]
+    assert isinstance(evidence["source_evidence"], (str, dict, list))
+    assert isinstance(evidence["checks"], list) and evidence["checks"]
+    if role in ("worker_response", "judge"):
+        assert isinstance(evidence["advisor"], dict), "dispute transport omitted original advisor evidence"
+        assert all(field in evidence["advisor"] for field in ("verdict", "findings", "explanation"))
+    if role == "judge":
+        assert isinstance(evidence["response"], dict), "judge transport omitted worker response"
+        assert all(field in evidence["response"] for field in ("verdict", "findings", "explanation"))
     time.sleep(settings.get("role_delay", {}).get(role, 0))
     if settings.get("role_tool") == role:
         return {"name": "write", "arguments": {"path": "forbidden-role", "content": "role escaped"}}, ""
@@ -62,12 +70,24 @@ def send(value):
     print(json.dumps(value), flush=True)
 
 
+def log_request(value):
+    path = os.path.join(os.environ["HOME"], "orchestration-peer.jsonl")
+    data = (json.dumps(value) + "\n").encode()
+    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+    try:
+        assert os.write(descriptor, data) == len(data), "incomplete peer request log"
+    finally:
+        os.close(descriptor)
+
+
 def main():
     codex = "app-server" in sys.argv
     assert "OPENAI_API_KEY" not in os.environ and "ANTHROPIC_API_KEY" not in os.environ
+    log_request({"kind": "launch", "adapter": "codex" if codex else "claude", "pid": os.getpid(), "start": open("/proc/self/stat").read().rsplit(")", 1)[1].split()[19]})
     pending, index, turns = [], 0, 0
     response, turn = "", ""
     exposed_tools = None
+    selected_model = None if codex else sys.argv[sys.argv.index("--model") + 1]
 
     def next_call():
         nonlocal index
@@ -88,6 +108,7 @@ def main():
 
     def begin(prompt):
         nonlocal pending, index, response
+        log_request({"kind": "prompt", "adapter": "codex" if codex else "claude", "prompt": prompt, "model": selected_model})
         parsed = role_request(prompt)
         if parsed:
             if codex:
@@ -117,6 +138,7 @@ def main():
                 result = {"account": {"type": "chatgpt", "email": "fixture@example.invalid", "planType": "plus"}}
             elif method == "thread/start":
                 assert message["params"]["sandbox"] == "workspace-write"
+                selected_model = message["params"]["model"]
                 exposed_tools = {tool["name"] for tool in message["params"]["dynamicTools"]}
                 result = {"thread": {"id": "fixture-thread"}}
             elif method == "turn/start":
