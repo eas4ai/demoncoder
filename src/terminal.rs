@@ -460,13 +460,11 @@ async fn run_view(
                 match input.context("read terminal input")? {
                     InputEvent::Key(key) if key.kind == KeyEventKind::Press => match key.code {
                         KeyCode::Char('q') if key.modifiers.contains(KeyModifiers::CONTROL) => return Ok(()),
-                        KeyCode::Char('c' | 'C') if key.modifiers.contains(KeyModifiers::CONTROL | KeyModifiers::SHIFT) => {
-                            if !view.input.is_empty() {
+                        KeyCode::Char('c' | 'C') if key.modifiers.contains(KeyModifiers::CONTROL | KeyModifiers::SHIFT) && !view.input.is_empty() => {
                                 execute!(std::io::stdout(), CopyToClipboard::to_clipboard_from(view.input.as_str())).context("copy prompt text")?;
                                 view.copy_notice = Some("Prompt copy requested · terminal must allow OSC 52");
-                            }
                         }
-                        KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                        KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) && !key.modifiers.contains(KeyModifiers::SHIFT) => {
                             if view.busy { commands.send(Command::Cancel).await.context("cancel session")?; }
                             else { view.input.clear(); }
                         }

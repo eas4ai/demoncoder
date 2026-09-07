@@ -20,6 +20,7 @@ class PromptClipboard(unittest.TestCase):
                 app.resize(35, 180)
                 app.send(b'silent-check\r')
                 app.wait(lambda s: 'Working' in s, 'active turn')
+                app.send(b'\x1b[99;6u')  # an empty prompt must not cancel
                 app.send('draft 界'.encode())
                 app.wait(lambda s: 'draft 界' in s, 'prompt draft')
                 self.assertNotIn(b'\x1b]52;', app.output)
