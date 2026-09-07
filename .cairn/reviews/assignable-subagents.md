@@ -1,7 +1,7 @@
 # Assignable subagents review
 
 commitment: assignable-subagents
-commit: ff4ef017426dc96a4c86f9095ffef1989a4fd4a9
+commit: f7679ad5361b5c8d139500a7e5e541bb4ec70687
 findings:
   - none: all recorded findings repaired and verified
 Status: complete
@@ -202,3 +202,8 @@ terminal, filesystem and process behavior; external service behavior is not prov
     revision is indicated by current evidence or source review.
 14. Documented controls and limits in plain language, including no child network
     or home toolchains, unknown backend usage and non-atomic external-writer races.
+
+Final freshness review: the only declared input changed after the installed
+audit was the plan checkbox completion record. Examined that diff against the
+executed checks above; no runtime or test logic changed. Cairn reran all seven
+requirements and recorded current passes at 20260907T174324. No new finding.
