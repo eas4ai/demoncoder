@@ -1,6 +1,6 @@
 # Roadmap
 
-Current: clipboard-shortcuts
+Current: reliability
 
 The developer selected the usable coding session as the first commitment
 and agreed to use Cairn on 2026-09-06. The developer confirmed its detailed
@@ -29,3 +29,5 @@ order is selected with the work that needs them.
 
 The developer selected terminal-usability-sweep on 2026-09-07 after chat presentation
 and Creator identity were reconciled as complete.
+
+The developer selected reliability next after clipboard-shortcuts on 2026-09-07.
