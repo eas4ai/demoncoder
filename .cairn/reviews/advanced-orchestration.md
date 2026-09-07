@@ -44,3 +44,9 @@ Recovery also did not challenge changed connection authority or retain an alread
 integrated prerequisite, and ample limits did not demonstrate spent admission after
 restart. These are proof findings, not observed runtime defects. Production
 execution remains pending the coupled manager implementation.
+
+Further fixture findings: changed nonempty content cannot distinguish rerun checks
+from a relabeled prior success; add a correction that fails a formerly passing
+check. Status/owner shutdown alone does not establish subscription role process
+termination; observe launched peer process identities and an active worker
+heartbeat during shutdown. These findings are recorded before those repairs.
