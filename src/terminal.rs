@@ -10,8 +10,10 @@ use anyhow::{Context, Result, bail};
 use crossterm::{
     clipboard::CopyToClipboard,
     event::{
-        DisableMouseCapture, EnableMouseCapture, Event as InputEvent, EventStream, KeyCode,
-        KeyEventKind, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+        DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture,
+        Event as InputEvent, EventStream, KeyCode, KeyEventKind, KeyModifiers,
+        KeyboardEnhancementFlags, MouseButton, MouseEvent, MouseEventKind,
+        PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
     },
     execute,
 };
@@ -404,14 +406,25 @@ struct MouseCapture;
 impl MouseCapture {
     fn enable() -> Result<Self> {
         let guard = Self;
-        execute!(std::io::stdout(), EnableMouseCapture).context("enable chat mouse scrolling")?;
+        execute!(
+            std::io::stdout(),
+            EnableMouseCapture,
+            EnableBracketedPaste,
+            PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES)
+        )
+        .context("enable terminal input modes")?;
         Ok(guard)
     }
 }
 
 impl Drop for MouseCapture {
     fn drop(&mut self) {
-        let _ = execute!(std::io::stdout(), DisableMouseCapture);
+        let _ = execute!(
+            std::io::stdout(),
+            PopKeyboardEnhancementFlags,
+            DisableBracketedPaste,
+            DisableMouseCapture
+        );
     }
 }
 
@@ -447,6 +460,12 @@ async fn run_view(
                 match input.context("read terminal input")? {
                     InputEvent::Key(key) if key.kind == KeyEventKind::Press => match key.code {
                         KeyCode::Char('q') if key.modifiers.contains(KeyModifiers::CONTROL) => return Ok(()),
+                        KeyCode::Char('c' | 'C') if key.modifiers.contains(KeyModifiers::CONTROL | KeyModifiers::SHIFT) => {
+                            if !view.input.is_empty() {
+                                execute!(std::io::stdout(), CopyToClipboard::to_clipboard_from(view.input.as_str())).context("copy prompt text")?;
+                                view.copy_notice = Some("Prompt copy requested · terminal must allow OSC 52");
+                            }
+                        }
                         KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                             if view.busy { commands.send(Command::Cancel).await.context("cancel session")?; }
                             else { view.input.clear(); }
@@ -599,9 +618,9 @@ fn draw(view: &mut View, connection: &str, frame: &mut ratatui::Frame<'_>) {
     let shown = &view.input[start..];
     frame.render_widget(
         Paragraph::new(shown).block(Block::default().borders(Borders::ALL).title(if view.busy {
-            "Correction · Enter sends · Esc cancels"
+            "Correction · Enter sends · Ctrl-Shift-C/V copy/paste · Esc cancels"
         } else {
-            "Prompt · Enter sends"
+            "Prompt · Enter sends · Ctrl-Shift-C/V copy/paste"
         })),
         editor,
     );

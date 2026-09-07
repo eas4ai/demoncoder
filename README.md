@@ -131,6 +131,8 @@ coding task as correct.
 | Escape | Clear a selection first; otherwise cancel an active turn. |
 | Ctrl-C while working | Cancel the active turn. |
 | Ctrl-C while idle | Clear the input editor. |
+| Ctrl+Shift+C forwarded to the application | Copy the current prompt text. |
+| Ctrl+Shift+V | Paste from the terminal clipboard into the prompt. |
 | Ctrl-Q | Quit the application and close the session runtime. |
 | Ctrl-O | Toggle all retained assistant/tool output between compact and full views. |
 | Page Up / Page Down | Scroll backward or forward one page. |
@@ -169,6 +171,14 @@ without resubmitting anything. Source reads and supported fenced code use syntax
 colors. Unknown languages and oversized highlighting inputs remain plain text;
 Markdown prose and links retain their literal notation. A scrollbar follows the
 current compact/full view, with two empty terminal columns outside it.
+
+Prompt shortcuts are separate from transcript selection. Ctrl+Shift+C copies the
+whole current prompt; Ctrl+Shift+V uses the terminal emulator's paste action.
+Bracketed paste stays in the editor until Enter: newlines and control characters
+are removed, and the 64 KiB input limit still applies. Terminal emulators may
+reserve Ctrl+Shift+C for native selection; to copy the application prompt, they
+must forward that key with distinguishable modifiers. Compatible terminals are
+asked for enhanced key reporting. Clipboard copying still requires OSC 52 support.
 
 The editor currently appends and backspaces at the end. Cursor navigation,
 command history, multiline composition, transcript search, and a connection picker
