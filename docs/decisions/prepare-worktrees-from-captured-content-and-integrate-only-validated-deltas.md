@@ -11,4 +11,6 @@ Create genuine parent-owned Git worktrees and materialize the bounded captured p
 
 ## Realized by
 
-(none yet: recorded, not built)
+- 3ad5bf0003d3402ac460366db26fc847d3b8cb19 Add isolated worktree snapshots and validated delta integration
+- af8f6c6b8de692a781a3b217b8ea2ddeeab034a7 Make worktree filesystem work cooperatively cancellable
+- 663dd3ebb3f8097b7e59cc4498585bbd9af78904 Pin Git delta paths before applying child results
