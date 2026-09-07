@@ -84,3 +84,21 @@ appended synthetic bytes only to the second heartbeat read returned to the test.
 The unchanged assertion rejected continued effects after cancellation. No file
 was altered by the wrapper. Then the complete unmodified ORCH-006 production
 cases passed, including cancellation when durable transition persistence fails.
+
+## Revised mechanism review: ORCH-007
+
+Reviewed the sentence split against recovery, recovery_authority_and_integration
+and recovery_limits. Uncertainty and no automatic replay remain separate required
+behaviors; the original identity, evidence, correction and allowance obligations
+are unchanged. The only declaration change so far is the ORCH-006 reviewed entry,
+not its command or inputs. Existing cases kill four transport types in each role
+and correction phase, retain dependency/receipt/counter identities, assert no HTTP
+or backend restart and no queued work, refuse changed authority, and preserve
+spent allowances. Explicit inspection alone cannot release work. No mismatch.
+
+A temporary test-reader wrapper substituted integrated for uncertain after an
+actual interrupted role restart. The recovery assertion rejected this fabricated
+prerequisite success; the runtime and stored evidence were unchanged. The
+unmodified complete ORCH-007 driver then passed recovery, authority/integration
+and retained-limit cases. This is a bounded assertion demonstration, not a claim
+that a deliberately corrupted runtime was deployed.
