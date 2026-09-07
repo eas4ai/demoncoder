@@ -140,6 +140,17 @@ struct Runtime {
 pub struct SharedRuntime(Arc<Mutex<Runtime>>);
 
 impl SharedRuntime {
+    #[cfg(test)]
+    pub(crate) fn for_test(directory: &Path, record: Record) -> Result<Self> {
+        let mut store = Store::create(directory)?;
+        store.write(&serde_json::to_value(&record)?)?;
+        Ok(Self(Arc::new(Mutex::new(Runtime {
+            store,
+            record,
+            failed: false,
+        }))))
+    }
+
     pub fn open(
         workspace: &Path,
         connection: &Connection,

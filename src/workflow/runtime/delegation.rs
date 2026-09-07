@@ -1,6 +1,6 @@
 //! Child facts share the parent record and admission lock.
 use anyhow::{Context, Result, ensure};
-use serde_json::Value;
+use serde_json::{Value, json};
 
 use super::{Operation, Record, SharedRuntime};
 use crate::{
@@ -156,6 +156,59 @@ impl SharedRuntime {
         })
     }
 
+    pub(crate) fn admit_agent_validation(&self, id: u64, max_active: u32) -> Result<()> {
+        self.update(|record| {
+            ensure!(
+                !record.recovery_pending,
+                "reconcile interrupted parent work before validation"
+            );
+            ensure!(
+                record
+                    .agents
+                    .iter()
+                    .filter(|agent| agent.status.active())
+                    .count()
+                    < max_active as usize,
+                "active agent limit reached"
+            );
+            let agent = record
+                .agents
+                .iter_mut()
+                .find(|agent| agent.id == id)
+                .context("agent assignment does not exist")?;
+            ensure!(
+                agent.completed
+                    && matches!(
+                        agent.status,
+                        crate::subagents::state::AgentStatus::Stopped
+                            | crate::subagents::state::AgentStatus::Ready
+                            | crate::subagents::state::AgentStatus::Failed
+                    ),
+                "validation requires completed child work"
+            );
+            ensure!(
+                !agent.commands.is_empty() && agent.reviewer.is_some(),
+                "select --check and --reviewer before assigning work"
+            );
+            if !agent.checks.is_empty() || agent.review.is_some() {
+                agent.retain_activity(json!({
+                    "type":"previous_validation",
+                    "generation":agent.validation_generation,
+                    "checks":agent.checks,
+                    "review":agent.review,
+                }))?;
+            }
+            agent.status = crate::subagents::state::AgentStatus::Validating;
+            if agent.orchestration.is_none() {
+                agent.validation_generation += 1;
+            }
+            agent.validation_snapshot = None;
+            agent.checks.clear();
+            agent.review = None;
+            Ok(())
+        })
+    }
+
     pub(crate) fn agent_checkpoint(&self, phase: &str, checkpoint: Value) -> Result<()> {
         let Some(id) = agent_id(phase) else {
             return Ok(());
@@ -183,12 +236,45 @@ mod tests {
     use super::*;
     use crate::{
         config::Connection,
+        subagents::state::{AgentRecord, AgentStatus, AssignmentOrigin, AssignmentRequest},
         workflow::{
             runtime::{Identity, Runtime},
             store::Store,
         },
     };
     use std::sync::{Arc, Mutex};
+
+    fn agent(id: u64, identity: &Identity, status: AgentStatus) -> AgentRecord {
+        AgentRecord {
+            id,
+            parent_task: Some(1),
+            origin: AssignmentOrigin::Developer,
+            completed: status == AgentStatus::Stopped,
+            request: AssignmentRequest {
+                connection: "worker".into(),
+                objective: "test assignment".into(),
+                context: String::new(),
+                owned_paths: vec!["greeting".into()],
+            },
+            identity: identity.clone(),
+            worktree: None,
+            planned_root: None,
+            status,
+            outcome: String::new(),
+            commands: vec!["true".into()],
+            reviewer: Some(identity.clone()),
+            checks: Vec::new(),
+            review: None,
+            validation_generation: 0,
+            validation_snapshot: None,
+            activity: Vec::new(),
+            checkpoint: None,
+            checkpoint_cursor: 0,
+            integration: None,
+            decisions: Vec::new(),
+            orchestration: None,
+        }
+    }
 
     #[test]
     fn backend_invocations_have_a_durable_separate_limit_and_do_not_reset() {
@@ -281,5 +367,35 @@ mod tests {
             .configure_delegation(identity, Limits::default())
             .unwrap_err();
         assert!(error.to_string().contains("exactly two"));
+    }
+
+    #[test]
+    fn validation_admission_rechecks_capacity_in_the_durable_transition() {
+        let root = tempfile::tempdir().unwrap();
+        let connection: Connection =
+            serde_json::from_value(serde_json::json!({"adapter":"openai-api"})).unwrap();
+        let identity = Identity::from(&connection);
+        let mut record: Record = serde_json::from_value(serde_json::json!({
+            "workspace":root.path(), "identity":identity, "archived":[],
+            "next_task":1, "checkpoint_cursor":0, "operations":[], "messages":[],
+            "recovery_pending":false, "decisions":[]
+        }))
+        .unwrap();
+        record.agents = vec![
+            agent(1, &identity, AgentStatus::Stopped),
+            agent(2, &identity, AgentStatus::Running),
+        ];
+        let runtime = SharedRuntime(Arc::new(Mutex::new(Runtime {
+            store: Store::create(&root.path().join("record")).unwrap(),
+            record,
+            failed: false,
+        })));
+
+        let error = runtime.admit_agent_validation(1, 1).unwrap_err();
+
+        assert!(error.to_string().contains("active agent limit"));
+        let retained = runtime.record().unwrap();
+        assert_eq!(retained.agents[0].status, AgentStatus::Stopped);
+        assert_eq!(retained.agents[0].validation_generation, 0);
     }
 }

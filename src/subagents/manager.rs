@@ -61,6 +61,7 @@ pub struct Manager {
     pub(super) runtime: SharedRuntime,
     active: Mutex<BTreeMap<u64, Active>>,
     stopping: AtomicBool,
+    queue_paused: AtomicBool,
 }
 
 impl Manager {
@@ -106,15 +107,21 @@ impl Manager {
             },
             settings.limits.clone(),
         )?;
+        let retained = runtime.record()?;
         if settings.orchestration.is_some() {
-            supervision::dependency_nodes(&runtime.record()?.agents)?;
+            supervision::dependency_nodes(&retained.agents)?;
         }
+        let queue_paused = retained
+            .agents
+            .iter()
+            .any(|agent| agent.status == AgentStatus::Queued);
         Ok(Arc::new(Self {
             workspace,
             settings,
             runtime,
             active: Mutex::new(BTreeMap::new()),
             stopping: AtomicBool::new(false),
+            queue_paused: AtomicBool::new(queue_paused),
         }))
     }
 
@@ -208,7 +215,7 @@ impl Manager {
             "shared deadline exhausted"
         );
         let worktrees = self.runtime.directory()?.join("agents");
-        self.stopping.store(false, Ordering::SeqCst);
+        self.resume_admission()?;
         let orchestrated = self.settings.orchestration.is_some();
         let id = self.runtime.update(|record| {
             ensure!(
@@ -291,12 +298,16 @@ impl Manager {
             !self.runtime.record()?.recovery_pending,
             "reconcile interrupted work before resuming queued assignments"
         );
-        self.stopping.store(false, Ordering::SeqCst);
+        self.resume_admission()?;
+        self.queue_paused.store(false, Ordering::SeqCst);
         self.pump(events)
     }
 
     fn pump(self: &Arc<Self>, events: &EventSink) -> Result<()> {
-        if self.settings.orchestration.is_none() || self.stopping.load(Ordering::SeqCst) {
+        if self.settings.orchestration.is_none()
+            || self.stopping.load(Ordering::SeqCst)
+            || self.queue_paused.load(Ordering::SeqCst)
+        {
             return Ok(());
         }
         let ids = self.runtime.update(|record| {
@@ -352,6 +363,23 @@ impl Manager {
     }
 
     fn launch(self: &Arc<Self>, id: u64, job: Job, events: &EventSink) -> Result<()> {
+        let mut active = self
+            .active
+            .lock()
+            .map_err(|_| anyhow::anyhow!("agent lifecycle lock failed"))?;
+        ensure!(
+            !self.stopping.load(Ordering::SeqCst),
+            "agent launch cancelled before registration"
+        );
+        let expected = match &job {
+            Job::Work => AgentStatus::Preparing,
+            Job::Validate => AgentStatus::Validating,
+            Job::Integrate(_) => AgentStatus::Integrating,
+        };
+        ensure!(
+            self.record(id)?.status == expected,
+            "agent launch was cancelled or superseded before registration"
+        );
         let guard = Interrupted {
             runtime: self.runtime.clone(),
             id,
@@ -364,10 +392,6 @@ impl Manager {
         let task = tokio::spawn(async move {
             manager.run(id, job, receiver, events, guard).await;
         });
-        let mut active = self
-            .active
-            .lock()
-            .map_err(|_| anyhow::anyhow!("agent lifecycle lock failed"))?;
         active.retain(|_, entry| !entry.task.is_finished());
         active.insert(id, Active { cancel, task });
         Ok(())
@@ -758,6 +782,9 @@ impl Manager {
                 OrchestrationStage::Judge,
             ),
         };
+        if matches!(config.adapter.as_str(), "codex" | "claude") {
+            self.runtime.ensure_backend_available()?;
+        }
         let mut effective = config.clone();
         effective.access = crate::tools::AccessPolicy::review_only();
         let identity = Identity::from(&effective);
@@ -816,20 +843,6 @@ impl Manager {
                 }
             }
         };
-        let identity_record = self.record(id)?.worktree.context("agent has no worktree")?;
-        let after = worktree::inspect(&identity_record).await?;
-        let decision = if after.digest == current.snapshot {
-            decision
-        } else {
-            Decision {
-                verdict: Verdict::Blocked,
-                findings: Vec::new(),
-                explanation: format!(
-                    "{} evidence became stale while the role was running",
-                    role.as_str()
-                ),
-            }
-        };
         let round = self
             .record(id)?
             .orchestration
@@ -850,6 +863,18 @@ impl Manager {
                 .context("orchestration state disappeared")?
                 .retain_receipt(receipt.clone())
         })?;
+        let identity_record = self.record(id)?.worktree.context("agent has no worktree")?;
+        let after = worktree::inspect(&identity_record).await.with_context(|| {
+            format!(
+                "{} role returned, but current source could not be inspected",
+                role.as_str()
+            )
+        })?;
+        ensure!(
+            after.digest == current.snapshot,
+            "{} evidence became stale while the role was running",
+            role.as_str()
+        );
         Ok(receipt)
     }
 
@@ -891,37 +916,12 @@ impl Manager {
     }
 
     pub fn start_validation(self: &Arc<Self>, id: u64, events: &EventSink) -> Result<()> {
-        let record = self.runtime.record()?;
-        ensure!(
-            !record.recovery_pending,
-            "reconcile interrupted parent work before validation"
-        );
-        ensure!(
-            record
-                .agents
-                .iter()
-                .filter(|agent| agent.status.active())
-                .count()
-                < self.settings.max_active as usize,
-            "active agent limit reached"
-        );
         ensure!(
             !self.runtime.remaining()?.is_zero(),
             "shared deadline exhausted"
         );
-        self.runtime.update_agent(id, |agent| {
-            ensure!(agent.completed && matches!(agent.status, AgentStatus::Stopped | AgentStatus::Ready | AgentStatus::Failed), "validation requires completed child work");
-            ensure!(!agent.commands.is_empty() && agent.reviewer.is_some(), "select --check and --reviewer before assigning work");
-            if !agent.checks.is_empty() || agent.review.is_some() {
-                agent.retain_activity(json!({"type":"previous_validation", "generation":agent.validation_generation, "checks":agent.checks, "review":agent.review}))?;
-            }
-            agent.status = AgentStatus::Validating;
-            agent.validation_generation += 1;
-            agent.validation_snapshot = None;
-            agent.checks.clear();
-            agent.review = None;
-            Ok(())
-        })?;
+        self.runtime
+            .admit_agent_validation(id, self.settings.max_active)?;
         self.launch(id, Job::Validate, events)
     }
 
@@ -1077,45 +1077,52 @@ impl Manager {
     }
 
     pub async fn cancel(&self, id: u64) -> Result<()> {
-        let active = self
-            .active
-            .lock()
-            .map_err(|_| anyhow::anyhow!("agent lifecycle lock failed"))?
-            .remove(&id);
-        if let Some(active) = active {
+        let (active, retained) = {
+            let mut registered = self
+                .active
+                .lock()
+                .map_err(|_| anyhow::anyhow!("agent lifecycle lock failed"))?;
+            let active = registered.remove(&id);
             let retained = self.runtime.update_agent(id, |agent| {
-                agent.status = AgentStatus::Cancelled;
-                agent.outcome =
-                    "Assignment cancellation requested; stopping its live owner.".into();
-                hold_stage(agent);
+                if matches!(
+                    agent.status,
+                    AgentStatus::Queued
+                        | AgentStatus::Preparing
+                        | AgentStatus::Running
+                        | AgentStatus::Stopped
+                        | AgentStatus::Failed
+                        | AgentStatus::Validating
+                        | AgentStatus::Ready
+                        | AgentStatus::Integrating
+                ) {
+                    agent.status = AgentStatus::Cancelled;
+                    agent.outcome = if active.is_some() {
+                        "Assignment cancellation requested; stopping its live owner.".into()
+                    } else {
+                        "Assignment cancelled before execution or owner registration. Files and original results retained; no integration authorized.".into()
+                    };
+                    hold_stage(agent);
+                }
                 Ok(())
             });
+            (active, retained)
+        };
+        if let Some(active) = active {
             stop(active).await;
-            retained?;
-        } else {
-            ensure!(
-                !self.record(id)?.status.active(),
-                "agent has no live owner; inspect its interrupted record"
-            );
         }
-        self.runtime.update_agent(id, |agent| {
-            if matches!(agent.status, AgentStatus::Queued | AgentStatus::Stopped | AgentStatus::Ready | AgentStatus::Failed) {
-                  agent.status = AgentStatus::Cancelled;
-                  agent.outcome = "Assignment cancelled. Files and original results retained; no integration authorized.".into();
-                  hold_stage(agent);
-            }
-            Ok(())
-        })
+        retained
     }
 
     pub async fn cancel_all(&self) -> Result<()> {
-        let retained = self.mark_stopping();
-        let active = std::mem::take(
-            &mut *self
+        let (retained, active) = {
+            let mut registered = self
                 .active
                 .lock()
-                .map_err(|_| anyhow::anyhow!("agent lifecycle lock failed"))?,
-        );
+                .map_err(|_| anyhow::anyhow!("agent lifecycle lock failed"))?;
+            let retained = self.mark_stopping();
+            let active = std::mem::take(&mut *registered);
+            (retained, active)
+        };
         futures_util::future::join_all(active.into_values().map(stop)).await;
         retained
     }
@@ -1136,6 +1143,17 @@ impl Manager {
         })
     }
 
+    fn resume_admission(&self) -> Result<()> {
+        if self.stopping.load(Ordering::SeqCst) {
+            let _registered = self
+                .active
+                .lock()
+                .map_err(|_| anyhow::anyhow!("agent lifecycle lock failed"))?;
+            self.stopping.store(false, Ordering::SeqCst);
+        }
+        Ok(())
+    }
+
     pub fn ensure_parent_available(&self) -> Result<()> {
         ensure!(
             !self
@@ -1150,12 +1168,14 @@ impl Manager {
     }
 
     pub fn abort_all(&self) {
-        let _ = self.mark_stopping();
         if let Ok(mut active) = self.active.lock() {
+            let _ = self.mark_stopping();
             for (_, entry) in std::mem::take(&mut *active) {
                 let _ = entry.cancel.send(());
                 entry.task.abort();
             }
+        } else {
+            let _ = self.mark_stopping();
         }
     }
 
@@ -1336,5 +1356,119 @@ impl ToolExtension for ParentTools {
             }
             _ => bail!("unknown parent operation"),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::workflow::{
+        allocation::{Allocation, Limits},
+        runtime::Record,
+        state::Task,
+        workspace,
+    };
+
+    fn connection() -> crate::config::Connection {
+        serde_json::from_value(json!({"adapter":"openai-api"})).unwrap()
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn cancellation_between_reservation_and_registration_prevents_launch() {
+        let root = tempfile::tempdir().unwrap();
+        let workspace_root = root.path().join("workspace");
+        std::fs::create_dir(&workspace_root).unwrap();
+        let connection = connection();
+        let record = Record {
+            workspace: workspace_root.clone(),
+            identity: Identity::from(&connection),
+            reviewer_identity: None,
+            task: Some(
+                Task::new(
+                    1,
+                    "parent task".into(),
+                    Vec::new(),
+                    workspace::capture(&workspace_root).unwrap(),
+                    0,
+                )
+                .unwrap(),
+            ),
+            archived: Vec::new(),
+            next_task: 2,
+            allocation: Some(Allocation::new(Limits::default()).unwrap()),
+            checkpoint: None,
+            checkpoint_cursor: 0,
+            operations: Vec::new(),
+            messages: Vec::new(),
+            phase: None,
+            recovery_pending: false,
+            decisions: Vec::new(),
+            last_snapshot: None,
+            agents: Vec::new(),
+            backend_invocations: 0,
+            delegation: None,
+        };
+        let runtime = SharedRuntime::for_test(&root.path().join("record"), record).unwrap();
+        let settings = Settings {
+            connections: [("worker".into(), connection.clone())].into(),
+            reviewer: Some(connection.clone()),
+            checks: vec!["true".into()],
+            limits: Limits::default(),
+            max_active: 1,
+            backend_limit: 64,
+            orchestration: Some(super::super::OrchestrationSettings {
+                judge: connection,
+                correction_limit: 2,
+            }),
+        };
+        let manager = Manager::new(workspace_root, settings, runtime.clone()).unwrap();
+        let (event_tx, _event_rx) = mpsc::channel(16);
+        let events = EventSink::new("test".into(), event_tx, None)
+            .unwrap()
+            .with_runtime(runtime);
+
+        let registration = manager.active.lock().unwrap();
+        let task_manager = manager.clone();
+        let task_events = events.clone();
+        let handle = tokio::runtime::Handle::current();
+        let start = std::thread::spawn(move || {
+            let _runtime = handle.enter();
+            task_manager.start(
+                AssignmentRequest {
+                    connection: "worker".into(),
+                    objective: "write greeting".into(),
+                    context: String::new(),
+                    owned_paths: vec!["greeting".into()],
+                },
+                AssignmentOrigin::Developer,
+                &task_events,
+            )
+        });
+
+        let deadline = std::time::Instant::now() + Duration::from_secs(1);
+        loop {
+            if manager
+                .record(1)
+                .is_ok_and(|agent| agent.status == AgentStatus::Preparing)
+            {
+                break;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "assignment was not durably reserved"
+            );
+            std::thread::yield_now();
+        }
+        manager.mark_stopping().unwrap();
+        drop(registration);
+
+        let result = start.join().unwrap();
+        assert!(
+            result.is_err(),
+            "a reserved job registered after cancellation"
+        );
+        assert!(manager.active.lock().unwrap().is_empty());
+        assert_eq!(manager.record(1).unwrap().status, AgentStatus::Cancelled);
+        manager.abort_all();
     }
 }
