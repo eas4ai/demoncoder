@@ -1,6 +1,6 @@
 # Roadmap
 
-Current: assignable-subagents
+Current: advanced-orchestration
 
 The developer selected the usable coding session as the first commitment
 and agreed to use Cairn on 2026-09-06. The developer confirmed its detailed
@@ -38,3 +38,7 @@ confirmed verification-review-recovery requirements on 2026-09-07.
 Verification-review-recovery is complete. The developer confirmed assignable
 subagents on all four connections, isolated Git worktrees, validated integration
 and mandatory child confinement on 2026-09-07.
+
+Assignable-subagents is complete and installed. The developer confirmed the
+advanced-orchestration dependency, advisor/worker/judge and two-correction policy
+on 2026-09-07. Integration remains an explicit developer operation.

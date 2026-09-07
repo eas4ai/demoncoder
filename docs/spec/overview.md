@@ -45,6 +45,7 @@ responsible for choosing sound requirements and meaningful checks.
 | [reliability.md](reliability.md) | REL | Host sockets, queue responsiveness and bounded, correct streamed data. |
 | [verification-review-recovery.md](verification-review-recovery.md) | VERIFY | Durable verification, review, bounded correction, allocations and safe recovery. |
 | [assignable-subagents.md](assignable-subagents.md) | SUB | Independently assigned, confined worktree agents and validated integration. |
+| [advanced-orchestration.md](advanced-orchestration.md) | ORCH | Bounded dependency scheduling and advisor/worker/judge supervision. |
 | [roadmap.md](roadmap.md) | — | The selected commitment and intended delivery sequence. |
 
 The broader [design narrative](../spec.md) retains product direction,
