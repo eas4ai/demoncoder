@@ -196,3 +196,18 @@ all sixteen stale-role cases, exhausted backend launch refusal and cancellation
 during failed persistence. These are editing-time checks. Independent runtime
 source re-review, quality review, formal receipts and installed release checks
 remain pending; production passes alone do not close the source review findings.
+
+### Source re-review at cc702ba: batch cancellation finding
+
+The independent reviewer confirmed the original direct repairs, passed both new
+Rust regressions and independently reproduced the corrected recovery, original
+response retention and exhausted backend launch behavior. One source-confirmed
+ORCH-001/006 defect remains: pump reserves all eligible assignments as Preparing,
+then exits its launch loop on the first launch error. If individual cancellation
+cancels the first reserved assignment before registration, that launch correctly
+refuses, but later reserved assignments receive neither a task nor an interruption
+guard. They remain Preparing and consume capacity indefinitely. The existing
+single-assignment global-cancellation test does not cover this case. Add a
+deterministic two-assignment regression that cancels only the first reservation
+and requires the unrelated second assignment to acquire a live owner. This finding
+is recorded before repair; no production stress reproduction is claimed.
