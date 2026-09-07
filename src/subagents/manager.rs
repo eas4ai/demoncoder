@@ -356,10 +356,39 @@ impl Manager {
             }
             Ok(ids)
         })?;
+        let mut first_error = None;
         for id in ids {
-            self.launch(id, Job::Work, events)?;
+            let Err(error) = self.launch(id, Job::Work, events) else {
+                continue;
+            };
+            let settlement = self.runtime.update_agent(id, |agent| {
+                if agent.status == AgentStatus::Cancelled {
+                    return Ok(true);
+                }
+                if matches!(agent.status, AgentStatus::Preparing | AgentStatus::Uncertain) {
+                    agent.status = AgentStatus::Uncertain;
+                    agent.outcome = format!(
+                        "Agent owner registration failed before execution: {error:#}. Inspect retained state; nothing will replay automatically."
+                    );
+                    hold_stage(agent);
+                }
+                Ok(false)
+            });
+            let error = match settlement {
+                Ok(true) if !self.stopping.load(Ordering::SeqCst) => continue,
+                Ok(_) => error,
+                Err(settlement_error) => error.context(format!(
+                    "settling failed launch for agent {id} also failed: {settlement_error:#}"
+                )),
+            };
+            if first_error.is_none() {
+                first_error = Some(error);
+            }
         }
-        Ok(())
+        match first_error {
+            Some(error) => Err(error),
+            None => Ok(()),
+        }
     }
 
     fn launch(self: &Arc<Self>, id: u64, job: Job, events: &EventSink) -> Result<()> {
@@ -1373,6 +1402,38 @@ mod tests {
         serde_json::from_value(json!({"adapter":"openai-api"})).unwrap()
     }
 
+    fn queued_agent(id: u64, identity: &Identity, planned_root: PathBuf) -> AgentRecord {
+        AgentRecord {
+            id,
+            parent_task: Some(1),
+            origin: AssignmentOrigin::Developer,
+            completed: false,
+            request: AssignmentRequest {
+                connection: "worker".into(),
+                objective: format!("queued assignment {id}"),
+                context: String::new(),
+                owned_paths: vec![format!("result-{id}")],
+            },
+            identity: identity.clone(),
+            worktree: None,
+            planned_root: Some(planned_root),
+            status: AgentStatus::Queued,
+            outcome: "waiting".into(),
+            commands: vec!["true".into()],
+            reviewer: Some(identity.clone()),
+            checks: Vec::new(),
+            review: None,
+            validation_generation: 0,
+            validation_snapshot: None,
+            activity: Vec::new(),
+            checkpoint: None,
+            checkpoint_cursor: 0,
+            integration: None,
+            decisions: Vec::new(),
+            orchestration: Some(OrchestrationState::new(Vec::new())),
+        }
+    }
+
     #[tokio::test(flavor = "current_thread")]
     async fn cancellation_between_reservation_and_registration_prevents_launch() {
         let root = tempfile::tempdir().unwrap();
@@ -1469,6 +1530,113 @@ mod tests {
         );
         assert!(manager.active.lock().unwrap().is_empty());
         assert_eq!(manager.record(1).unwrap().status, AgentStatus::Cancelled);
+        manager.abort_all();
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn one_refused_registration_does_not_strand_an_independent_reservation() {
+        let root = tempfile::tempdir().unwrap();
+        let workspace_root = root.path().join("workspace");
+        std::fs::create_dir(&workspace_root).unwrap();
+        let connection = connection();
+        let identity = Identity::from(&connection);
+        let agents_root = root.path().join("record/agents");
+        let record = Record {
+            workspace: workspace_root.clone(),
+            identity: identity.clone(),
+            reviewer_identity: None,
+            task: Some(
+                Task::new(
+                    1,
+                    "parent task".into(),
+                    Vec::new(),
+                    workspace::capture(&workspace_root).unwrap(),
+                    0,
+                )
+                .unwrap(),
+            ),
+            archived: Vec::new(),
+            next_task: 2,
+            allocation: Some(Allocation::new(Limits::default()).unwrap()),
+            checkpoint: None,
+            checkpoint_cursor: 0,
+            operations: Vec::new(),
+            messages: Vec::new(),
+            phase: None,
+            recovery_pending: false,
+            decisions: Vec::new(),
+            last_snapshot: None,
+            agents: vec![
+                queued_agent(1, &identity, agents_root.join("1")),
+                queued_agent(2, &identity, agents_root.join("2")),
+            ],
+            backend_invocations: 0,
+            delegation: None,
+        };
+        let runtime = SharedRuntime::for_test(&root.path().join("record"), record).unwrap();
+        let settings = Settings {
+            connections: [("worker".into(), connection.clone())].into(),
+            reviewer: Some(connection.clone()),
+            checks: vec!["true".into()],
+            limits: Limits::default(),
+            max_active: 2,
+            backend_limit: 64,
+            orchestration: Some(super::super::OrchestrationSettings {
+                judge: connection,
+                correction_limit: 2,
+            }),
+        };
+        let manager = Manager::new(workspace_root, settings, runtime.clone()).unwrap();
+        let (event_tx, _event_rx) = mpsc::channel(16);
+        let events = EventSink::new("test".into(), event_tx, None)
+            .unwrap()
+            .with_runtime(runtime);
+
+        let registration = manager.active.lock().unwrap();
+        let task_manager = manager.clone();
+        let task_events = events.clone();
+        let handle = tokio::runtime::Handle::current();
+        let resume = std::thread::spawn(move || {
+            let _runtime = handle.enter();
+            task_manager.resume_queue(&task_events)
+        });
+        let deadline = std::time::Instant::now() + Duration::from_secs(1);
+        loop {
+            let agents = manager.runtime.record().unwrap().agents;
+            if agents
+                .iter()
+                .all(|agent| agent.status == AgentStatus::Preparing)
+            {
+                break;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "both assignments were not durably reserved"
+            );
+            std::thread::yield_now();
+        }
+        manager
+            .runtime
+            .update_agent(1, |agent| {
+                agent.status = AgentStatus::Cancelled;
+                agent.outcome = "cancelled before registration".into();
+                hold_stage(agent);
+                Ok(())
+            })
+            .unwrap();
+        drop(registration);
+
+        assert!(
+            resume.join().unwrap().is_ok(),
+            "one cancelled reservation aborted the batch"
+        );
+        let active = manager.active.lock().unwrap();
+        assert!(!active.contains_key(&1));
+        assert!(active.contains_key(&2), "independent job has no live owner");
+        drop(active);
+        let first = manager.record(1).unwrap();
+        assert_eq!(first.status, AgentStatus::Cancelled);
+        assert!(first.worktree.is_none(), "cancelled job produced effects");
         manager.abort_all();
     }
 }
