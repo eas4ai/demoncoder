@@ -1,5 +1,9 @@
 # Reliability mechanism and implementation review
 
+commitment: reliability
+commit: 37b78a8a19b447dca3b955ab048fc14d500da846
+findings:
+  - REL-003: inline oversized arguments permit earlier response tool effects
 Status: in progress
 
 ## REL-001 mechanism design
