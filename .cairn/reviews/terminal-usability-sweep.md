@@ -76,3 +76,13 @@ couple unrelated boundaries. The public terminal::run wrapper stays for external
 adapters and is exercised by the independent registry driver in the mechanism.
 
 Final committed checks, installation and no-code review remain to be recorded.
+
+## Committed interaction correction
+
+The first committed interaction mechanism retained unverified receipts because
+the 60-column scrollback regression could not see completion: the old connection
+label consumed the header before activity status. The transcript anchor and input
+were correct. SWEEP-002 correction puts activity first and strengthens the silent
+wait fixture to 60 columns. This makes the working indicator useful on ordinary
+narrow screens rather than weakening the completion observation. The failed
+receipt and its exact screen remain in SWEEP-002 evidence.

@@ -78,6 +78,7 @@ class TerminalSweep(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix='demoncoder-sweep-') as directory:
             app = App(Path(directory), provider=SilentProvider)
             try:
+                app.resize(35, 60)
                 app.send(b'silent-check\r')
                 app.wait(lambda s: 'Working' in s, 'silent working state')
                 headers = set()

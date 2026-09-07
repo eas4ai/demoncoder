@@ -544,8 +544,7 @@ fn draw(view: &mut View, connection: &str, frame: &mut ratatui::Frame<'_>) {
     .areas(area);
     frame.render_widget(
         Paragraph::new(format!(
-            "DemonCoder · {} · {}{}{}",
-            visible_text(connection),
+            "DemonCoder · {}{}{} · {}",
             if view.busy {
                 ["⠋ ", "⠙ ", "⠹ ", "⠸ ", "⠼ ", "⠴ ", "⠦ ", "⠧ ", "⠇ ", "⠏ "]
                     [(view.activity_tick / 3 % 10) as usize]
@@ -557,7 +556,8 @@ fn draw(view: &mut View, connection: &str, frame: &mut ratatui::Frame<'_>) {
                 .values()
                 .next()
                 .map(|t| format!(" · {} {}", t.name, visible_text(&t.target)))
-                .unwrap_or_default()
+                .unwrap_or_default(),
+            visible_text(connection)
         ))
         .style(Style::default().fg(Color::Cyan)),
         header,
