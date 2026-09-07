@@ -53,7 +53,7 @@ impl View {
             Event::TurnStarted => {
                 self.busy = true;
                 self.status = "Working".into();
-                self.usage = "usage unknown".into();
+                self.usage.clear();
             }
             Event::Text { text } => self.append(&text),
             Event::ToolStarted { call } => self.append(&format!("\n[{} {}]\n", call.name, call.id)),
@@ -100,6 +100,10 @@ impl View {
                 cached,
                 cost_usd,
             } => {
+                if input.is_none() && output.is_none() && cached.is_none() && cost_usd.is_none() {
+                    self.usage.clear();
+                    return;
+                }
                 let count =
                     |value: Option<u64>| value.map_or_else(|| "unknown".into(), |v| v.to_string());
                 self.usage = format!(
@@ -176,7 +180,6 @@ async fn run_view(
 ) -> Result<()> {
     let mut view = View {
         status: "Connecting".into(),
-        usage: "usage unknown".into(),
         ..View::default()
     };
     let mut input_events = EventStream::new();
@@ -189,7 +192,7 @@ async fn run_view(
             },
             _ = refresh.tick() => {
                 terminal.draw(|frame| {
-                    let [header, notice, body, editor, usage, help] = Layout::vertical([Constraint::Length(1), Constraint::Length(u16::from(view.transcript.expired())), Constraint::Min(1), Constraint::Length(3), Constraint::Length(1), Constraint::Length(1)]).areas(frame.area());
+                    let [header, notice, body, editor, usage, help] = Layout::vertical([Constraint::Length(1), Constraint::Length(u16::from(view.transcript.expired())), Constraint::Min(1), Constraint::Length(3), Constraint::Length(u16::from(!view.usage.is_empty())), Constraint::Length(1)]).areas(frame.area());
                     frame.render_widget(Paragraph::new(format!("DemonCoder · {} · {}", visible_text(connection), view.status)).style(Style::default().fg(Color::Cyan)), header);
                     if view.transcript.expired() {
                         frame.render_widget(Paragraph::new("Older chat expired · display retention limit").style(Style::default().fg(Color::Yellow)), notice);

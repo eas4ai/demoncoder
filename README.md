@@ -136,7 +136,9 @@ coding task as correct.
 The header shows the named connection, execution mode, and status. The body shows
 assistant text, tool activity, original results, and Oracle decisions. The editor
 changes from `Prompt` to `Correction` while work runs. The footer displays usage
-when reported, with scrolling controls on a separate line. New output does not
+when reported, with scrolling controls on a separate line. The usage row stays
+hidden until at least one current-turn value is reported, including a measured
+zero; starting a new turn clears it. New output does not
 move a viewport that you have scrolled back; End resumes following live output.
 Submitting a new prompt also returns to the latest output. Resizing preserves the
 reading position. Hold Shift for terminal-emulator text selection where supported.

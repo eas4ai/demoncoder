@@ -96,12 +96,15 @@ def run_case(adapter, peer):
         output = bytearray()
         try:
             until(master, process, output, b"Prompt")
+            current_footer(master, process, output, "└", row=-2)
+            current_footer(master, process, output, "Ctrl-Q quit", row=-1)
             offset = {"openai-api":0, "anthropic-api":1, "codex":2, "claude":3}[adapter]
             for mode in ("known", "partial", "zero", "absent"):
                 peer.release.clear()
                 os.write(master, mode.encode() + b"\r")
                 until(master, process, output, ("USAGE-WAIT-" + mode).encode())
-                current_footer(master, process, output, "usage unknown")
+                current_footer(master, process, output, "└", row=-2)
+                current_footer(master, process, output, "Ctrl-Q quit", row=-1)
                 peer.release.set()
                 (root / ("release-" + mode)).touch()
                 if mode == "known":
@@ -115,8 +118,8 @@ def run_case(adapter, peer):
                 count = lambda value: "unknown" if value is None else str(value)
                 cost = "unknown" if expected["cost_usd"] is None else f"${expected['cost_usd']:.4f}"
                 expected_text = f"in {count(expected['input'])} · out {count(expected['output'])} · cached {count(expected['cached'])} · cost {cost}"
-                if adapter == "codex" and mode == "absent":
-                    expected_text = "usage unknown"
+                if mode == "absent":
+                    expected_text = "└"
                 current_footer(master, process, output, "complete", row=0)
                 current_footer(master, process, output, expected_text)
                 screen = screen_text(output, 180, 40)
