@@ -3,7 +3,7 @@
 commitment: assignable-subagents
 commit: 1dc7b4a8343ce66b6115026ef912238a2da6971c
 findings:
-  - none: component reviews approved; final committed-candidate review remains pending
+  - open: Truncated Anthropic output incorrectly blocks the next prompt as uncertain despite admitting no tool effects.
 Status: in progress
 
 ## Strict tool component specification review
@@ -109,3 +109,15 @@ limits, concurrency and deadlines. Killing the owner during preparation, child
 execution and integration intent retained uncertain state and produced no replay
 on resume. These are editing-time tests; Cairn receipts and the final installed
 candidate remain separate completion gates.
+
+## Final regression finding
+
+On the committed candidate, tests/output_limits.py failed its production
+continuation test: a truncated Anthropic response leaves the runtime uncertain
+and rejects the next prompt until /reconcile, although the response admitted no
+tool call. The original output-limit contract requires visible truncation and
+a usable next prompt. This finding is recorded before repair; investigate the
+model-admission completion path without weakening the interruption boundary.
+Full Rust tests, Clippy, formatting and all six verification production cases
+passed. Terminal regression drivers through startup passed. Final review and
+installed verification remain incomplete.
