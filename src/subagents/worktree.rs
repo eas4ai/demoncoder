@@ -1,6 +1,10 @@
 //! Parent-owned Git worktrees and exact, validated content integration.
 //! The caller records intent before either mutating operation. Errors can leave
 //! retained worktrees/objects or a partly applied result; never imply rollback.
+//! Mutation futures yield between entries and 64 KiB writes; cancellation never
+//! detaches writes. Read-only capture workers stop at scanner checkpoints. Like
+//! the filesystem tools, these bounds assume ordinary kernel syscall completion;
+//! an uninterruptible filesystem syscall is not a hard real-time guarantee.
 use super::state::{AssignmentRequest, WorktreeIdentity, valid_content_path};
 use crate::workflow::workspace::{self, Kind, Snapshot};
 use anyhow::{Context, Result, ensure};
@@ -17,6 +21,10 @@ use std::{
     },
     path::Path,
     process::Stdio,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
     time::{Duration, Instant},
 };
 use tokio::{
@@ -44,6 +52,48 @@ impl Drop for GitGroup {
         // Cancellation revokes subprocesses, not retained assignment artifacts.
         let _ = self.stop();
     }
+}
+
+struct CaptureCancellation {
+    flag: Arc<AtomicBool>,
+    worker: tokio::task::AbortHandle,
+}
+impl Drop for CaptureCancellation {
+    fn drop(&mut self) {
+        self.flag.store(true, Ordering::Relaxed);
+        self.worker.abort();
+    }
+}
+
+async fn capture_background(
+    root: &Path,
+    raw: bool,
+) -> Result<(Snapshot, BTreeMap<String, Vec<u8>>)> {
+    let root = root.to_owned();
+    let flag = Arc::new(AtomicBool::new(false));
+    let worker_flag = flag.clone();
+    let worker = tokio::task::spawn_blocking(move || {
+        workspace::capture_cancellable(&root, raw, &worker_flag)
+    });
+    let _cancellation = CaptureCancellation {
+        flag,
+        worker: worker.abort_handle(),
+    };
+    worker.await.context("workspace capture worker failed")?
+}
+async fn capture_workspace(root: &Path) -> Result<Snapshot> {
+    Ok(capture_background(root, false).await?.0)
+}
+async fn write_chunks(file: &mut File, bytes: &[u8], started: Instant) -> Result<()> {
+    for chunk in bytes.chunks(64 * 1024) {
+        tokio::task::yield_now().await;
+        ensure!(
+            started.elapsed() < DEADLINE,
+            "workspace write exceeded 60 seconds"
+        );
+        file.write_all(chunk)?;
+    }
+    Ok(())
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -209,10 +259,15 @@ fn secure_root(root: &Path) -> Result<File> {
     .into())
 }
 
-fn materialize(root: &Path, snapshot: &Snapshot, raw: &BTreeMap<String, Vec<u8>>) -> Result<()> {
+async fn materialize(
+    root: &Path,
+    snapshot: &Snapshot,
+    raw: &BTreeMap<String, Vec<u8>>,
+) -> Result<()> {
     let root = secure_root(root)?;
     let started = Instant::now();
     for (name, entry) in &snapshot.entries {
+        tokio::task::yield_now().await;
         if name == "." {
             continue;
         }
@@ -254,12 +309,22 @@ fn materialize(root: &Path, snapshot: &Snapshot, raw: &BTreeMap<String, Vec<u8>>
                     ResolveFlags::BENEATH | ResolveFlags::NO_SYMLINKS | ResolveFlags::NO_XDEV,
                 )?
                 .into();
-                file.write_all(raw.get(name).context("missing baseline bytes")?)?;
+                write_chunks(
+                    &mut file,
+                    raw.get(name).context("missing baseline bytes")?,
+                    started,
+                )
+                .await?;
                 file.set_permissions(std::fs::Permissions::from_mode(entry.mode & 0o777))?;
             }
         }
     }
     for (name, entry) in snapshot.entries.iter().rev() {
+        tokio::task::yield_now().await;
+        ensure!(
+            started.elapsed() < DEADLINE,
+            "baseline permissions exceeded 60 seconds"
+        );
         if name != "." && entry.kind == Kind::Directory {
             let directory: File = openat2(
                 &root,
@@ -288,6 +353,7 @@ async fn snapshot_tree(
     let mut entries = Vec::new();
     let started = Instant::now();
     for (name, entry) in &snapshot.entries {
+        tokio::task::yield_now().await;
         if entry.kind == Kind::Directory {
             continue;
         }
@@ -302,7 +368,13 @@ async fn snapshot_tree(
         // Hash private, ordinary files in one plumbing invocation. The generated
         // numeric filenames cannot become options, quoted paths or line breaks.
         let blob = temp.path().join(format!("blob-{}", entries.len()));
-        std::fs::write(&blob, raw.get(name).context("missing captured bytes")?)?;
+        let mut file = File::create(&blob)?;
+        write_chunks(
+            &mut file,
+            raw.get(name).context("missing captured bytes")?,
+            started,
+        )
+        .await?;
         paths.extend_from_slice(path_text(&blob)?.as_bytes());
         paths.push(b'\n');
         entries.push((name, entry));
@@ -321,6 +393,7 @@ async fn snapshot_tree(
     );
     let mut records = Vec::new();
     for ((name, entry), oid) in entries.into_iter().zip(hashes) {
+        tokio::task::yield_now().await;
         ensure!(
             (oid.len() == 40 || oid.len() == 64) && oid.bytes().all(|b| b.is_ascii_hexdigit()),
             "Git returned malformed object hash"
@@ -368,8 +441,9 @@ async fn commit_snapshot(
 /// Create a genuine detached worktree containing the complete developer baseline.
 /// The destination must not exist, and must be outside the selected parent tree.
 pub async fn prepare(parent: &Path, destination: &Path) -> Result<WorktreeIdentity> {
-    let (parent_baseline, raw) = workspace::capture_raw(parent)?;
+    let (parent_baseline, raw) = capture_background(parent, true).await?;
     for (name, entry) in &parent_baseline.entries {
+        tokio::task::yield_now().await;
         ensure!(
             entry.mode & 0o7000 == 0,
             "baseline has unsupported special permission bits: {name}"
@@ -429,8 +503,8 @@ pub async fn prepare(parent: &Path, destination: &Path) -> Result<WorktreeIdenti
         &[],
     )
     .await?;
-    materialize(&destination, &parent_baseline, &raw)?;
-    let child_baseline = workspace::capture(&destination)?;
+    materialize(&destination, &parent_baseline, &raw).await?;
+    let child_baseline = capture_workspace(&destination).await?;
     ensure!(
         content_equal(&parent_baseline, &child_baseline),
         "copied baseline differs from the developer workspace"
@@ -448,7 +522,7 @@ pub async fn prepare(parent: &Path, destination: &Path) -> Result<WorktreeIdenti
     let git_dir =
         std::fs::canonicalize(value(&destination, &["rev-parse", "--absolute-git-dir"]).await?)?;
     ensure!(
-        workspace::capture(&parent)? == parent_baseline,
+        capture_workspace(&parent).await? == parent_baseline,
         "parent changed while preparing assignment; retain worktree and retry from a fresh baseline"
     );
     let git_meta = secure_root(&git_dir)?.metadata()?;
@@ -540,7 +614,7 @@ pub async fn inspect(identity: &WorktreeIdentity) -> Result<Snapshot> {
         read_pointer(&identity.git_dir, "gitdir")? == format!("{}\n", pointer.display()),
         "child administrative backpointer changed"
     );
-    let snapshot = workspace::capture(&identity.root)?;
+    let snapshot = capture_workspace(&identity.root).await?;
     ensure!(
         snapshot.same_root(&identity.child_baseline),
         "child workspace root replaced"
@@ -589,11 +663,15 @@ pub async fn build_delta(
     );
     let changed_paths = changed(&identity.child_baseline, &current);
     for path in &changed_paths {
+        tokio::task::yield_now().await;
         if let Some(entry) = current.entries.get(path) {
             ensure!(
                 entry.mode & 0o7000 == 0,
                 "child has unsupported special permission bits: {path}"
             );
+        }
+        if request.owns(content_name(path)) {
+            continue;
         }
         // Directories created to hold owned files are allowed only when all
         // changed descendants are owned; other changes remain explicit.
@@ -613,7 +691,7 @@ pub async fn build_delta(
             "child changed unowned path {path:?}"
         );
     }
-    let (captured, raw) = workspace::capture_raw(&identity.root)?;
+    let (captured, raw) = capture_background(&identity.root, true).await?;
     ensure!(
         captured == current,
         "child changed while preparing integration"
@@ -682,7 +760,7 @@ pub async fn integrate(
         changed(&identity.child_baseline, &child) == plan.changed_paths,
         "integration plan paths do not match child delta"
     );
-    let (captured, raw) = workspace::capture_raw(&identity.root)?;
+    let (captured, raw) = capture_background(&identity.root, true).await?;
     ensure!(
         captured == child,
         "child changed before result verification"
@@ -717,7 +795,7 @@ pub async fn integrate(
         format!("{:x}", Sha256::digest(&actual_patch)) == plan.patch_digest,
         "integration plan patch changed"
     );
-    let current = workspace::capture(parent)?;
+    let current = capture_workspace(parent).await?;
     ensure!(
         current.same_root(&identity.parent_baseline),
         "parent workspace identity changed"
@@ -738,6 +816,7 @@ pub async fn integrate(
     );
     let mut expected = current.clone();
     for path in &plan.changed_paths {
+        tokio::task::yield_now().await;
         ensure!(
             current.entries.get(path) == identity.parent_baseline.entries.get(path),
             "parent conflict at {path:?}; developer content changed since assignment"
@@ -750,6 +829,7 @@ pub async fn integrate(
     }
     // Removing a directory cannot silently remove a later developer addition.
     for name in expected.entries.keys().filter(|name| name.as_str() != ".") {
+        tokio::task::yield_now().await;
         let ancestor = Path::new(name)
             .parent()
             .and_then(Path::to_str)
@@ -796,10 +876,10 @@ pub async fn integrate(
         )
         .await?;
         ensure!(
-            workspace::capture(parent)? == current && inspect(identity).await? == child,
+            capture_workspace(parent).await? == current && inspect(identity).await? == child,
             "workspace changed before integration"
         );
-        enable_validated_directory_writes(parent, &current, &expected, &plan.changed_paths)?;
+        enable_validated_directory_writes(parent, &current, &expected, &plan.changed_paths).await?;
         git(
             parent,
             None,
@@ -816,12 +896,12 @@ pub async fn integrate(
     }
     if actual_patch.is_empty() {
         ensure!(
-            workspace::capture(parent)? == current && inspect(identity).await? == child,
+            capture_workspace(parent).await? == current && inspect(identity).await? == child,
             "workspace changed before permission integration"
         );
     }
-    reconcile_metadata(parent, &current, &expected, &plan.changed_paths)?;
-    let result = workspace::capture(parent)?;
+    reconcile_metadata(parent, &current, &expected, &plan.changed_paths).await?;
+    let result = capture_workspace(parent).await?;
     ensure!(
         result.entries == expected.entries,
         "integration result differs at {:?}; inspect parent state before retrying",
@@ -832,14 +912,20 @@ pub async fn integrate(
 
 /// An explicitly validated directory permission increase must precede writes
 /// beneath it. Restrictive changes remain deferred until after patch application.
-fn enable_validated_directory_writes(
+async fn enable_validated_directory_writes(
     root: &Path,
     before: &Snapshot,
     after: &Snapshot,
     changes: &[String],
 ) -> Result<()> {
     let root = secure_root(root)?;
+    let started = Instant::now();
     for name in changes {
+        tokio::task::yield_now().await;
+        ensure!(
+            started.elapsed() < DEADLINE,
+            "directory permission integration exceeded 60 seconds"
+        );
         let (Some(old), Some(new)) = (before.entries.get(name), after.entries.get(name)) else {
             continue;
         };
@@ -865,7 +951,7 @@ fn enable_validated_directory_writes(
 
 /// Git omits empty directories and normalizes permission bits. These narrowly
 /// scoped operations restore the validated filesystem metadata after its patch.
-fn reconcile_metadata(
+async fn reconcile_metadata(
     root: &Path,
     before: &Snapshot,
     after: &Snapshot,
@@ -875,6 +961,7 @@ fn reconcile_metadata(
     let started = Instant::now();
     let resolve = ResolveFlags::BENEATH | ResolveFlags::NO_SYMLINKS | ResolveFlags::NO_XDEV;
     for name in changes.iter().rev() {
+        tokio::task::yield_now().await;
         ensure!(
             started.elapsed() < DEADLINE,
             "metadata integration exceeded 60 seconds"
@@ -909,6 +996,7 @@ fn reconcile_metadata(
     }
     let mut modes: BTreeSet<String> = changes.iter().cloned().collect();
     for (name, entry) in &after.entries {
+        tokio::task::yield_now().await;
         ensure!(
             started.elapsed() < DEADLINE,
             "metadata integration exceeded 60 seconds"
@@ -945,6 +1033,7 @@ fn reconcile_metadata(
     }
     // Restrictive directory permissions are applied after their descendants.
     for name in modes.iter().rev() {
+        tokio::task::yield_now().await;
         ensure!(
             started.elapsed() < DEADLINE,
             "metadata integration exceeded 60 seconds"
@@ -977,6 +1066,89 @@ fn reconcile_metadata(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn materialization_yields_to_timers_and_stops_writes_when_cancelled() {
+        let source = tempfile::tempdir().unwrap();
+        let destination = tempfile::tempdir().unwrap();
+        for index in 0..7 {
+            std::fs::write(
+                source.path().join(format!("file-{index}")),
+                vec![b'x'; 8 * 1024 * 1024],
+            )
+            .unwrap();
+        }
+        let (snapshot, raw) = capture_background(source.path(), true).await.unwrap();
+        let target = destination.path().to_owned();
+        let task = tokio::spawn(async move { materialize(&target, &snapshot, &raw).await });
+        let first = destination.path().join("file-0");
+        let mut ticks = tokio::time::interval(Duration::from_millis(1));
+        ticks.tick().await;
+        tokio::time::timeout(Duration::from_secs(1), async {
+            loop {
+                ticks.tick().await;
+                if first.metadata().is_ok_and(|meta| meta.len() > 0) {
+                    break;
+                }
+            }
+        })
+        .await
+        .expect("materialization blocked the timer");
+        assert!(
+            !task.is_finished(),
+            "fixture must cancel a partial multi-chunk copy"
+        );
+        let cancelled = Instant::now();
+        task.abort();
+        assert!(task.await.unwrap_err().is_cancelled());
+        assert!(cancelled.elapsed() < Duration::from_secs(2));
+        let stopped = capture_workspace(destination.path()).await.unwrap();
+        tokio::time::sleep(Duration::from_millis(30)).await;
+        assert_eq!(
+            capture_workspace(destination.path()).await.unwrap(),
+            stopped,
+            "cancelled materialization kept changing destination files"
+        );
+    }
+
+    #[tokio::test]
+    async fn metadata_reconciliation_stops_at_cancellation_without_detached_mutations() {
+        let destination = tempfile::tempdir().unwrap();
+        for index in 0..500 {
+            let directory = destination.path().join(format!("dir-{index:04}"));
+            std::fs::create_dir(&directory).unwrap();
+            std::fs::set_permissions(directory, std::fs::Permissions::from_mode(0o700)).unwrap();
+        }
+        let before = capture_workspace(destination.path()).await.unwrap();
+        let mut after = before.clone();
+        let mut changes = Vec::new();
+        for (name, entry) in &mut after.entries {
+            if name == "." {
+                continue;
+            }
+            entry.mode = (entry.mode & !0o777) | 0o750;
+            changes.push(name.clone());
+        }
+        let root = destination.path().to_owned();
+        let task =
+            tokio::spawn(async move { reconcile_metadata(&root, &before, &after, &changes).await });
+        let first = destination.path().join("dir-0499");
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while first.metadata().unwrap().permissions().mode() & 0o777 != 0o750 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        task.abort();
+        assert!(task.await.unwrap_err().is_cancelled());
+        let stopped = capture_workspace(destination.path()).await.unwrap();
+        tokio::time::sleep(Duration::from_millis(30)).await;
+        assert_eq!(
+            capture_workspace(destination.path()).await.unwrap(),
+            stopped
+        );
+    }
 
     #[tokio::test]
     async fn cancelling_git_stops_its_owned_descendants() {

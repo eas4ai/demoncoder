@@ -13,6 +13,7 @@ use std::{
     io::Read,
     os::{fd::AsRawFd, unix::fs::MetadataExt},
     path::Path,
+    sync::atomic::{AtomicBool, Ordering},
     time::{Duration, Instant},
 };
 
@@ -91,11 +92,18 @@ struct Scan<'a> {
     entries: BTreeMap<String, Entry>,
     stamps: BTreeMap<String, Stamp>,
     raw: Option<BTreeMap<String, Vec<u8>>>,
+    cancelled: Option<&'a AtomicBool>,
     bytes: u64,
 }
 
 impl Scan<'_> {
     fn checkpoint(&self) -> Result<()> {
+        ensure!(
+            !self
+                .cancelled
+                .is_some_and(|flag| flag.load(Ordering::Relaxed)),
+            "workspace capture cancelled"
+        );
         ensure!(
             self.started.elapsed() < MAX_DURATION,
             "workspace capture exceeded 10 seconds; select a smaller local workspace"
@@ -245,16 +253,24 @@ fn entry(kind: Kind, mode: u32, data: &[u8]) -> Entry {
 /// Refuses symlink roots, descendant mounts, hard-linked regular files, special
 /// files, non-UTF-8 names and oversized trees rather than silently skipping them.
 pub fn capture(root: &Path) -> Result<Snapshot> {
-    Ok(capture_inner(root, false)?.0)
+    Ok(capture_inner(root, false, None)?.0)
 }
 
-/// Capture raw bytes under the same pinned-inode and size limits as evidence.
-/// Raw bytes are transient and never enlarge serialized evidence records.
-pub(crate) fn capture_raw(root: &Path) -> Result<(Snapshot, BTreeMap<String, Vec<u8>>)> {
-    capture_inner(root, true)
+/// The worktree coordinator can cancel a background read at scanner checkpoints.
+/// Raw bytes remain transient and never enlarge serialized evidence records.
+pub(crate) fn capture_cancellable(
+    root: &Path,
+    retain_raw: bool,
+    cancelled: &AtomicBool,
+) -> Result<(Snapshot, BTreeMap<String, Vec<u8>>)> {
+    capture_inner(root, retain_raw, Some(cancelled))
 }
 
-fn capture_inner(root: &Path, retain_raw: bool) -> Result<(Snapshot, BTreeMap<String, Vec<u8>>)> {
+fn capture_inner(
+    root: &Path,
+    retain_raw: bool,
+    cancelled: Option<&AtomicBool>,
+) -> Result<(Snapshot, BTreeMap<String, Vec<u8>>)> {
     let started = Instant::now();
     let open_root = || -> Result<File> {
         Ok(openat2(rustix::fs::CWD, root, OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC | OFlags::NOFOLLOW, Mode::empty(), ResolveFlags::NO_SYMLINKS)
@@ -269,6 +285,7 @@ fn capture_inner(root: &Path, retain_raw: bool) -> Result<(Snapshot, BTreeMap<St
             entries: BTreeMap::new(),
             stamps: BTreeMap::new(),
             raw: keep_raw.then(BTreeMap::new),
+            cancelled,
             bytes: 0,
         };
         scan.walk(Path::new("."), 0)?;
@@ -394,6 +411,21 @@ mod tests {
     use super::*;
 
     #[test]
+    fn cancelled_capture_stops_at_the_scanner_checkpoint() {
+        let directory = tempfile::tempdir().unwrap();
+        std::fs::write(directory.path().join("file"), "content").unwrap();
+        let cancelled = AtomicBool::new(true);
+        assert!(
+            capture_cancellable(directory.path(), true, &cancelled)
+                .unwrap_err()
+                .to_string()
+                .contains("cancelled")
+        );
+        cancelled.store(false, Ordering::Relaxed);
+        assert!(capture_cancellable(directory.path(), true, &cancelled).is_ok());
+    }
+
+    #[test]
     fn symlink_targets_share_the_total_content_budget() {
         let root = tempfile::tempdir().unwrap();
         std::os::unix::fs::symlink("four", root.path().join("first")).unwrap();
@@ -407,6 +439,7 @@ mod tests {
             entries: BTreeMap::new(),
             stamps: BTreeMap::new(),
             raw: None,
+            cancelled: None,
             bytes: MAX_TOTAL_BYTES - 4,
         };
         scan.walk(Path::new("first"), 1).unwrap();
