@@ -1,0 +1,5 @@
+   Compiling demoncoder v0.1.2 (/home/shawn/workspace2/demoncoder)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.45s
+     Running tests/developer_access.rs (target/debug/deps/developer_access-a7db3c5eefb1fca4)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s
+     Running unittests src/lib.rs (target/debug/deps/demoncoder-0773d5cb978cf781)

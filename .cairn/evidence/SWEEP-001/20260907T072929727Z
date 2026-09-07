@@ -1,0 +1,20 @@
+requirement: SWEEP-001
+requirement_digest: sha256:217650deacca04bf12d9a187ca14cbfaa8e11b9e5fd5d89d27a0174733888bc9
+sequence: 1
+history_digest: sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+mechanism: sweep-investigation
+commit: 1cb2646
+inputs_digest: sha256:287fa12c7cf644c0ecb264ccc295b8280c816ab43d6a7eaf3f18ee372cc6d829
+mechanism_digest: sha256:e7603eba09bd32963353aa307b0cf8ab290d3043fea350b00fa3ddd1e3e45385
+command: bash scripts/check-sweep-investigation.sh
+cwd: .
+exit: 0
+output_digest: sha256:faf70227b4d3a0e8d1c6760866dade6bbb7f561a5b0a0d0ee0b5a84b29f55e8d
+output: .cairn/evidence/SWEEP-001/20260907T072928587Z-3353602.out
+stderr_output: .cairn/evidence/SWEEP-001/20260907T072928587Z-3353602.err
+stderr_digest: sha256:a96adbf4c05f35c3f50acdbd893c016d49a2a6d92a4fb1b9d097a3c386975311
+signal: none
+execution_error: null
+result: pass
+source: line
+recorded: 2026-09-07T07:29:29.727Z
