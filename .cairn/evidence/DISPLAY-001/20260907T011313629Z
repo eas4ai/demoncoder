@@ -1,0 +1,18 @@
+requirement: DISPLAY-001
+requirement_digest: sha256:69f90e346e2e2e5b6cd60fe7356ec3bef3ec8726789ff51e6ba115f020e750cc
+mechanism: usage-display
+commit: f2646e5
+inputs_digest: sha256:2fee972f9b061f3b1bfebbe2598f8126041fd1a28b4a2dc2fdb908164124d5fb
+mechanism_digest: sha256:52047890ef0a55c53c01f27f77b70d40ac2b2114494f7a548a7af90279f827d3
+command: bash scripts/check-usage-display.sh
+cwd: .
+exit: 0
+output_digest: sha256:beda28f48ec4e3e03e7ef7d128ff8622277603a8a1af98791b8502fbef73a0c0
+output: .cairn/evidence/DISPLAY-001/20260907T011310077Z-3911602.out
+stderr_output: .cairn/evidence/DISPLAY-001/20260907T011310077Z-3911602.err
+stderr_digest: sha256:73033de83ff01d6e474697559d8f108c94c08bbee97df75375ef9a99552cd957
+signal: none
+execution_error: null
+result: pass
+source: line
+recorded: 2026-09-07T01:13:13.629Z
