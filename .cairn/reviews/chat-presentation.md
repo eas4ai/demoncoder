@@ -1,7 +1,7 @@
 # Chat presentation review
 
 commitment: chat-presentation
-commit: 9eda67d6889f298b872b0629e01cc8b06c1dfd68
+commit: 78c74e28ea29c3474d20d675a163a271fe75982e
 findings:
   - none: no open findings within this commitment
 Reviewer: Codex
@@ -128,3 +128,15 @@ invalidate evidence. This is documentation for the current review, not a new
 runtime requirement or authorization for the later usability implementation.
 The terminal checks do not validate every historical claim in the handoff; this
 record and `docs/recon.md` retain that manual review and its limits.
+
+### Final handoff review
+
+Reviewed at 78c74e2 without changing application code. The only newly declared
+input is `handoff.md`; its appended reconciliation distinguishes the preserved
+historical observations from the developer's correction and fresh checks. The
+application and terminal tests are unchanged from 99e9ae8. Rechecked all four
+receipts from the 20260907T063206 run against committed input 022cd14: each passes.
+The handoff's existing references to 99e9ae8 and 9eda67d are historical commit
+anchors, not claims that later records are absent. No new CHAT behavior finding.
+The eight recorded spec-lint findings and later usability work remain explicit
+in `docs/recon.md`; current CHAT completion does not close them.
