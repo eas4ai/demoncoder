@@ -99,3 +99,11 @@ Limits: synchronous event-log writes can still be delayed by a stalled filesyste
 these checks exercise queue backpressure, not filesystem stalls. Exhaustive matches
 in custom Session implementations must handle Command::Submit; this additive enum
 change is documented. The Session::turn signature remains unchanged.
+
+## REL-003 mechanism design
+
+A loopback HTTP fixture drives the actual Anthropic native session with multibyte
+tool arguments at exactly one MiB and one byte beyond. It sends either several
+fragments or one oversized fragment and holds block/message completion. Excess
+must fail within one second, with no tool admission or filesystem effect. The
+exact-bound case must wait for completion, then write the expected byte count.
