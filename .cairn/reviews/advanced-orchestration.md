@@ -133,3 +133,29 @@ The parent reran all four persistence-cancellation cases plus resumed authority
 and retained integration successfully against candidate f95b01c4. The specific
 persistence diagnostic is now required after a captured event cursor. All three
 Python files parse and the diff whitespace check passes.
+
+## Independent runtime specification review at 105c250
+
+Verdict: changes required. Findings recorded before repairs:
+
+- P1, ORCH-007: after restart and reconciliation, a new assignment pumps an older
+  retained queue without /agents-resume. Reproduced through the production terminal.
+  Add an explicit recovered-queue pause independent of the shutdown flag.
+- P1, ORCH-006: pump reserves Preparing records before launch registration;
+  cancel_all can cancel/drain between those steps, then an unchecked launch can
+  overwrite Cancelled with Running. This is a source-proven interleaving, not a
+  reproduced production stress failure. Serialize registration with cancellation
+  and preserve durable admission/cancellation gates.
+- P2, ORCH-001: start_validation checks capacity outside its update, so a background
+  pump can reserve the final slot before validation still enters Validating.
+  Integration already checks capacity inside its update. Fix validation atomically.
+- P2, ORCH-003: a stale snapshot replaces a returned role verdict, findings and
+  explanation before storing the receipt. A production probe returned a unique
+  finding absent from input and found it absent from the entire retained record.
+  Preserve the original role response; record runtime rejection separately.
+
+A further budget observation recorded two subscription process launches but only
+one prompt and one charged invocation with an allowance of one: role backend open
+precedes admission. No extra prompt or model invocation was observed. Apply the
+same preflight used for workers before starting an unavailable role backend.
+The runtime source reviewer changed no files and examined clean commit 105c250.
