@@ -1,6 +1,6 @@
 # Roadmap
 
-Current: verification-review-recovery
+Current: assignable-subagents
 
 The developer selected the usable coding session as the first commitment
 and agreed to use Cairn on 2026-09-06. The developer confirmed its detailed
@@ -34,3 +34,7 @@ The developer selected reliability next after clipboard-shortcuts on 2026-09-07.
 
 The developer selected all four remaining commitments in roadmap order and
 confirmed verification-review-recovery requirements on 2026-09-07.
+
+Verification-review-recovery is complete. The developer confirmed assignable
+subagents on all four connections, isolated Git worktrees, validated integration
+and mandatory child confinement on 2026-09-07.

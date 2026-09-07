@@ -44,6 +44,7 @@ responsible for choosing sound requirements and meaningful checks.
 | [clipboard-shortcuts.md](clipboard-shortcuts.md) | CLIP | Corrected clipboard shortcuts and safe terminal paste. |
 | [reliability.md](reliability.md) | REL | Host sockets, queue responsiveness and bounded, correct streamed data. |
 | [verification-review-recovery.md](verification-review-recovery.md) | VERIFY | Durable verification, review, bounded correction, allocations and safe recovery. |
+| [assignable-subagents.md](assignable-subagents.md) | SUB | Independently assigned, confined worktree agents and validated integration. |
 | [roadmap.md](roadmap.md) | — | The selected commitment and intended delivery sequence. |
 
 The broader [design narrative](../spec.md) retains product direction,
