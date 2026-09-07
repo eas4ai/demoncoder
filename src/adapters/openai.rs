@@ -83,6 +83,9 @@ impl Model for OpenAi {
             })
             .collect();
         let mut body = json!({"model":self.model,"input":self.history,"stream":true,"store":false,"include":["reasoning.encrypted_content"],"tools":tools});
+        if !self.definitions.is_empty() {
+            body["instructions"] = super::CREATOR_INSTRUCTIONS.into();
+        }
         if let Some(limit) = self.max_output_tokens {
             body["max_output_tokens"] = limit.into();
         }

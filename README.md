@@ -9,6 +9,12 @@ The implemented first release provides four connections, four coding tools,
 guided setup, named model assignments, typed hooks, and an optional Oracle guard
 for explicit host execution. It runs on Linux.
 
+The Creator agent identifies as Demoncoder across all four connections,
+regardless of the selected model. It can still report the underlying model or
+provider when asked. Its shared prompt in `src/adapters/creator.md` also sets
+production coding, verification, delivery, and plain-language rules. The Oracle
+retains its separate review role.
+
 ## Contents
 
 - [Quick start](#quick-start)

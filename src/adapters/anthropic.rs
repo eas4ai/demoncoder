@@ -140,6 +140,9 @@ impl Model for Anthropic {
             "model":self.model,"messages":self.history,"stream":true,"max_tokens":limit,
             "tools":self.definitions.clone(),
         });
+        if !self.definitions.is_empty() {
+            body["system"] = super::CREATOR_INSTRUCTIONS.into();
+        }
         if let Some(effort) = &self.effort {
             body["output_config"] = json!({"effort":effort});
         }

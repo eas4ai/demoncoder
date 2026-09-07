@@ -55,6 +55,8 @@ class Provider(ToolProvider):
     def do_POST(self):
         try:
             body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+            instruction_key = "instructions" if self.path == "/responses" else "system"
+            assert "You are Demoncoder, the Creator agent" in body[instruction_key], "Creator identity missing from provider request"
             history = body["input"] if self.path == "/responses" else body["messages"]
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream")

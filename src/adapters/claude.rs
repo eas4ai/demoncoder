@@ -70,6 +70,12 @@ impl Claude {
             .into_iter()
             .map(str::to_owned)
             .collect();
+            if !self.tools.definitions().is_empty() {
+                args.extend([
+                    "--append-system-prompt".into(),
+                    super::CREATOR_INSTRUCTIONS.into(),
+                ]);
+            }
             if let Some(model) = &self.model {
                 args.extend(["--model".into(), model.clone()]);
             }

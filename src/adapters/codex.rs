@@ -147,6 +147,9 @@ impl Codex {
             "model":self.model,"cwd":self.workspace,"sandbox":if self.tools.unrestricted() {"danger-full-access"} else {"workspace-write"},"approvalPolicy":"never",
             "config":{"mcp_servers":disabled_servers},
         });
+        if !dynamic_tools.is_empty() {
+            params["developerInstructions"] = super::CREATOR_INSTRUCTIONS.into();
+        }
         let method = if let Some(thread) = &self.thread {
             params["threadId"] = json!(thread);
             "thread/resume"

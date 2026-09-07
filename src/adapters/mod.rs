@@ -8,6 +8,9 @@ mod process;
 use crate::session::{ADAPTER_INTERFACE_VERSION, Registry, SessionCapabilities};
 use anyhow::Result;
 
+// Coding sessions have tools; the no-tools Oracle keeps its separate role.
+const CREATOR_INSTRUCTIONS: &str = include_str!("creator.md");
+
 pub fn builtins() -> Result<Registry> {
     let mut registry = Registry::default();
     for (name, factory) in [
