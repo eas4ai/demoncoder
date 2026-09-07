@@ -505,3 +505,43 @@ async fn validated_permission_increase_precedes_writes_inside_readonly_directory
         0o755
     );
 }
+
+#[tokio::test]
+async fn repository_diff_prefixes_cannot_redirect_integration_into_unowned_files() {
+    for no_prefix in ["false", "true"] {
+        let (_temp, parent, child) = repository();
+        fs::create_dir(parent.join("unowned")).unwrap();
+        fs::write(parent.join("unowned/owned"), "base\n").unwrap();
+        git(&parent, &["config", "diff.srcPrefix", "a/unowned/"]);
+        git(&parent, &["config", "diff.dstPrefix", "b/unowned/"]);
+        git(&parent, &["config", "diff.noprefix", no_prefix]);
+        git(&parent, &["config", "diff.relative", no_prefix]);
+        git(&parent, &["config", "diff.mnemonicPrefix", no_prefix]);
+        git(
+            &parent,
+            &[
+                "config",
+                "color.ui",
+                if no_prefix == "true" {
+                    "always"
+                } else {
+                    "never"
+                },
+            ],
+        );
+        let identity = prepare(&parent, &child).await.unwrap();
+        fs::write(child.join("owned"), "child\n").unwrap();
+        let snapshot = inspect(&identity).await.unwrap();
+        let plan = build_delta(&identity, &request(&["owned"]), &snapshot.digest)
+            .await
+            .unwrap();
+        let outcome = integrate(&parent, &identity, &plan).await;
+        assert_eq!(
+            fs::read_to_string(parent.join("unowned/owned")).unwrap(),
+            "base\n",
+            "Git configuration redirected a child delta into unowned content"
+        );
+        outcome.unwrap();
+        assert_eq!(fs::read_to_string(parent.join("owned")).unwrap(), "child\n");
+    }
+}

@@ -646,6 +646,33 @@ pub async fn inspect(identity: &WorktreeIdentity) -> Result<Snapshot> {
     Ok(snapshot)
 }
 
+/// Patch paths are a security boundary: repository diff presentation settings
+/// must never turn an owned path into a different parent integration target.
+async fn delta_patch(identity: &WorktreeIdentity, result: &str) -> Result<Vec<u8>> {
+    git(
+        &identity.root,
+        None,
+        &[
+            "diff",
+            "--binary",
+            "--full-index",
+            "--no-ext-diff",
+            "--no-textconv",
+            "--no-renames",
+            "--no-relative",
+            "--no-color",
+            "--src-prefix=a/",
+            "--dst-prefix=b/",
+            "-O/dev/null",
+            &identity.baseline_commit,
+            result,
+            "--",
+        ],
+        &[],
+    )
+    .await
+}
+
 pub async fn build_delta(
     identity: &WorktreeIdentity,
     request: &AssignmentRequest,
@@ -710,23 +737,7 @@ pub async fn build_delta(
         &[],
     )
     .await?;
-    let patch = git(
-        &identity.root,
-        None,
-        &[
-            "diff",
-            "--binary",
-            "--full-index",
-            "--no-ext-diff",
-            "--no-textconv",
-            "--no-renames",
-            &identity.baseline_commit,
-            &result_commit,
-            "--",
-        ],
-        &[],
-    )
-    .await?;
+    let patch = delta_patch(identity, &result_commit).await?;
     ensure!(
         inspect(identity).await? == current,
         "child changed while generating delta"
@@ -774,23 +785,7 @@ pub async fn integrate(
             .await?,
         "retained result does not match validated child contents"
     );
-    let actual_patch = git(
-        &identity.root,
-        None,
-        &[
-            "diff",
-            "--binary",
-            "--full-index",
-            "--no-ext-diff",
-            "--no-textconv",
-            "--no-renames",
-            &identity.baseline_commit,
-            &plan.result_commit,
-            "--",
-        ],
-        &[],
-    )
-    .await?;
+    let actual_patch = delta_patch(identity, &plan.result_commit).await?;
     ensure!(
         format!("{:x}", Sha256::digest(&actual_patch)) == plan.patch_digest,
         "integration plan patch changed"
