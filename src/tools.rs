@@ -29,6 +29,8 @@ const RESOLVE: ResolveFlags = ResolveFlags::BENEATH.union(ResolveFlags::NO_SYMLI
 #[derive(Clone)]
 pub struct AccessPolicy {
     pub unrestricted: bool,
+    /// Runtime-only child boundary; cannot be expanded by Oracle approval.
+    pub strict_worktree: bool,
     pub tools_enabled: bool,
     pub oracle: Option<Box<crate::config::Connection>>,
     pub credential_paths: Vec<PathBuf>,
@@ -40,6 +42,7 @@ impl Default for AccessPolicy {
     fn default() -> Self {
         Self {
             unrestricted: false,
+            strict_worktree: false,
             tools_enabled: true,
             oracle: None,
             credential_paths: Vec::new(),
@@ -49,6 +52,14 @@ impl Default for AccessPolicy {
 }
 
 impl AccessPolicy {
+    pub fn worktree_only(credential_paths: Vec<PathBuf>) -> Self {
+        Self {
+            strict_worktree: true,
+            credential_paths,
+            ..Self::default()
+        }
+    }
+
     pub fn review_only() -> Self {
         Self {
             tools_enabled: false,
@@ -111,6 +122,7 @@ pub struct ToolExecutor {
     scratch: Option<PathBuf>,
     access: AccessPolicy,
     developer: Option<Arc<crate::developer_access::DeveloperAccess>>,
+    worktree: Option<Arc<crate::worktree_access::WorktreeAccess>>,
     intent: Mutex<String>,
     hooks: Vec<Box<dyn ToolHook>>,
     // Execution is sequential. Keep the current receipt across cancellation
@@ -126,6 +138,10 @@ impl ToolExecutor {
 
     pub fn with_policy(workspace: &Path, access: &AccessPolicy) -> Result<Self> {
         ensure!(cfg!(target_os = "linux"), "coding tools require Linux");
+        ensure!(
+            !(access.unrestricted && access.strict_worktree),
+            "worktree-only policy cannot enable host tools"
+        );
         let root = File::open(workspace).context("open authorized workspace")?;
         ensure!(root.metadata()?.is_dir(), "workspace must be a directory");
         // Probe the required primitive up front. There is no path-based fallback.
@@ -154,11 +170,19 @@ impl ToolExecutor {
                 None
             },
             access: access.clone(),
-            developer: if !access.unrestricted && access.tools_enabled {
+            developer: if !access.unrestricted && !access.strict_worktree && access.tools_enabled {
                 Some(Arc::new(crate::developer_access::DeveloperAccess::new(
                     &workspace
                         .canonicalize()
                         .context("resolve developer workspace")?,
+                    &access.credential_paths,
+                )?))
+            } else {
+                None
+            },
+            worktree: if access.strict_worktree && access.tools_enabled {
+                Some(Arc::new(crate::worktree_access::WorktreeAccess::new(
+                    &workspace.canonicalize()?,
                     &access.credential_paths,
                 )?))
             } else {
@@ -175,7 +199,15 @@ impl ToolExecutor {
             return Vec::new();
         }
         let mut tools = definitions();
-        if self.access.unrestricted {
+        if self.access.strict_worktree {
+            for tool in &mut tools {
+                tool["description"] = Value::String(if tool["name"] == "bash" {
+                    "Run Bash with system executables and libraries in the child worktree. Only the worktree is writable. Home, other repositories, credentials, Git administration, and networking are unavailable. Hard links prevent launch. Limit 120 seconds and 1 MiB output.".into()
+                } else {
+                    "Access a UTF-8 file up to 1 MiB using a relative path inside the child worktree. Parent traversal, symlinks, hard links, credentials, and Git administration are forbidden. Edit requires exactly one old_text match; write requires an existing parent directory.".into()
+                });
+            }
+        } else if self.access.unrestricted {
             for tool in &mut tools {
                 let detail = if tool["name"] == "bash" {
                     format!(
@@ -329,10 +361,14 @@ impl ToolExecutor {
 
     fn open(&self, path: &str, flags: OFlags, create: bool) -> Result<File> {
         validate_path(path)?;
-        self.developer
-            .as_ref()
-            .context("developer tools are disabled")?
-            .check_mutation(&self.workspace.join(path))?;
+        if let Some(worktree) = &self.worktree {
+            worktree.check_path(&self.workspace.join(path))?;
+        } else {
+            self.developer
+                .as_ref()
+                .context("developer tools are disabled")?
+                .check_mutation(&self.workspace.join(path))?;
+        }
         let flags = flags | OFlags::CLOEXEC | OFlags::NONBLOCK;
         let fd = openat2(&*self.root, path, flags, Mode::empty(), RESOLVE);
         let file = match fd {
@@ -368,6 +404,9 @@ impl ToolExecutor {
         create: bool,
         events: &EventSink,
     ) -> Result<File> {
+        if self.access.strict_worktree {
+            return self.open(path, flags, create);
+        }
         if !self.access.unrestricted {
             if flags == OFlags::RDONLY {
                 return self
@@ -528,6 +567,19 @@ impl ToolExecutor {
         }
     }
 
+    async fn confined_command(&self, script: &str) -> Result<Command> {
+        if let Some(worktree) = &self.worktree {
+            return worktree
+                .command(self.root.clone(), self.workspace.clone(), script.to_owned())
+                .await;
+        }
+        self.developer
+            .as_ref()
+            .context("developer tools are disabled")?
+            .command(self.root.clone(), self.workspace.clone(), script.to_owned())
+            .await
+    }
+
     async fn bash(
         &self,
         id: &str,
@@ -572,12 +624,7 @@ impl ToolExecutor {
                 .kill_on_drop(false);
             command
         } else {
-            let mut command = self
-                .developer
-                .as_ref()
-                .context("developer tools are disabled")?
-                .command(self.root.clone(), self.workspace.clone(), script.to_owned())
-                .await?;
+            let mut command = self.confined_command(script).await?;
             command
                 .env_clear()
                 .stdin(Stdio::from(self.root.try_clone()?))

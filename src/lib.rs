@@ -17,3 +17,4 @@ pub mod terminal;
 pub mod tools;
 mod transcript;
 pub mod workflow;
+mod worktree_access;

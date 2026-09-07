@@ -35,6 +35,7 @@ fn executor(path: &Path) -> ToolExecutor {
         path,
         &AccessPolicy {
             unrestricted: true,
+            strict_worktree: false,
             tools_enabled: true,
             oracle: Some(Box::new(connection("claude"))),
             credential_paths: Vec::new(),
