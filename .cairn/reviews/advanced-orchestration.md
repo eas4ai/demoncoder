@@ -1,7 +1,7 @@
 # Advanced orchestration review
 
 commitment: advanced-orchestration
-commit: efa94df77ef3cf6a47f01784d982808a22b371d1
+commit: 36001636896750afa111fb06e716f0d35fd51ec3
 findings:
   - none: all recorded findings repaired; committed and installed checks passed
 Status: complete
@@ -353,3 +353,23 @@ only after its case succeeds; a missing or failed case cannot become a pass.
 
 The historical live-provider limitation and reviewed metric tradeoffs remain as
 stated above. They do not substitute for, or weaken, the current ORCH checks.
+
+## Prerequisite-remediation roadmap review — 2026-09-07
+
+Reviewed the declared-input diff from the preceding reviewed candidate to
+3600163. Its only change is the roadmap paragraph recording the developer's
+classification of status-and-decision work as prerequisite remediation. Source,
+tests, mechanisms, existing requirement text and implementation plans are unchanged.
+
+Challenged whether the note silently changes the current commitment, promotes
+proposed requirements to Agreed, authorizes automatic integration, or replaces
+evidence-based improvement. It does none of these: Current remains orchestration,
+the remediation requirements remain proposed, and evidence-based improvement
+retains its place after remediation. No new orchestration implementation finding.
+
+Fresh cairn check ORCH-001 recorded passes for all seven ORCH requirements in
+receipts dated 20260907T225205543Z/20260907T225205544Z. Captured output and input
+manifest are committed in 3600163. The installed spec lint still reports the
+three pre-existing compound-obligation findings recorded as DXP-3 in docs/recon.md;
+they are explicitly pending prerequisite remediation, not represented as passing.
+No code was changed during this review and no installed-release rerun is claimed.
