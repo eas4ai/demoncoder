@@ -118,16 +118,20 @@ class App:
                 self.close()
                 raise AssertionError(f"fixture startup failed: {self.output.decode(errors='replace')}") from error
         else:
-            deadline = time.monotonic() + 5
-            while time.monotonic() < deadline:
-                if select.select([self.master], [], [], .02)[0]:
-                    try:
-                        self.output.extend(os.read(self.master, 65536))
-                    except OSError:
+            try:
+                deadline = time.monotonic() + 5
+                while time.monotonic() < deadline:
+                    if select.select([self.master], [], [], .02)[0]:
+                        try:
+                            self.output.extend(os.read(self.master, 65536))
+                        except OSError:
+                            break
+                    if self.process.poll() is not None:
                         break
-                if self.process.poll() is not None:
-                    break
-            assert self.process.wait(timeout=1) != 0, "unsafe startup was accepted"
+                assert self.process.wait(timeout=1) != 0, "unsafe startup was accepted"
+            except BaseException:
+                self.close()
+                raise
 
     def events(self):
         if not self.log.exists():
@@ -148,15 +152,19 @@ class App:
         raise AssertionError(f"task command did not finish: {prompt}")
 
     def close(self):
-        if self.process.poll() is None:
-            os.write(self.master, b"\x11")
-            try:
-                self.process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                self.process.kill()
-                self.process.wait()
-                raise AssertionError("application failed to close")
-        os.close(self.master)
+        try:
+            if self.process.poll() is None:
+                os.write(self.master, b"\x11")
+                try:
+                    self.process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    self.process.kill()
+                    self.process.wait()
+                    raise AssertionError("application failed to close")
+        finally:
+            if self.master is not None:
+                os.close(self.master)
+                self.master = None
 
     def state(self):
         return [e for e in self.events() if e["type"] == "task_state"][-1]

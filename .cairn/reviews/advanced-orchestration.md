@@ -126,3 +126,10 @@ PTY in a finally block. Changed-check refusal itself passed review. The repaired
 candidate f95b01c4729431ba51c65837cca9451f89e2450b64c5aa8c5cd203efaee9f418
 passed that refusal and all four persistence-cancellation adapter cases. The older
 candidate also passed the latter; no prior cancellation failure is claimed.
+
+The incremental fixture reviewer approved both repairs with no open finding and
+independently confirmed timeout cleanup kills/reaps the owner and closes the PTY.
+The parent reran all four persistence-cancellation cases plus resumed authority
+and retained integration successfully against candidate f95b01c4. The specific
+persistence diagnostic is now required after a captured event cursor. All three
+Python files parse and the diff whitespace check passes.

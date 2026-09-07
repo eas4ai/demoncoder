@@ -539,6 +539,29 @@ def cancellation():
                 assert agent(app, second)["worktree"] is None, "cancellation/shutdown started queued work"
 
 
+def cancellation_persistence_failure():
+    for adapter in ADAPTERS:
+        with scenario() as (app, server, _):
+            identifier = assign(app, server, adapter, calls=[heartbeat_call("durability-heartbeat")], owned=["durability-heartbeat"])
+            original_effect = heartbeat(app, identifier, "durability-heartbeat")
+            directory, _ = app.record()
+            original_mode = directory.stat().st_mode & 0o777
+            event_cursor = len(app.events())
+            directory.chmod(0o500)
+            try:
+                effect = original_effect
+                started = time.monotonic()
+                app.send(f"/agent-cancel {identifier}")
+                assert time.monotonic() - started < 2
+                before = effect.read_bytes()
+                time.sleep(.15)
+                assert effect.read_bytes() == before, "failed persistence prevented individual cancellation from draining the child"
+                errors = [event["message"] for event in app.events()[event_cursor:] if event["type"] == "error"]
+                assert any("persist session transition" in message for message in errors), errors
+            finally:
+                directory.chmod(original_mode)
+
+
 def recovery():
     for adapter in ADAPTERS:
         for phase in ("advisor", "worker_response", "judge", "correcting"):
@@ -633,6 +656,9 @@ def recovery_authority_and_integration():
                 refused = launch(directory, server, ["--resume", str(path)], judge="openai-api", expect_start=False)
                 refused.close()
                 assert b"judge" in refused.output.lower() or b"delegation" in refused.output.lower(), refused.output
+                refused = launch(directory, server, ["--resume", str(path), "--check", "false"], expect_start=False)
+                refused.close()
+                assert b"check" in refused.output.lower() or b"orchestration settings" in refused.output.lower(), refused.output
                 original_config = server.extra_config
                 server.extra_config = original_config.replace('model="child-anthropic-api"', 'model="replacement-authority"')
                 refused = launch(directory, server, ["--resume", str(path)], expect_start=False)
@@ -710,7 +736,7 @@ def main():
         "ORCH-003": (advisor_evidence, advisor_refusals),
         "ORCH-004": (disputes, dispute_refusals),
         "ORCH-005": (correction_bounds, correction_check_freshness, shared_limits),
-        "ORCH-006": (cancellation,),
+        "ORCH-006": (cancellation, cancellation_persistence_failure),
         "ORCH-007": (recovery, recovery_authority_and_integration, recovery_limits),
     }
     for case in cases[requirement]:
