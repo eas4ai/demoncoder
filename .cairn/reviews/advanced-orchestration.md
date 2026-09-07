@@ -115,3 +115,14 @@ While preparing the refusal falsifier, the parent found that the shared Python
 App constructor did not close an unexpectedly accepted application when its
 expected-startup-refusal wait timed out. Repair the fixture's exception cleanup
 before demonstrating the violating case, so the failed test leaves no owner alive.
+
+### Incremental fixture review
+
+Before repair, the reviewer found that the failed-persistence cancellation case
+accepted any historical error instead of a new persistence error, and that the
+shared App.close timeout killed the process but raised before closing its PTY.
+Require the new persistence diagnostic after a captured event cursor and close the
+PTY in a finally block. Changed-check refusal itself passed review. The repaired
+candidate f95b01c4729431ba51c65837cca9451f89e2450b64c5aa8c5cd203efaee9f418
+passed that refusal and all four persistence-cancellation adapter cases. The older
+candidate also passed the latter; no prior cancellation failure is claimed.
