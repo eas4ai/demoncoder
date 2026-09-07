@@ -1,0 +1,11 @@
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.09s
+   Compiling demoncoder v0.1.2 (/home/shawn/workspace2/demoncoder)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.52s
+     Running tests/queue_runtime.rs (target/debug/deps/queue_runtime-d90e29479dd941ae)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s
+     Running unittests src/lib.rs (target/debug/deps/demoncoder-50ea58c1cf5481a1)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s
+     Running unittests src/lib.rs (target/debug/deps/demoncoder-50ea58c1cf5481a1)
+   Compiling demoncoder v0.1.2 (/home/shawn/workspace2/demoncoder)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.44s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s
