@@ -168,7 +168,11 @@ impl EventSink {
             sender,
             log: None,
             runtime: self.runtime.clone(),
-            phase: phase.into(),
+            phase: if self.phase.starts_with("agent:") {
+                format!("{}:{phase}", self.phase)
+            } else {
+                phase.into()
+            },
         }
     }
 
@@ -187,10 +191,12 @@ impl EventSink {
     }
 
     pub(crate) fn checkpoint(&self, state: Option<serde_json::Value>) -> Result<()> {
-        if self.phase == "worker"
-            && let (Some(runtime), Some(state)) = (&self.runtime, state)
-        {
-            runtime.checkpoint(state)?;
+        if let (Some(runtime), Some(state)) = (&self.runtime, state) {
+            if self.phase == "worker" {
+                runtime.checkpoint(state)?;
+            } else {
+                runtime.agent_checkpoint(&self.phase, state)?;
+            }
         }
         Ok(())
     }

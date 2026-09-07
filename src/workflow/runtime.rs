@@ -1,4 +1,6 @@
 //! Durable admissions and results shared by worker, checks, Oracle and reviewer.
+mod delegation;
+
 use std::{
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
@@ -117,6 +119,12 @@ pub struct Record {
     pub recovery_pending: bool,
     pub decisions: Vec<String>,
     pub last_snapshot: Option<String>,
+    #[serde(default)]
+    pub agents: Vec<crate::subagents::state::AgentRecord>,
+    #[serde(default)]
+    pub backend_invocations: u64,
+    #[serde(default)]
+    pub delegation: Option<crate::subagents::state::DelegationIdentity>,
 }
 
 struct Runtime {
@@ -180,9 +188,21 @@ impl SharedRuntime {
                 recovery_pending: false,
                 decisions: Vec::new(),
                 last_snapshot: None,
+                agents: Vec::new(),
+                backend_invocations: 0,
+                delegation: None,
             };
             (store, record, false)
         };
+        if resumed {
+            for agent in &mut record.agents {
+                if agent.status.active() {
+                    agent.status = crate::subagents::state::AgentStatus::Uncertain;
+                    agent.outcome = "Interrupted child operation; inspect before continuing. No work was replayed.".into();
+                    record.recovery_pending = true;
+                }
+            }
+        }
         if resumed
             && (record.phase.is_some()
                 || record
@@ -209,7 +229,7 @@ impl SharedRuntime {
         ))
     }
 
-    fn update<T>(&self, f: impl FnOnce(&mut Record) -> Result<T>) -> Result<T> {
+    pub(crate) fn update<T>(&self, f: impl FnOnce(&mut Record) -> Result<T>) -> Result<T> {
         let mut runtime = self
             .0
             .lock()
@@ -278,6 +298,7 @@ impl SharedRuntime {
 
     pub fn allocate(&self, limits: Limits, reviewer: Option<&Connection>) -> Result<()> {
         self.update(|r| {
+            ensure_children_settled(r)?;
             r.allocation = Some(Allocation::new(limits)?);
             r.reviewer_identity = reviewer.map(Identity::from);
             Ok(())
@@ -286,6 +307,7 @@ impl SharedRuntime {
 
     pub fn archive(&self) -> Result<()> {
         self.update(|r| {
+            ensure_children_settled(r)?;
             ensure!(
                 r.archived.len() < 32,
                 "session task history is full; start a new session"
@@ -315,7 +337,10 @@ impl SharedRuntime {
             r.phase = None;
             // Cancellation does not establish a remote request's outcome or
             // billing. The developer reconciles every incomplete admission.
-            if r.operations.iter().any(|o| !o.complete && !o.reconciled) {
+            if r.operations
+                .iter()
+                .any(|o| !o.complete && !o.reconciled && delegation::agent_id(&o.phase).is_none())
+            {
                 r.recovery_pending = true;
                 if let Some(a) = &mut r.allocation {
                     a.usage.uncertain();
@@ -338,6 +363,10 @@ impl SharedRuntime {
             "reconciliation needs an inspection explanation of 1 to 4096 bytes"
         );
         self.update(|r| {
+            ensure!(
+                !r.agents.iter().any(|a| a.status.active()),
+                "stop active agents before reconciling the parent session"
+            );
             ensure!(r.decisions.len() < 128, "decision history is full");
             r.decisions.push(format!(
                 "Inspected workspace {} ({}): {explanation}",
@@ -373,6 +402,7 @@ impl SharedRuntime {
 
     pub fn begin_model(&self, phase: &str) -> Result<u64> {
         self.admission(|r| {
+            delegation::ensure_agent_active(r, phase)?;
             ensure!(
                 !r.recovery_pending,
                 "uncertain work needs reconciliation before model admission"
@@ -432,6 +462,7 @@ impl SharedRuntime {
                 Ok(())
             }),
             Event::ToolStarted { call } => self.admission(|r| {
+                delegation::ensure_agent_active(r, phase)?;
                 ensure!(
                     !r.recovery_pending,
                     "uncertain work needs reconciliation before tool admission"
@@ -635,4 +666,16 @@ mod tests {
         connection.access.oracle.as_mut().unwrap().model = Some("oracle-b".into());
         assert_ne!(with_oracle, Identity::from(&connection));
     }
+}
+
+fn ensure_children_settled(record: &Record) -> Result<()> {
+    use crate::subagents::state::AgentStatus;
+    ensure!(
+        record.agents.iter().all(|agent| matches!(
+            agent.status,
+            AgentStatus::Integrated | AgentStatus::Cancelled | AgentStatus::Failed
+        )),
+        "integrate or cancel outstanding agents before replacing the task allocation"
+    );
+    Ok(())
 }
