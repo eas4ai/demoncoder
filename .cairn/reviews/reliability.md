@@ -1,13 +1,10 @@
 # Reliability mechanism and implementation review
 
 commitment: reliability
-commit: 70ad705c32f4c0763e500a9bef9f96ed02a2c234
+commit: c373703d07e7aa860c092f782623792ff6fdf401
 findings:
-  - resolved: REL-003 inline input and fragmented input now reject before any response calls
-  - resolved: REL-003 output-limit PTY assertions pass at sufficient width
-  - open: REL-001 inherited host socket descriptors bypass creation filter
-  - open: reliability fresh independent review and installed release verification pending
-Status: in progress
+  - none: no open findings within this commitment
+Status: complete
 
 ## REL-001 mechanism design
 
@@ -231,3 +228,57 @@ descriptors except 0/1/2 and the policy at 3 before execing bwrap; opening the
 policy and closing descriptors fail closed. It uses Bash's variable descriptor
 redirection, with numeric validation, without eval or another runtime dependency.
 The pinned workspace input and captured output pipes remain available.
+
+## Final acceptance and installation
+
+Parent re-examined the complete accumulated diff and the inherited-descriptor
+correction without changing code during review. The launcher closes ambient
+descriptors only in the child, preserving the pinned root, captured output and
+sealed policy. Numeric Bash variable redirection avoids eval and a new runtime
+dependency. The original failure and corrected production-executor fixture are
+retained. The inline argument and clipped-fixture findings are also resolved.
+
+A new independent reviewer, /root/reliability_final_recheck, reviewed candidate
+c373703d07e7aa860c092f782623792ff6fdf401 and returned ASTRA REVIEW: ship, findings
+none. Requested gpt-5.6-terra/high; actual model, effort and usage were unobservable.
+It independently reran the inherited-descriptor production fixture successfully.
+It accepted REL-002 admission/queue controls, REL-003 inline and fragment limits,
+and REL-004 separate stream decoding and receipt agreement. The earlier fix-first
+review remains recorded above; it was not reused as the fresh accepting review.
+
+After the descriptor correction, formatting, Clippy with warnings denied, and
+the full Rust suite passed: 87 passed and six driver-only entries ignored. The
+explicit REL mechanisms run the queue, registry and inherited-descriptor drivers
+that need external fixtures. All four requirements have current passing committed
+receipts. The selected public-network assessment and paid live Oracle entry were
+not rerun. Ripwire edit-check found no incompatible caller; its quality delta
+reported no working-tree regression. Its test-gate remains an obligation report,
+not runtime coverage proof; the executed tests supply that evidence.
+
+Installed with cargo install --path . --locked. PATH resolves to
+/home/shawn/.cargo/bin/demoncoder and its SHA256 matches target/release/demoncoder:
+82b08fb61b1274ef59b8fbf9bb5dab2c117f47a25f4b4b78b2c12f4876951c46.
+The installed executable reports demoncoder 0.1.2. Controlled production tool
+cycles passed on all four connections; five output-limit/clipboard PTY tests
+passed; quit stopped owned tools within two seconds on all four connections.
+An additional installed-main-process fixture injected the ambient socket and
+writable-file descriptors, requested Bash through the Anthropic fixture, and
+verified both descriptors were closed with no host effects. Full results are in
+.cairn/evidence/reliability-install.log.
+
+The developer accepted Unix-socket access through explicit --yolo with configured
+Oracle review. Confined commands continue to deny it. Synchronous event-log disk
+writes can stall independently of queues; this is outside REL-002's queue
+falsifier. Historical paid-provider/Oracle receipts remain stale and are not
+claimed as current live evidence; the commitment explicitly required no such calls.
+
+Final self-audit against all fourteen production coding rules found no remaining
+revision needed within this commitment: scope and contracts are explicit; the
+changes and dependencies are bounded; boundary failures were reproduced; errors
+and credentials remain protected; cancellation and resource cleanup are tested;
+code, documentation and recorded checks agree. The independent review accepted
+the corrected code, and the installed bytes and actual behavior were verified.
+
+API-equivalent cost receipt: unavailable for parent, both assessments and both
+fresh reviewers because native tools expose no observed token usage. No cost or
+savings estimate is claimed.
