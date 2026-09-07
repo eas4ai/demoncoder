@@ -11,4 +11,4 @@ Extend the existing delegation manager with durable waiting assignments and a bo
 
 ## Realized by
 
-143195ae89ed53554b660e158a86e34d3b7bcb00 Merge reviewed orchestration runtime
+- 143195ae89ed53554b660e158a86e34d3b7bcb00 Merge reviewed orchestration runtime
