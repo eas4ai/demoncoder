@@ -11,3 +11,4 @@ inputs:
   - docs/commitments/reliability.md
 requirements:
   - REL-003
+  - REL-004

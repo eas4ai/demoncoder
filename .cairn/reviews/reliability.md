@@ -117,3 +117,13 @@ remaining allowance before appending. The check uses subtraction to avoid length
 addition overflow. Returning an error at that point prevents response tool
 admission. This is the specified per-call argument bound, not a new response-wide
 allocation policy.
+
+## REL-004 mechanism design
+
+The production confined Bash executor runs disposable Python writers with delayed
+writes at every internal boundary of two-, three- and four-byte UTF-8 characters
+on both stdout and stderr. Separate cases interleave partial characters across
+pipes and send invalid or incomplete sequences. The test compares each stream,
+the live concatenation, the final tool receipt and the retained event log. Small
+writer delays encourage separate OS reads; deterministic decoder tests will cover
+all boundaries directly once the implementation exists.
