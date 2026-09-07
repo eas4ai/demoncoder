@@ -1,0 +1,25 @@
+    Checking demoncoder v0.1.2 (/home/shawn/workspace2/demoncoder)
+error: this `if` can be collapsed into the outer `match`
+   --> src/terminal.rs:464:29
+    |
+464 | / ...   if !view.input.is_empty() {
+465 | | ...       execute!(std::io::stdout(), CopyToClipboard::to_clipboard_from(view.input.as_str())).context("copy prompt text")?;
+466 | | ...       view.copy_notice = Some("Prompt copy requested · terminal must allow OSC 52");
+467 | | ...   }
+    | |_______^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.95.0/index.html#collapsible_match
+    = note: `-D clippy::collapsible-match` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::collapsible_match)]`
+help: collapse nested if block
+    |
+463 ~                         KeyCode::Char('c' | 'C') if key.modifiers.contains(KeyModifiers::CONTROL | KeyModifiers::SHIFT)
+464 ~                             && !view.input.is_empty() => {
+465 |                                 execute!(std::io::stdout(), CopyToClipboard::to_clipboard_from(view.input.as_str())).context("copy prompt text")?;
+466 |                                 view.copy_notice = Some("Prompt copy requested · terminal must allow OSC 52");
+467 ~                             }
+    |
+
+error: could not compile `demoncoder` (lib) due to 1 previous error
+warning: build failed, waiting for other jobs to finish...
+error: could not compile `demoncoder` (lib test) due to 1 previous error
