@@ -139,3 +139,39 @@ The existing one-MiB limit still counts raw pipe bytes, so replacement expansion
 does not change which commands exceed the limit. Deterministic tests enumerate
 every partition of representative valid, invalid, overlong, surrogate and
 out-of-range sequences and compare standard-library whole-stream decoding.
+
+## Parent complete-diff review (5d847cf)
+
+Inspected the complete implementation/test/decision/declaration diff from 44487e6.
+Attacked filter file ownership and ABI bypass, correction acknowledgement order,
+held lifecycle events, permit lifetime after draining, cancellation cleanup, UTF-8
+EOF/replacement behavior and argument admission before effects. Original retained
+receipts remain on the awaited event path; advisory notices alone may omit a live
+copy. The tests preserve the private socket canaries and ordinary networking.
+
+Open finding REL-003: inline input in content_block_start is not checked by the
+fragment guard. A disposable loopback/PTY experiment on the actual debug binary
+sent a small write followed by an oversized inline write. The small call changed
+batch-effect; the oversized call was rejected only by ToolExecutor. This violates
+the requirement that an oversized response admit none of its calls. Check inline
+input at block start and retain an actual native-session regression before closing
+this finding. No source code was changed during this review.
+
+Verification at this candidate: cargo fmt, clippy all-targets with warnings denied,
+and cargo test --locked --all-targets passed (86 passed, five driver-only ignored).
+All REL mechanisms have passing committed receipts. Startup, developer usability,
+chat presentation, sweep interaction/status/investigation/docs scripts passed.
+Coding-session local cases passed through host/Oracle fixtures, then its retained
+live Oracle check failed as stale. Connections local tool/configuration cases
+passed, then retained live records for all four connections were stale. These
+older paid-provider receipts were not refreshed; reliability explicitly requires
+no live-provider calls. Remaining connection fixture cases will be run separately.
+Full script logs: /tmp/demoncoder-reliability-checks-d4qloeg9.
+
+Ripwire with reference/ excluded ran successfully. quality-delta reported zero
+working-tree regressions against HEAD; it does not assess already committed
+changes. test-gate named 11 harnesses and 21 statically unlinked impacted symbols
+(exit 4 is its obligation report). Full Rust tests and the terminal/connection
+drivers cover the applicable runtime paths; the live Oracle driver retains the
+limitation just described. Complete accumulated-diff review supplies the committed
+change assessment that quality-delta cannot provide.
