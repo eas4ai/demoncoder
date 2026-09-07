@@ -605,6 +605,14 @@ such as `~/.codex/RTK.md`, `TILTH.md`, `PARTNERSHIP.md`, and
 `~/.claude/BEST_PRACTICES.md`, plus installed skill/plugin trees, remain readable.
 An explicit configuration file containing saved API keys is protected too.
 
+Confined Bash blocks Unix socket creation, including pathname and abstract sockets,
+to prevent access to host control services. TCP/UDP networking and anonymous stream
+socketpairs remain available. Local Docker, database and SSH-agent sockets require
+the existing explicit host mode; Unix sockets created only for a local test are
+also blocked. A syscall filter rejects io_uring creation and non-native/compatibility
+syscall ABIs to prevent bypasses. The filter supports native little-endian x86_64,
+aarch64 and riscv64 Linux. Filter setup failure stops the command.
+
 Normal build hard links whose aliases are all in the project remain usable.
 Symlinks resolve within the sandbox's read/write mounts. An alias to an outside
 file is read-only; a credential alias is inaccessible. These restrictions affect

@@ -421,16 +421,14 @@ async fn reliability_host_socket_is_not_reachable_from_confined_bash() {
         format!(
             r#"python3 - <<'PYTHON'
 import socket
-client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-client.settimeout(1)
 try:
+    client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    client.settimeout(1)
     client.connect({address})
 except OSError:
     print('SOCKET-DENIED')
 else:
     print('HOST-SOCKET-CONTACTED')
-finally:
-    client.close()
 PYTHON"#
         ),
     )
@@ -445,6 +443,72 @@ PYTHON"#
         "host socket reached: {}",
         result.output
     );
+    assert_eq!(
+        listener.accept().unwrap_err().kind(),
+        std::io::ErrorKind::WouldBlock
+    );
+}
+
+#[tokio::test]
+async fn reliability_abstract_socket_and_datagram_bypass_are_denied() {
+    use std::os::{
+        linux::net::SocketAddrExt,
+        unix::net::{SocketAddr, UnixListener},
+    };
+    let workspace = tempfile::tempdir().unwrap();
+    let name = format!(
+        "demoncoder-fixture-{}-{}",
+        std::process::id(),
+        workspace.path().file_name().unwrap().to_string_lossy()
+    );
+    let address = SocketAddr::from_abstract_name(name.as_bytes()).unwrap();
+    let listener = UnixListener::bind_addr(&address).unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let executor = ToolExecutor::new(workspace.path()).unwrap();
+    let name = serde_json::to_string(&name).unwrap();
+    let script = format!(
+        r#"python3 - <<'PYTHON'
+import errno, socket, os
+# Inspect inherited descriptors before loading ctypes/libffi, which may open
+# its own library descriptor using the now-available number 3.
+try:
+    os.fstat(3)
+except OSError as e:
+    assert e.errno == errno.EBADF
+else:
+    raise AssertionError('inherited descriptor 3: ' + os.readlink('/proc/self/fd/3'))
+for kind in (socket.SOCK_STREAM, socket.SOCK_DGRAM):
+    try:
+        sock = socket.socket(socket.AF_UNIX, kind)
+        sock.connect('\0' + {name})
+    except OSError as e:
+        assert e.errno == errno.EPERM, e
+    else:
+        raise AssertionError('host socket creation allowed')
+try:
+    socket.socketpair(socket.AF_UNIX, socket.SOCK_DGRAM)
+except OSError as e:
+    assert e.errno == errno.EPERM, e
+else:
+    raise AssertionError('datagram socketpair bypass allowed')
+for flags in (0, socket.SOCK_CLOEXEC, socket.SOCK_NONBLOCK):
+    a, b = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM | flags)
+    a.sendall(b'pair'); assert b.recv(4) == b'pair'
+    a.close(); b.close()
+# io_uring_setup has number 425 on the supported native Linux architectures.
+import ctypes
+libc = ctypes.CDLL(None, use_errno=True)
+assert libc.syscall(425, 1, 0) == -1 and ctypes.get_errno() == errno.EPERM
+print('SOCKET-POLICY-OK')
+PYTHON"#
+    );
+    // A second launch must read the policy independently, despite the first
+    // launch consuming its descriptor to EOF.
+    for _ in 0..2 {
+        let result = bash(&executor, script.clone()).await;
+        assert!(result.success, "{}", result.output);
+        assert!(result.output.contains("SOCKET-POLICY-OK"));
+    }
     assert_eq!(
         listener.accept().unwrap_err().kind(),
         std::io::ErrorKind::WouldBlock

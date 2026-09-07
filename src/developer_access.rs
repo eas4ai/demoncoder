@@ -57,6 +57,7 @@ pub(crate) struct DeveloperAccess {
     caches: Vec<Cache>,
     scratch: tempfile::TempDir,
     denied_file: tempfile::NamedTempFile,
+    socket_filter: File,
 }
 
 struct Links {
@@ -203,6 +204,7 @@ impl DeveloperAccess {
             caches,
             scratch,
             denied_file,
+            socket_filter: crate::socket_filter::file()?,
         })
     }
 
@@ -311,7 +313,24 @@ impl DeveloperAccess {
         let private = inspect_links(workspace, &mut links, cancelled)?;
         let protected_inodes = self.private_links(&private, cancelled)?;
 
-        let mut command = Command::new("/usr/bin/bwrap");
+        // This fixed host launcher only opens the parent-owned filter and execs
+        // bwrap. The task script remains an argument to the confined inner Bash.
+        // Opening through proc gives each launch an independent file offset.
+        let mut command = Command::new("/bin/bash");
+        command
+            .args([
+                "--noprofile",
+                "--norc",
+                "-c",
+                "exec 3<\"$1\"; shift; exec \"$@\"",
+                "demoncoder-sandbox",
+            ])
+            .arg(format!(
+                "/proc/{}/fd/{}",
+                std::process::id(),
+                self.socket_filter.as_raw_fd()
+            ))
+            .args(["/usr/bin/bwrap", "--seccomp", "3"]);
         command.args([
             "--unshare-all",
             "--share-net",

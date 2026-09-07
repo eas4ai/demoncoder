@@ -51,6 +51,21 @@ fn write_call(path: &Path) -> ToolCall {
     }
 }
 
+#[tokio::test]
+async fn reliability_explicit_host_mode_retains_unix_sockets() {
+    let workspace = tempfile::tempdir().unwrap();
+    std::fs::write(workspace.path().join("oracle-mode"), "allow").unwrap();
+    let tools = executor(workspace.path());
+    let (events, _rx) = sink();
+    let result = tools.execute(ToolCall {
+        id: "host-socket-fixture".into(),
+        name: "bash".into(),
+        arguments: json!({"command": "python3 -c 'import socket; s = socket.socket(socket.AF_UNIX); s.close(); a,b = socket.socketpair(socket.AF_UNIX, socket.SOCK_DGRAM); a.send(b\"fixture\"); assert b.recv(7) == b\"fixture\"; print(\"HOST-SOCKETS-OK\")'"}),
+    }, &events).await.unwrap();
+    assert!(result.success, "{}", result.output);
+    assert!(result.output.contains("HOST-SOCKETS-OK"));
+}
+
 async fn ready(path: PathBuf) {
     tokio::time::timeout(Duration::from_secs(3), async {
         while !path.exists() {

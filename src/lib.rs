@@ -9,6 +9,7 @@ pub mod native;
 pub mod oracle;
 mod selection;
 pub mod session;
+mod socket_filter;
 pub mod startup;
 pub mod status;
 pub mod terminal;
