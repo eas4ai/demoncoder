@@ -1,7 +1,7 @@
 # Assignable subagents review
 
 commitment: assignable-subagents
-commit: 1dc7b4a8343ce66b6115026ef912238a2da6971c
+commit: 2a32e0d5b8a3edd89834fdad37001d9e86575db0
 findings:
   - open: Truncated Anthropic output incorrectly blocks the next prompt as uncertain despite admitting no tool effects.
 Status: in progress
