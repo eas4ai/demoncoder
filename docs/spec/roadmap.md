@@ -1,6 +1,6 @@
 # Roadmap
 
-Current: advanced-orchestration
+Current: status-decision-remediation
 
 The developer selected the usable coding session as the first commitment
 and agreed to use Cairn on 2026-09-06. The developer confirmed its detailed
@@ -18,6 +18,7 @@ requirements and falsifiers together on 2026-09-06.
 | 2 | verification-review-recovery | Durable verification, bounded correction and review, cumulative allocations, and safe interrupted-session recovery. |
 | 3 | assignable-subagents | Visible agents with independent model assignments, bounded ownership, cancellation, and change integration. |
 | 4 | advanced-orchestration | Concurrent and dependent assignments with the agreed supervision and correction policies. |
+| 4a | status-decision-remediation | Prerequisite repair of live status, evidence inspection, available actions and documentation. |
 | 5 | evidence-based-improvement | Operational evidence leads to a cited improvement candidate, an authorized correction, and a useful lesson for later work. |
 
 The first coding session and startup fixes are complete. The developer selected
@@ -48,4 +49,4 @@ remediation before starting evidence-based-improvement. The cited findings and
 proposed behavior are in docs/recon.md and docs/proposals/status-and-decisions.md.
 Prepare and verify that remediation first; evidence-based-improvement retains
 its place as the next product commitment. Detailed remediation requirements
-remain to be agreed before the Cairn implementation commitment is selected.
+were confirmed in the follow-up and are now selected in status-decision-remediation.

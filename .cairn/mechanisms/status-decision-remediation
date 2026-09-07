@@ -1,0 +1,18 @@
+command: bash scripts/check-status-decision-remediation.sh
+results: per-requirement
+inputs:
+  - Cargo.toml
+  - Cargo.lock
+  - src/
+  - tests/
+  - scripts/
+  - README.md
+  - docs/spec/
+  - docs/plans/
+  - docs/commitments/status-decision-remediation.md
+requirements:
+  - REM-001
+  - REM-002
+  - REM-003
+  - REM-004
+  - REM-005
