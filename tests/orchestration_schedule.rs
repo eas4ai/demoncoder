@@ -72,6 +72,19 @@ fn admission_counts_only_active_nodes_and_orders_queued_eligible_nodes() {
 }
 
 #[test]
+fn admission_caps_unsorted_ready_nodes_and_stops_at_full_capacity() {
+    let nodes = vec![
+        node(90, &[], Status::Queued),
+        node(20, &[], Status::Active),
+        node(70, &[], Status::Queued),
+        node(10, &[], Status::Queued),
+    ];
+
+    assert_eq!(schedule::admit_ready(&nodes, 2).unwrap(), vec![10]);
+    assert!(schedule::admit_ready(&nodes, 1).unwrap().is_empty());
+}
+
+#[test]
 fn admission_rejects_an_over_capacity_recovered_state() {
     let nodes = vec![node(1, &[], Status::Active), node(2, &[], Status::Active)];
     assert!(schedule::admit_ready(&nodes, 1).is_err());
