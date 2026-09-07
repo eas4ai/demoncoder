@@ -1,6 +1,6 @@
 //! Explicit developer acceptance around the existing coding session.
 pub mod allocation;
-mod review;
+pub(crate) mod review;
 pub mod runtime;
 pub mod state;
 pub mod store;
@@ -22,6 +22,13 @@ pub(crate) fn is_control(text: &str) -> bool {
                 | "/abandon"
                 | "/workflow-help"
                 | "/reconcile"
+                | "/delegate"
+                | "/agents"
+                | "/agent"
+                | "/agent-cancel"
+                | "/agent-validate"
+                | "/agent-integrate"
+                | "/agent-reconcile"
         )
     )
 }
@@ -323,7 +330,7 @@ impl WorkflowSession {
         }
         self.runtime.save_task(&self.task, self.next_id, None)?;
         self.runtime.begin_phase("worker", Some(&prompt))?;
-        let result = if self.task.is_some() {
+        let result = if self.task.is_some() || self.runtime.record()?.delegation.is_some() {
             tokio::time::timeout(
                 self.runtime.remaining()?,
                 self.inner.turn(prompt, commands, events),
@@ -520,6 +527,7 @@ impl Session for WorkflowSession {
                 record
                     .operations
                     .iter()
+                    .filter(|operation| !operation.phase.starts_with("agent:"))
                     .filter_map(|o| o.result.clone())
                     .map(|result| Event::RetainedTool { result }),
             );
@@ -535,6 +543,10 @@ impl Session for WorkflowSession {
         commands: &mut mpsc::Receiver<Command>,
         events: &EventSink,
     ) -> Result<TurnEnd> {
+        // Developer integration can invalidate acceptance between parent turns.
+        let record = self.runtime.record()?;
+        self.task = record.task;
+        self.next_id = record.next_task;
         let result = self.dispatch(prompt, commands, events).await;
         self.runtime.save_task(&self.task, self.next_id, None)?;
         self.runtime.finish_phase()?;
@@ -545,6 +557,21 @@ impl Session for WorkflowSession {
         result
     }
     async fn close(&mut self) -> Result<()> {
+        self.inner.close().await
+    }
+    async fn cancel_background(&mut self) -> Result<()> {
+        if self.runtime.record()?.delegation.is_none() {
+            return Ok(());
+        }
+        self.inner.settle_interruption()?;
+        if let Some(checkpoint) = self.inner.checkpoint() {
+            self.runtime.checkpoint(checkpoint)?;
+        }
+        if let Some(task) = &mut self.task {
+            task.stopped = true;
+        }
+        self.runtime.save_task(&self.task, self.next_id, None)?;
+        self.runtime.finish_phase()?;
         self.inner.close().await
     }
 }

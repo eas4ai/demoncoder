@@ -17,13 +17,30 @@ async fn main() -> Result<()> {
         std::process::exit(demoncoder::supervisor::run(script).await?);
     }
     startup::prepare(&args)?;
-    let selection = args.selection()?;
+    let mut selection = args.selection()?;
     let settings = args.workflow_settings()?;
     let (runtime, resumed) = demoncoder::workflow::runtime::SharedRuntime::open(
         &selection.workspace,
         &selection.connection,
         args.resume.as_deref(),
     )?;
+    let agent_settings = args.agent_settings()?;
+    anyhow::ensure!(
+        runtime.record()?.delegation.is_none() || agent_settings.is_some(),
+        "resume requires the original --agent-connection settings"
+    );
+    let manager = agent_settings
+        .map(|settings| {
+            demoncoder::subagents::manager::Manager::new(
+                selection.workspace.clone(),
+                settings,
+                runtime.clone(),
+            )
+        })
+        .transpose()?;
+    if let Some(manager) = &manager {
+        selection.connection.access.extension = Some(manager.extension());
+    }
     let session = adapters::builtins()?.open(&selection.connection, &selection.workspace)?;
     let session = Box::new(demoncoder::workflow::WorkflowSession::new(
         session,
@@ -33,6 +50,12 @@ async fn main() -> Result<()> {
         runtime.clone(),
         resumed,
     )?);
+    let session: Box<dyn session::Session> = match manager {
+        Some(manager) => Box::new(demoncoder::subagents::session::DelegatingSession::new(
+            session, manager,
+        )),
+        None => session,
+    };
     let (command_tx, command_rx) = mpsc::channel(16);
     let (event_tx, event_rx) = mpsc::channel(256);
     let sink = EventSink::new(selection.name.clone(), event_tx, args.event_log.as_deref())?

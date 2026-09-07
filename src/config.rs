@@ -71,6 +71,15 @@ pub struct Args {
     /// Total tool admissions across worker and verification.
     #[arg(long, default_value_t = 128, value_parser = clap::value_parser!(u64).range(1..=4096))]
     pub task_tool_calls: u64,
+    /// Make a named connection available for confined worktree subagents; repeat as needed.
+    #[arg(long = "agent-connection")]
+    pub agent_connections: Vec<String>,
+    /// Maximum active child assignments; does not increase the shared task allowance.
+    #[arg(long, default_value_t = 2, value_parser = clap::value_parser!(u32).range(1..=8))]
+    pub agent_limit: u32,
+    /// Cumulative external backend invocations; internal model calls remain unavailable.
+    #[arg(long, default_value_t = 64, value_parser = clap::value_parser!(u64).range(1..=4096))]
+    pub agent_backend_turns: u64,
     /// Requested hard total token cap; rejected when the adapter cannot enforce it.
     #[arg(long)]
     pub task_token_limit: Option<u64>,
@@ -282,6 +291,42 @@ impl Args {
                 tool_calls: self.task_tool_calls,
             },
         })
+    }
+
+    pub fn agent_settings(&self) -> Result<Option<crate::subagents::Settings>> {
+        if self.agent_connections.is_empty() {
+            return Ok(None);
+        }
+        anyhow::ensure!(
+            self.agent_connections.len() <= 16,
+            "at most sixteen agent connections may be enabled"
+        );
+        let config = self.load_config()?;
+        let mut connections = BTreeMap::new();
+        for name in &self.agent_connections {
+            let mut connection = match config.connections.get(name) {
+                Some(connection) => connection.clone(),
+                None if ["openai-api", "anthropic-api", "codex", "claude"]
+                    .contains(&name.as_str()) =>
+                {
+                    serde_json::from_value(serde_json::json!({"adapter":name}))?
+                }
+                None => bail!("agent connection is not configured: {name}"),
+            };
+            connection.validate()?;
+            connection.access =
+                crate::tools::AccessPolicy::worktree_only(self.config_path().into_iter().collect());
+            connections.insert(name.clone(), connection);
+        }
+        let workflow = self.workflow_settings()?;
+        Ok(Some(crate::subagents::Settings {
+            connections,
+            reviewer: workflow.reviewer,
+            checks: workflow.checks,
+            limits: workflow.limits,
+            max_active: self.agent_limit,
+            backend_limit: self.agent_backend_turns,
+        }))
     }
 
     pub(crate) fn config_path(&self) -> Option<PathBuf> {

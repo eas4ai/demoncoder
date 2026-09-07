@@ -36,6 +36,8 @@ pub struct AccessPolicy {
     pub credential_paths: Vec<PathBuf>,
     /// Trusted runtime executable that supervises host Bash through a lifetime pipe.
     pub supervisor: Option<PathBuf>,
+    /// Trusted parent-only operations, attached by the session owner.
+    pub extension: Option<Arc<dyn ToolExtension>>,
 }
 
 impl Default for AccessPolicy {
@@ -47,6 +49,7 @@ impl Default for AccessPolicy {
             oracle: None,
             credential_paths: Vec::new(),
             supervisor: None,
+            extension: None,
         }
     }
 }
@@ -116,6 +119,13 @@ pub trait ToolHook: Send + Sync {
     }
 }
 
+/// Extensions share admission, hooks and receipts with the four coding tools.
+#[async_trait::async_trait]
+pub trait ToolExtension: Send + Sync {
+    fn definitions(&self) -> Vec<Value>;
+    async fn execute(&self, call: &ToolCall, events: &EventSink) -> Result<String>;
+}
+
 pub struct ToolExecutor {
     root: Arc<File>,
     workspace: PathBuf,
@@ -142,6 +152,36 @@ impl ToolExecutor {
             !(access.unrestricted && access.strict_worktree),
             "worktree-only policy cannot enable host tools"
         );
+        ensure!(
+            access.extension.is_none() || (access.tools_enabled && !access.strict_worktree),
+            "child and reviewer policies cannot expose parent tool extensions"
+        );
+        if let Some(extension) = &access.extension {
+            let mut names = std::collections::BTreeSet::from([
+                "read".to_owned(),
+                "write".to_owned(),
+                "edit".to_owned(),
+                "bash".to_owned(),
+            ]);
+            let definitions = extension.definitions();
+            ensure!(definitions.len() <= 16, "too many parent tool extensions");
+            for definition in definitions {
+                let name = definition["name"]
+                    .as_str()
+                    .context("extension tool requires a name")?;
+                ensure!(
+                    !name.is_empty()
+                        && name.len() <= 64
+                        && name.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'_'),
+                    "invalid extension tool name"
+                );
+                ensure!(names.insert(name.to_owned()), "duplicate tool name: {name}");
+                ensure!(
+                    definition["input_schema"].is_object(),
+                    "extension tool requires an input schema"
+                );
+            }
+        }
         let root = File::open(workspace).context("open authorized workspace")?;
         ensure!(root.metadata()?.is_dir(), "workspace must be a directory");
         // Probe the required primitive up front. There is no path-based fallback.
@@ -224,6 +264,9 @@ impl ToolExecutor {
                 };
                 tool["description"] = Value::String(detail);
             }
+        }
+        if let Some(extension) = &self.access.extension {
+            tools.extend(extension.definitions());
         }
         tools
     }
@@ -319,7 +362,24 @@ impl ToolExecutor {
                     }
                     self.bash(&call.id, &args.command, events).await
                 }
-                _ => bail!("tool is not authorized: {}", call.name),
+                _ => {
+                    let extension = self
+                        .access
+                        .extension
+                        .as_ref()
+                        .context("tool is not authorized")?;
+                    ensure!(
+                        extension
+                            .definitions()
+                            .iter()
+                            .any(|definition| definition["name"] == call.name),
+                        "tool is not authorized: {}",
+                        call.name
+                    );
+                    let output = extension.execute(&call, events).await?;
+                    ensure!(output.len() <= MAX_BYTES, "parent tool result exceeds 1 MiB; inspect the retained agent record with /agent ID");
+                    Ok((output, None))
+                }
             }
         }
         .await;

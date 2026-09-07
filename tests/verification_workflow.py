@@ -95,6 +95,9 @@ class App:
         if "--yolo" in extra:
             with self.config.open("a") as stream:
                 stream.write('\n[oracle]\nconnection="worker"\n')
+        if getattr(server, "extra_config", ""):
+            with self.config.open("a") as stream:
+                stream.write(server.extra_config)
         self.config.chmod(0o600)
         self.log = self.root / f"events-{time.time_ns()}.jsonl"
         self.master, slave = pty.openpty()

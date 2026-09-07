@@ -57,6 +57,10 @@ impl SharedRuntime {
         self.update(|record| {
             if let Some(saved) = &record.delegation {
                 ensure!(
+                    record.allocation.is_some(),
+                    "delegation allocation is missing; cannot restore spent allowances"
+                );
+                ensure!(
                     saved == &identity,
                     "resume requires the original agent connections, reviewer and limits"
                 );

@@ -167,6 +167,9 @@ pub trait Session: Send {
     async fn close(&mut self) -> Result<()> {
         Ok(())
     }
+    async fn cancel_background(&mut self) -> Result<()> {
+        Ok(())
+    }
 }
 
 pub type Factory = fn(&Connection, &Path) -> Result<Box<dyn Session>>;
@@ -268,6 +271,7 @@ async fn publish_lifecycle(
     allow_cancel: bool,
     commands: &mut mpsc::Receiver<Command>,
     events: &EventSink,
+    session: &mut dyn Session,
 ) -> Result<Option<TurnEnd>> {
     let publication = events.emit(event);
     tokio::pin!(publication);
@@ -283,8 +287,10 @@ async fn publish_lifecycle(
             },
             command = commands.recv() => match command {
                 Some(Command::Shutdown) | None => return Ok(Some(TurnEnd::Shutdown)),
-                Some(Command::Cancel) if allow_cancel => return Ok(Some(TurnEnd::Cancelled)),
-                Some(Command::Cancel) => {},
+                Some(Command::Cancel) => {
+                    session.cancel_background().await?;
+                    if allow_cancel { return Ok(Some(TurnEnd::Cancelled)); }
+                },
                 Some(command) => {
                     const REASON: &str = "Session is waiting for terminal output; draft retained. Try again shortly.";
                     let report = match command {
@@ -314,6 +320,7 @@ pub async fn run(
             false,
             &mut commands,
             &events,
+            session.as_mut(),
         )
         .await?
         .is_some()
@@ -321,7 +328,7 @@ pub async fn run(
             return Ok(());
         }
         for event in session.initial_events()? {
-            if publish_lifecycle(event, false, &mut commands, &events)
+            if publish_lifecycle(event, false, &mut commands, &events, session.as_mut())
                 .await?
                 .is_some()
             {
@@ -333,20 +340,33 @@ pub async fn run(
                 Command::Prompt(prompt) => Some(prompt),
                 Command::Submit { text, reply } => reply.send(Ok(())).ok().map(|()| text),
                 Command::Shutdown => break,
-                Command::Cancel => None,
+                Command::Cancel => {
+                    session.cancel_background().await?;
+                    None
+                }
             };
             let Some(prompt) = prompt else {
                 continue;
             };
-            let outcome =
-                match publish_lifecycle(Event::TurnStarted, true, &mut commands, &events).await? {
-                    Some(end) => Ok(end),
-                    None => session.turn(prompt, &mut commands, &events).await,
-                };
+            let outcome = match publish_lifecycle(
+                Event::TurnStarted,
+                true,
+                &mut commands,
+                &events,
+                session.as_mut(),
+            )
+            .await?
+            {
+                Some(end) => Ok(end),
+                None => session.turn(prompt, &mut commands, &events).await,
+            };
             let status = match outcome {
                 Ok(TurnEnd::Shutdown) => break,
                 Ok(TurnEnd::Complete) => "complete",
-                Ok(TurnEnd::Cancelled) => "cancelled",
+                Ok(TurnEnd::Cancelled) => {
+                    session.cancel_background().await?;
+                    "cancelled"
+                }
                 Err(error) => {
                     if publish_lifecycle(
                         Event::Error {
@@ -355,6 +375,7 @@ pub async fn run(
                         false,
                         &mut commands,
                         &events,
+                        session.as_mut(),
                     )
                     .await?
                     .is_some()
@@ -369,6 +390,7 @@ pub async fn run(
                 false,
                 &mut commands,
                 &events,
+                session.as_mut(),
             )
             .await?
             .is_some()
@@ -386,6 +408,94 @@ pub async fn run(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn lifecycle_backpressure_does_not_discard_background_cancellation() {
+        use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+        struct Background {
+            stopped: Arc<AtomicBool>,
+            returned: Arc<AtomicBool>,
+        }
+        #[async_trait]
+        impl Session for Background {
+            fn owner(&self) -> &'static str {
+                "background-test"
+            }
+            async fn turn(
+                &mut self,
+                _: String,
+                _: &mut mpsc::Receiver<Command>,
+                events: &EventSink,
+            ) -> Result<TurnEnd> {
+                events
+                    .emit(Event::Text {
+                        text: "Fill the held terminal queue".into(),
+                    })
+                    .await?;
+                self.returned.store(true, Ordering::SeqCst);
+                Ok(TurnEnd::Complete)
+            }
+            async fn cancel_background(&mut self) -> Result<()> {
+                self.stopped.store(true, Ordering::SeqCst);
+                Ok(())
+            }
+            async fn close(&mut self) -> Result<()> {
+                self.cancel_background().await
+            }
+        }
+        let stopped = Arc::new(AtomicBool::new(false));
+        let returned = Arc::new(AtomicBool::new(false));
+        let effects = Arc::new(AtomicUsize::new(0));
+        let child = tokio::spawn({
+            let stopped = stopped.clone();
+            let effects = effects.clone();
+            async move {
+                while !stopped.load(Ordering::SeqCst) {
+                    effects.fetch_add(1, Ordering::SeqCst);
+                    tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+                }
+            }
+        });
+        let (commands, receiver) = mpsc::channel(4);
+        let (sender, mut events) = mpsc::channel(1);
+        let owner = tokio::spawn(run(
+            Box::new(Background {
+                stopped: stopped.clone(),
+                returned: returned.clone(),
+            }),
+            receiver,
+            EventSink::new("held".into(), sender, None).unwrap(),
+        ));
+        assert!(matches!(
+            events.recv().await.unwrap().event,
+            Event::Ready { .. }
+        ));
+        commands
+            .send(Command::Prompt("start".into()))
+            .await
+            .unwrap();
+        assert!(matches!(
+            events.recv().await.unwrap().event,
+            Event::TurnStarted
+        ));
+        while !returned.load(Ordering::SeqCst) {
+            tokio::task::yield_now().await;
+        }
+        commands.send(Command::Cancel).await.unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(1), async {
+            while !stopped.load(Ordering::SeqCst) {
+                tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .expect("held lifecycle publication discarded cancellation");
+        child.await.unwrap();
+        let before = effects.load(Ordering::SeqCst);
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        assert_eq!(effects.load(Ordering::SeqCst), before);
+        commands.send(Command::Shutdown).await.unwrap();
+        owner.await.unwrap().unwrap();
+    }
 
     #[tokio::test]
     async fn closed_correction_handoff_returns_a_specific_admission_reason() {

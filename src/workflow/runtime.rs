@@ -33,6 +33,8 @@ pub struct Identity {
     effort: Option<String>,
     max_output_tokens: Option<u32>,
     unrestricted: bool,
+    #[serde(default)]
+    strict_worktree: bool,
     tools_enabled: bool,
     credential_paths: Vec<PathBuf>,
     oracle: Option<Box<Identity>>,
@@ -54,6 +56,7 @@ impl From<&Connection> for Identity {
             effort: c.effort.clone(),
             max_output_tokens: c.max_output_tokens,
             unrestricted: c.access.unrestricted,
+            strict_worktree: c.access.strict_worktree,
             tools_enabled: c.access.tools_enabled,
             credential_paths,
             oracle: c
@@ -315,10 +318,12 @@ impl SharedRuntime {
             if let Some(task) = r.task.take() {
                 r.archived.push(ArchivedTask {
                     task,
-                    allocation: r.allocation.take(),
+                    allocation: r.allocation.clone(),
                 });
             }
-            r.allocation = None;
+            if r.delegation.is_none() {
+                r.allocation = None;
+            }
             Ok(())
         })
     }
@@ -595,6 +600,18 @@ fn append_message(record: &mut Record, role: &str, text: &str) -> Result<()> {
     Ok(())
 }
 
+fn ensure_children_settled(record: &Record) -> Result<()> {
+    use crate::subagents::state::AgentStatus;
+    ensure!(
+        record.agents.iter().all(|agent| matches!(
+            agent.status,
+            AgentStatus::Integrated | AgentStatus::Cancelled | AgentStatus::Failed
+        )),
+        "integrate or cancel outstanding agents before replacing the task allocation"
+    );
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -666,16 +683,4 @@ mod tests {
         connection.access.oracle.as_mut().unwrap().model = Some("oracle-b".into());
         assert_ne!(with_oracle, Identity::from(&connection));
     }
-}
-
-fn ensure_children_settled(record: &Record) -> Result<()> {
-    use crate::subagents::state::AgentStatus;
-    ensure!(
-        record.agents.iter().all(|agent| matches!(
-            agent.status,
-            AgentStatus::Integrated | AgentStatus::Cancelled | AgentStatus::Failed
-        )),
-        "integrate or cancel outstanding agents before replacing the task allocation"
-    );
-    Ok(())
 }

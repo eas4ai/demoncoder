@@ -18,20 +18,20 @@ Linux openat2 and bubblewrap, Git and Python production PTY fixtures.
 Files: modify src/tools.rs; add src/worktree_access.rs; export through src/lib.rs;
 add tests/worktree_access.rs. Reuse existing bounded execution and socket filter.
 
-- [ ] Add a failing child-policy test using a synthetic sibling home and a
+- [x] Add a failing child-policy test using a synthetic sibling home and a
   linked worktree `.git` file. Attempt read/write/edit and Bash movement,
   recursive deletion, overwrite, symlink escape and administrative replacement.
   Assert the outside files and Git pointer remain byte-identical.
-- [ ] Add a runtime-only policy constructor with this contract:
+- [x] Add a runtime-only policy constructor with this contract:
   `AccessPolicy::worktree_only(credential_paths: Vec<PathBuf>) -> AccessPolicy`.
   It sets strict confinement, no Oracle and no unrestricted execution. Conflicting
   flags fail closed; ordinary default and host policies keep their existing rules.
-- [ ] Route strict reads through the pinned root; deny `.git` components for
+- [x] Route strict reads through the pinned root; deny `.git` components for
   every file mutation and hard-linked files that can alias outside content.
   The strict Bash launcher exposes the root and minimal system binaries/libraries,
   masks `.git`, excludes home and private records, blocks Unix-socket escape,
   and uses existing output/deadline/cancellation handling without host fallback.
-- [ ] Run `cargo test --locked --test worktree_access`, host/developer access
+- [x] Run `cargo test --locked --test worktree_access`, host/developer access
   regressions, format and Clippy. Review spec first, then code quality; merge
   the reviewed component through the parent loop.
 
@@ -41,23 +41,23 @@ Files: add src/subagents/worktree.rs and tests/subagent_worktrees.rs; extend
 src/workflow/workspace.rs only for bounded raw baseline materialization/reuse.
 Extract a shared hardened Git command helper from src/status.rs if appropriate.
 
-- [ ] Test a disposable repository with staged, unstaged, deleted, executable,
+- [x] Test a disposable repository with staged, unstaged, deleted, executable,
   binary, ignored and untracked baseline files. Capture original contents/index.
   Assert a genuine new worktree starts with that content and parent stays intact.
-- [ ] Implement parent-owned preparation with explicit stored identity:
+- [x] Implement parent-owned preparation with explicit stored identity:
   `PreparedWorktree { root, git_dir, common_dir, base_commit, baseline }`.
   Record intent before Git effects. Disable hooks, filters, signing and user Git
   environment; bound output/time. Pin roots and reject unsafe administrative paths.
-- [ ] Implement a validated delta manifest naming old/new content and owned paths.
+- [x] Implement a validated delta manifest naming old/new content and owned paths.
   Reject changes outside ownership, stale child evidence and changed Git identity.
   Never parse arbitrary patches manually; generate/check with hardened Git.
-- [ ] Apply only the validated child delta on an explicit parent command. Check
+- [x] Apply only the validated child delta on an explicit parent command. Check
   touched parent paths against their assignment baseline, preserve unrelated
   changes, reject conflicts without force/reject files, and retain child commits.
   Persist integration intent before effects and completion only after verification.
   Ordinary external writers remain subject to documented capture/freshness limits;
   an interrupted application never automatically replays integration.
-- [ ] Test actual success and conflict, malicious hooks/filters, stale receipts,
+- [x] Test actual success and conflict, malicious hooks/filters, stale receipts,
   outside ownership and interrupted intent. Run targeted Rust tests and both reviews.
 
 ## Task 3: assignment state and shared admission (SUB-001, SUB-006, SUB-007)

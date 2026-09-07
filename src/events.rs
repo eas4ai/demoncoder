@@ -19,6 +19,25 @@ pub struct ContextUsage {
 #[derive(Clone, Debug, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Event {
+    AgentAllocation {
+        active: usize,
+        active_limit: u32,
+        backend_invocations: u64,
+        backend_limit: u64,
+    },
+    AgentState {
+        id: u64,
+        connection: String,
+        worktree: Option<String>,
+        status: crate::subagents::state::AgentStatus,
+        objective: String,
+        outcome: String,
+    },
+    AgentActivity {
+        id: u64,
+        connection: String,
+        event: serde_json::Value,
+    },
     RetainedTool {
         result: crate::tools::ToolResult,
     },
@@ -181,6 +200,15 @@ impl EventSink {
             .as_ref()
             .map(|r| r.begin_model(&self.phase))
             .transpose()
+    }
+
+    pub(crate) fn begin_backend(&self) -> Result<Option<u64>> {
+        match &self.runtime {
+            Some(runtime) if runtime.record()?.delegation.is_some() => {
+                Ok(Some(runtime.begin_backend(&self.phase)?))
+            }
+            _ => Ok(None),
+        }
     }
 
     pub(crate) fn finish_model(&self, id: Option<u64>) -> Result<()> {

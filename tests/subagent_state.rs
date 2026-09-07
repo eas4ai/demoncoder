@@ -73,6 +73,8 @@ fn integration_requires_current_complete_checks_and_review() {
     let mut record = AgentRecord {
         id: 1,
         parent_task: None,
+        origin: Default::default(),
+        completed: true,
         request: AssignmentRequest {
             connection: "worker".into(),
             objective: "repair".into(),
@@ -80,6 +82,7 @@ fn integration_requires_current_complete_checks_and_review() {
             owned_paths: vec![".".into()],
         },
         identity: identity.clone(),
+        planned_root: None,
         worktree: Some(WorktreeIdentity {
             root: directory.path().into(),
             git_dir: directory.path().join(".git"),
@@ -114,6 +117,7 @@ fn integration_requires_current_complete_checks_and_review() {
             explanation: "examined".into(),
         }),
         validation_generation: 1,
+        validation_snapshot: Some(digest.clone()),
         activity: vec![],
         checkpoint: None,
         checkpoint_cursor: 0,

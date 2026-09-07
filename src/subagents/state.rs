@@ -116,9 +116,15 @@ pub struct WorktreeIdentity {
 pub struct AgentRecord {
     pub id: u64,
     pub parent_task: Option<u64>,
+    #[serde(default)]
+    pub origin: AssignmentOrigin,
+    #[serde(default)]
+    pub completed: bool,
     pub request: AssignmentRequest,
     pub identity: Identity,
     pub worktree: Option<WorktreeIdentity>,
+    #[serde(default)]
+    pub planned_root: Option<PathBuf>,
     pub status: AgentStatus,
     pub outcome: String,
     pub commands: Vec<String>,
@@ -126,6 +132,8 @@ pub struct AgentRecord {
     pub checks: Vec<CheckReceipt>,
     pub review: Option<ReviewReceipt>,
     pub validation_generation: u64,
+    #[serde(default)]
+    pub validation_snapshot: Option<String>,
     pub activity: Vec<Value>,
     pub checkpoint: Option<Value>,
     pub checkpoint_cursor: u64,
@@ -133,9 +141,18 @@ pub struct AgentRecord {
     pub decisions: Vec<String>,
 }
 
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AssignmentOrigin {
+    Developer,
+    #[default]
+    ParentAgent,
+}
+
 impl AgentRecord {
     pub fn can_integrate(&self, digest: &str) -> bool {
         self.status == AgentStatus::Ready
+            && self.completed
             && self.worktree.is_some()
             && self.reviewer.is_some()
             && !self.commands.is_empty()

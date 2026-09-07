@@ -135,6 +135,14 @@ impl ToolActivity {
 }
 
 impl View {
+    fn request_cancellation(&mut self, clear_idle_input: bool) {
+        // Child activity notices may be omitted under terminal backpressure.
+        // Cancellation belongs to the owner, regardless of displayed state.
+        self.cancel_pending = true;
+        if clear_idle_input && !self.busy && self.pending_prompt.is_none() {
+            self.input.clear();
+        }
+    }
     fn submit(&mut self, commands: &mpsc::Sender<Command>) {
         if self.pending_prompt.is_some() {
             self.copy_notice = Some("Waiting for prompt admission · draft retained and editable");
@@ -327,6 +335,77 @@ impl View {
 
     fn event(&mut self, envelope: Envelope) {
         match envelope.event {
+            Event::AgentAllocation {
+                active,
+                active_limit,
+                backend_invocations,
+                backend_limit,
+            } => {
+                self.note(Role::Notice, "Agent allocation", &format!("Active {active}/{active_limit} · Backend invocations {backend_invocations}/{backend_limit}\nBackend-internal model calls, tokens and spending are not capped by this count."));
+            }
+            Event::AgentState {
+                id,
+                connection,
+                worktree,
+                status,
+                objective,
+                outcome,
+            } => {
+                self.note(
+                    Role::Notice,
+                    &format!("Agent {id} · {connection} · {status:?}"),
+                    &format!(
+                        "{objective}\n{}\n{outcome}",
+                        worktree.unwrap_or_else(|| "Preparing worktree".into())
+                    ),
+                );
+            }
+            Event::AgentActivity {
+                id,
+                connection,
+                event,
+            } => {
+                let kind = event["type"].as_str().unwrap_or("activity");
+                let body = match kind {
+                    "text" | "tool_output" => event["text"].as_str().unwrap_or("").to_owned(),
+                    "tool_started" => format!(
+                        "{} {}",
+                        event["call"]["name"].as_str().unwrap_or("tool"),
+                        event["call"]["arguments"]
+                    ),
+                    "tool_finished" => format!(
+                        "{}: {}",
+                        if event["result"]["success"] == true {
+                            "Succeeded"
+                        } else {
+                            "Failed"
+                        },
+                        event["result"]["output"].as_str().unwrap_or("")
+                    ),
+                    "usage" | "review_usage" => format!(
+                        "Reported input {} · output {} · cost {}",
+                        event["input"]
+                            .as_u64()
+                            .map_or_else(|| "unknown".into(), |v| v.to_string()),
+                        event["output"]
+                            .as_u64()
+                            .map_or_else(|| "unknown".into(), |v| v.to_string()),
+                        event["cost_usd"]
+                            .as_f64()
+                            .map_or_else(|| "unknown".into(), |v| format!("${v:.4}"))
+                    ),
+                    "error" => event["message"]
+                        .as_str()
+                        .unwrap_or("Agent error")
+                        .to_owned(),
+                    _ => event.to_string(),
+                };
+                self.note(
+                    Role::Notice,
+                    &format!("Agent {id} · {connection} · {kind}"),
+                    &body,
+                );
+            }
             Event::SessionRecord { path, resumed } => self.note(
                 Role::Notice,
                 if resumed {
@@ -619,8 +698,7 @@ async fn run_view(
                                 view.copy_notice = Some("Prompt copy requested · terminal must allow OSC 52");
                         }
                         KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) && !key.modifiers.contains(KeyModifiers::SHIFT) => {
-                            if view.busy || view.pending_prompt.is_some() { view.cancel_pending = true; }
-                            else { view.input.clear(); }
+                            view.request_cancellation(true);
                         }
                         KeyCode::Esc if view.selection.is_some() => { view.selection = None; view.copy_notice = None; },
                         KeyCode::Char('y') if key.modifiers.contains(KeyModifiers::CONTROL) => {
@@ -632,7 +710,7 @@ async fn run_view(
                                 }
                             }
                         },
-                        KeyCode::Esc if view.busy || view.pending_prompt.is_some() => { view.cancel_pending = true; }
+                        KeyCode::Esc => { view.request_cancellation(false); }
                         KeyCode::Char('o') if key.modifiers.contains(KeyModifiers::CONTROL) => { view.selection = None; view.copy_notice = None; view.chat.toggle(); },
                         KeyCode::PageUp => view.scroll(-i64::from(view.chat_area.height.max(1))),
                         KeyCode::PageDown => view.scroll(i64::from(view.chat_area.height.max(1))),
@@ -830,6 +908,39 @@ fn draw(view: &mut View, connection: &str, frame: &mut ratatui::Frame<'_>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn dropped_agent_notice_cannot_disable_idle_cancellation() {
+        let (sender, mut receiver) = mpsc::channel(1);
+        let events = crate::events::EventSink::new("dropped-agent".into(), sender, None).unwrap();
+        events
+            .emit(Event::TurnFinished { status: "complete" })
+            .await
+            .unwrap();
+        events
+            .emit_advisory(Event::AgentAllocation {
+                active: 1,
+                active_limit: 2,
+                backend_invocations: 0,
+                backend_limit: 64,
+            })
+            .unwrap();
+        let mut view = View::default();
+        view.event(receiver.recv().await.unwrap());
+        assert!(
+            receiver.try_recv().is_err(),
+            "fixture did not drop the allocation notice"
+        );
+        let (commands, mut incoming) = mpsc::channel(2);
+        for clear in [false, true] {
+            view.request_cancellation(clear);
+            view.poll_commands(&commands);
+            assert!(
+                matches!(incoming.try_recv(), Ok(Command::Cancel)),
+                "idle cancellation relied on a dropped allocation notice"
+            );
+        }
+    }
     use ratatui::{Terminal, backend::TestBackend, buffer::Buffer};
 
     fn render(view: &mut View, width: u16, height: u16) -> Buffer {

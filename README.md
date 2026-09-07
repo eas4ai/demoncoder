@@ -200,6 +200,62 @@ Retention is finite: 32 archived tasks, 128 evidence generations, 4,096 operatio
 Reaching a retention limit stops further affected work; preserve the record and
 start a new session. No automatic checkout, cleanup, commit or deletion occurs.
 
+## Assignable subagents
+
+Enable named child connections before starting a session:
+
+```bash
+demoncoder --workspace /path/to/project --agent-connection worker-model \
+  --agent-connection codex --check 'test -s result.txt' --reviewer review-model
+```
+
+Enabled children can use OpenAI API, Anthropic API, Codex subscription or Claude
+subscription connections independently of the parent. Each gets a real Git
+worktree containing the parent's current files, including uncommitted and
+untracked content. The parent can delegate through its `delegate` tool and inspect
+results with `agent_status`. Without `--agent-connection`, the four original tools
+remain the complete tool surface.
+
+| Control | Behavior |
+|---|---|
+| `/delegate CONNECTION OWNED,PATHS OBJECTIVE` | Assign work using the selected connection, owned paths, startup checks and reviewer. |
+| `/agents` | List retained assignments and their current states. |
+| `/agent ID` | Inspect the assignment, original activity, results and validation evidence. |
+| `/agent-cancel ID` | Stop one child or cancel a completed assignment while retaining its files. |
+| `/agent-validate ID` | Run the selected checks and obtain an independent review of the current child patch. |
+| `/agent-integrate ID` | Explicitly apply a completed child's current validated changes to the parent. |
+| `/agent-reconcile ID EXPLANATION` | Record inspection of an interrupted assignment without replaying its work. |
+
+Child tools and validation commands always use worktree confinement, including
+under a `--yolo` parent. They cannot access user home files, credentials, other
+repositories or shared Git administration. Oracle approval cannot expand this
+boundary. Shell tools have minimal system executables and libraries, no network
+and no home-installed toolchains. Failure to establish confinement blocks work.
+
+Completion prose does not authorize integration. Checks must pass and review must
+be clear for the current child files. Integration preserves unrelated parent
+edits and rejects conflicts or changes outside ownership. Keep files stable during
+integration: freshness checks do not provide an atomic filesystem transaction
+against arbitrary external writers. Successful integration invalidates parent
+acceptance and requires fresh verification. Worktrees and retained commits remain
+available for inspection; the parent index is preserved.
+
+The default limit is two active children (`--agent-limit`, range 1–8). Parent,
+children, checks and review share the absolute `--task-seconds` deadline and
+`--task-tool-calls` allowance. Native calls consume `--task-model-calls`; external
+backend invocations use the separately named `--agent-backend-turns` allowance
+(default 64, range 1–4,096). A backend's internal calls, tokens and spending cannot
+be capped by that invocation count. Unreported usage remains unknown.
+
+Escape cancels active children with parent work; quitting closes their owners.
+Inspection and individual cancellation remain available during parent work.
+Starting work, validation and integration require the parent to stop first.
+Interrupted children and integrations become uncertain; resume never replays
+them. Resume the native parent with the original enabled connections, inspect
+each uncertain child, and reconcile the parent too when requested. Opaque backend
+conversations are not automatically restored. Retention is bounded to 32
+assignments and 2 MiB/2,048 activity entries per child, within the shared record.
+
 ## Terminal controls
 
 | Input | Behavior |

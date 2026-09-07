@@ -192,6 +192,7 @@ impl Codex {
             let id = self.next_id;
             self.next_id += 1;
             let process = self.process.as_mut().context("Codex process unavailable")?;
+            let admission = events.begin_backend()?;
             process
                 .send(json!({"id":id,"method":"turn/start","params":{
                     "threadId":self.thread,"input":[{"type":"text","text":prompt}],
@@ -315,6 +316,7 @@ impl Codex {
                             params["turn"]["id"].as_str() == turn.as_deref() && turn.is_some(),
                             "Codex completed an unrelated turn"
                         );
+                        events.finish_model(admission)?;
                         if !corrections.is_empty() {
                             anyhow::ensure!(
                                 matches!(

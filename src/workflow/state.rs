@@ -183,4 +183,10 @@ impl Task {
         }
         Ok(())
     }
+
+    pub(crate) fn invalidate_for_integration(&mut self) -> Result<()> {
+        self.invalidate()?;
+        self.accepted = None;
+        Ok(())
+    }
 }

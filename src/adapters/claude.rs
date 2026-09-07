@@ -129,6 +129,7 @@ impl Claude {
                 })
                 .await?;
             self.tools.set_intent(&prompt);
+            let admission = events.begin_backend()?;
             process.send(json!({"type":"user","message":{"role":"user","content":prompt},"parent_tool_use_id":null,"session_id":self.session.as_deref().unwrap_or("")})).await?;
             let mut context_usage = crate::context::MessageContext::default();
             let mut corrections = Vec::new();
@@ -249,6 +250,7 @@ impl Claude {
                                 cost_usd: message["total_cost_usd"].as_f64(),
                             })
                             .await?;
+                        events.finish_model(admission)?;
                         if interrupting {
                             completed = true;
                         } else {
@@ -288,13 +290,15 @@ async fn handle_control(
     let response = match request["subtype"].as_str() {
         Some("can_use_tool") => {
             let name = request["tool_name"].as_str().unwrap_or("");
-            let allowed = ["read", "write", "edit", "bash"]
-                .iter()
-                .any(|tool| name == format!("mcp__demoncoder__{tool}"));
+            let allowed = tools.definitions().iter().any(|tool| {
+                tool["name"]
+                    .as_str()
+                    .is_some_and(|tool| name == format!("mcp__demoncoder__{tool}"))
+            });
             if allowed && admit_tools {
                 json!({"behavior":"allow", "updatedInput":request["input"]})
             } else {
-                json!({"behavior":"deny", "message":"Only DemonCoder's four coding tools are authorized."})
+                json!({"behavior":"deny", "message":"Only this session's registered DemonCoder tools are authorized."})
             }
         }
         Some("mcp_message") if request["server_name"] == "demoncoder" => {

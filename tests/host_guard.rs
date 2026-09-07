@@ -40,6 +40,7 @@ fn executor(path: &Path) -> ToolExecutor {
             oracle: Some(Box::new(connection("claude"))),
             credential_paths: Vec::new(),
             supervisor: Some(env!("CARGO_BIN_EXE_demoncoder").into()),
+            extension: None,
         },
     )
     .unwrap()
