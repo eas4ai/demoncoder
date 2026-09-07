@@ -39,6 +39,7 @@ responsible for choosing sound requirements and meaningful checks.
 | [developer-usability.md](developer-usability.md) | USABLE | Scrollable bounded chat and practical read, network, and coding-tool access. |
 | [output-limits.md](output-limits.md) | OUTPUT | Model output settings, discovery and incomplete-response handling. |
 | [usage-display.md](usage-display.md) | DISPLAY | Visibility of current-turn usage. |
+| [chat-presentation.md](chat-presentation.md) | CHAT | Activity hierarchy, expandable output, syntax colors and spacing. |
 | [roadmap.md](roadmap.md) | — | The selected commitment and intended delivery sequence. |
 
 The broader [design narrative](../spec.md) retains product direction,

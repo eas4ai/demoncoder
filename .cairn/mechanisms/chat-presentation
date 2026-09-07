@@ -1,0 +1,15 @@
+command: bash scripts/check-chat-presentation.sh
+results: per-requirement
+inputs:
+  - Cargo.toml
+  - Cargo.lock
+  - src/
+  - tests/
+  - scripts/
+  - README.md
+  - docs/spec/chat-presentation.md
+  - docs/commitments/chat-presentation.md
+requirements:
+  - CHAT-001
+  - CHAT-002
+  - CHAT-003
