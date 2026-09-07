@@ -1,0 +1,74 @@
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.11s
+   Compiling demoncoder v0.1.2 (/home/shawn/workspace2/demoncoder)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.96s
+     Running unittests src/lib.rs (target/debug/deps/demoncoder-0911b3f9cf4c6c88)
+     Running unittests src/main.rs (target/debug/deps/demoncoder-bcc0b6ba3357676d)
+     Running tests/capabilities.rs (target/debug/deps/capabilities-7f54283b1116b50f)
+     Running tests/developer_access.rs (target/debug/deps/developer_access-e415e2d295764c97)
+     Running tests/host_guard.rs (target/debug/deps/host_guard-e7f3dd0871ba416f)
+     Running tests/inherited_fd_driver.rs (target/debug/deps/inherited_fd_driver-c1cd63ae90794f74)
+     Running tests/live_oracle.rs (target/debug/deps/live_oracle-3b7a3cc53ee1202a)
+     Running tests/orchestration_schedule.rs (target/debug/deps/orchestration_schedule-768c5fe93821465a)
+     Running tests/orchestration_state.rs (target/debug/deps/orchestration_state-d840f4f696d75a01)
+     Running tests/output_limits.rs (target/debug/deps/output_limits-5d168b2cfb44d1ad)
+     Running tests/queue_driver.rs (target/debug/deps/queue_driver-eaa976dcefdbcef4)
+     Running tests/queue_runtime.rs (target/debug/deps/queue_runtime-e01becbc162b8b6a)
+     Running tests/registry_driver.rs (target/debug/deps/registry_driver-c03f478d67e70982)
+     Running tests/reliability_streams.rs (target/debug/deps/reliability_streams-ec976d9032f0e21c)
+     Running tests/reliability_utf8.rs (target/debug/deps/reliability_utf8-f23f356348d99172)
+     Running tests/subagent_state.rs (target/debug/deps/subagent_state-59e657384e1ed8e3)
+     Running tests/subagent_worktrees.rs (target/debug/deps/subagent_worktrees-f0d5d1e9e4ff70d6)
+     Running tests/tool_extensions.rs (target/debug/deps/tool_extensions-443732b44a154366)
+     Running tests/tools.rs (target/debug/deps/tools-146f4d767211ea29)
+     Running tests/verification_workflow.rs (target/debug/deps/verification_workflow-c71caf6ee9a58ecd)
+     Running tests/workflow_store.rs (target/debug/deps/workflow_store-122ba78f04bb105f)
+     Running tests/workflow_workspace.rs (target/debug/deps/workflow_workspace-e6c91c68b90d3920)
+     Running tests/worktree_access.rs (target/debug/deps/worktree_access-c0cb51988bfe3430)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.08s
+...
+----------------------------------------------------------------------
+Ran 3 tests in 3.839s
+
+OK
+test_reported_partial_zero_and_absent_usage (__main__.Usage.test_reported_partial_zero_and_absent_usage) ... ok
+
+----------------------------------------------------------------------
+Ran 1 test in 1.493s
+
+OK
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.09s
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.08s
+test_cancelled_key_input_restores_terminal_and_saves_nothing (__main__.Onboarding.test_cancelled_key_input_restores_terminal_and_saves_nothing) ... ok
+test_first_run_and_repeated_run_use_saved_choices (__main__.Onboarding.test_first_run_and_repeated_run_use_saved_choices) ... ok
+test_key_input_is_not_echoed_and_is_saved_privately (__main__.Onboarding.test_key_input_is_not_echoed_and_is_saved_privately) ... ok
+
+----------------------------------------------------------------------
+Ran 3 tests in 0.136s
+
+OK
+.
+----------------------------------------------------------------------
+Ran 1 test in 0.037s
+
+OK
+test_help_and_version_do_not_start_setup (__main__.Information.test_help_and_version_do_not_start_setup) ... ok
+
+----------------------------------------------------------------------
+Ran 1 test in 0.019s
+
+OK
+test_default_workspace_is_launch_directory_and_explicit_overrides (__main__.Workspace.test_default_workspace_is_launch_directory_and_explicit_overrides) ... ok
+
+----------------------------------------------------------------------
+Ran 1 test in 0.168s
+
+OK
+test_custom_shared_parent_is_rejected_without_chmod (__main__.Directory.test_custom_shared_parent_is_rejected_without_chmod) ... ok
+test_existing_default_directory_is_secured_without_losing_files (__main__.Directory.test_existing_default_directory_is_secured_without_losing_files) ... ok
+test_saved_connections_survive_directory_repair_and_new_project_trust (__main__.Directory.test_saved_connections_survive_directory_repair_and_new_project_trust) ... ok
+test_symlinked_default_directory_is_rejected_without_chmod (__main__.Directory.test_symlinked_default_directory_is_rejected_without_chmod) ... ok
+
+----------------------------------------------------------------------
+Ran 4 tests in 0.057s
+
+OK
