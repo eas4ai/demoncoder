@@ -1,5 +1,6 @@
 //! Parent-owned delegated assignments and their isolated worktrees.
 pub mod manager;
+pub mod schedule;
 pub mod session;
 pub mod state;
 pub mod worktree;
