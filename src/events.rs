@@ -32,6 +32,9 @@ pub enum Event {
         status: crate::subagents::state::AgentStatus,
         objective: String,
         outcome: String,
+        stage: Option<crate::subagents::state::OrchestrationStage>,
+        correction_rounds: Option<u32>,
+        reason: Option<String>,
     },
     AgentActivity {
         id: u64,

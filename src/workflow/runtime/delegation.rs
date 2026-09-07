@@ -1,6 +1,6 @@
 //! Child facts share the parent record and admission lock.
 use anyhow::{Context, Result, ensure};
-use serde_json::Value;
+use serde_json::{Value, json};
 
 use super::{Operation, Record, SharedRuntime};
 use crate::{
@@ -41,6 +41,20 @@ pub(super) fn ensure_agent_active(record: &Record, phase: &str) -> Result<()> {
 }
 
 impl SharedRuntime {
+    pub(crate) fn ensure_backend_available(&self) -> Result<()> {
+        let record = self.record()?;
+        let limit = record
+            .delegation
+            .as_ref()
+            .context("backend admission requires a delegation allocation")?
+            .backend_limit;
+        ensure!(
+            record.backend_invocations < limit,
+            "cumulative backend invocation allowance exhausted"
+        );
+        Ok(())
+    }
+
     pub(crate) fn configure_delegation(
         &self,
         identity: DelegationIdentity,
@@ -54,6 +68,23 @@ impl SharedRuntime {
             (1..=4096).contains(&identity.backend_limit),
             "backend invocation limit must be between 1 and 4096"
         );
+        if let Some(orchestration) = &identity.orchestration {
+            ensure!(
+                orchestration.correction_limit == 2,
+                "orchestration correction limit must be exactly two"
+            );
+            ensure!(
+                !orchestration.checks.is_empty() && orchestration.checks.len() <= 16,
+                "orchestration requires 1 to 16 selected checks"
+            );
+            ensure!(
+                orchestration
+                    .checks
+                    .iter()
+                    .all(|check| !check.trim().is_empty() && check.len() <= 8192),
+                "each orchestration check must contain 1 to 8192 bytes"
+            );
+        }
         self.update(|record| {
             if let Some(saved) = &record.delegation {
                 ensure!(
@@ -62,7 +93,7 @@ impl SharedRuntime {
                 );
                 ensure!(
                     saved == &identity,
-                    "resume requires the original agent connections, reviewer and limits"
+                    "resume requires the original agent connections, reviewer, judge, orchestration settings and limits"
                 );
             } else {
                 record.delegation = Some(identity);
@@ -125,6 +156,59 @@ impl SharedRuntime {
         })
     }
 
+    pub(crate) fn admit_agent_validation(&self, id: u64, max_active: u32) -> Result<()> {
+        self.update(|record| {
+            ensure!(
+                !record.recovery_pending,
+                "reconcile interrupted parent work before validation"
+            );
+            ensure!(
+                record
+                    .agents
+                    .iter()
+                    .filter(|agent| agent.status.active())
+                    .count()
+                    < max_active as usize,
+                "active agent limit reached"
+            );
+            let agent = record
+                .agents
+                .iter_mut()
+                .find(|agent| agent.id == id)
+                .context("agent assignment does not exist")?;
+            ensure!(
+                agent.completed
+                    && matches!(
+                        agent.status,
+                        crate::subagents::state::AgentStatus::Stopped
+                            | crate::subagents::state::AgentStatus::Ready
+                            | crate::subagents::state::AgentStatus::Failed
+                    ),
+                "validation requires completed child work"
+            );
+            ensure!(
+                !agent.commands.is_empty() && agent.reviewer.is_some(),
+                "select --check and --reviewer before assigning work"
+            );
+            if !agent.checks.is_empty() || agent.review.is_some() {
+                agent.retain_activity(json!({
+                    "type":"previous_validation",
+                    "generation":agent.validation_generation,
+                    "checks":agent.checks,
+                    "review":agent.review,
+                }))?;
+            }
+            agent.status = crate::subagents::state::AgentStatus::Validating;
+            if agent.orchestration.is_none() {
+                agent.validation_generation += 1;
+            }
+            agent.validation_snapshot = None;
+            agent.checks.clear();
+            agent.review = None;
+            Ok(())
+        })
+    }
+
     pub(crate) fn agent_checkpoint(&self, phase: &str, checkpoint: Value) -> Result<()> {
         let Some(id) = agent_id(phase) else {
             return Ok(());
@@ -152,6 +236,7 @@ mod tests {
     use super::*;
     use crate::{
         config::Connection,
+        subagents::state::{AgentRecord, AgentStatus, AssignmentOrigin, AssignmentRequest},
         workflow::{
             runtime::{Identity, Runtime},
             store::Store,
@@ -159,8 +244,100 @@ mod tests {
     };
     use std::sync::{Arc, Mutex};
 
+    fn agent(id: u64, identity: &Identity, status: AgentStatus) -> AgentRecord {
+        AgentRecord {
+            id,
+            parent_task: Some(1),
+            origin: AssignmentOrigin::Developer,
+            completed: status == AgentStatus::Stopped,
+            request: AssignmentRequest {
+                connection: "worker".into(),
+                objective: "test assignment".into(),
+                context: String::new(),
+                owned_paths: vec!["greeting".into()],
+            },
+            identity: identity.clone(),
+            worktree: None,
+            planned_root: None,
+            status,
+            outcome: String::new(),
+            commands: vec!["true".into()],
+            reviewer: Some(identity.clone()),
+            checks: Vec::new(),
+            review: None,
+            validation_generation: 0,
+            validation_snapshot: None,
+            activity: Vec::new(),
+            checkpoint: None,
+            checkpoint_cursor: 0,
+            integration: None,
+            decisions: Vec::new(),
+            orchestration: None,
+        }
+    }
+
     #[test]
     fn backend_invocations_have_a_durable_separate_limit_and_do_not_reset() {
+        let root = tempfile::tempdir().unwrap();
+        let connection: Connection =
+            serde_json::from_value(serde_json::json!({"adapter":"openai-api"})).unwrap();
+        let record: Record = serde_json::from_value(serde_json::json!({
+            "workspace":root.path(), "identity":Identity::from(&connection), "archived":[],
+            "next_task":1, "checkpoint_cursor":0, "operations":[], "messages":[],
+            "recovery_pending":false, "decisions":[]
+        }))
+        .unwrap();
+        let runtime = SharedRuntime(Arc::new(Mutex::new(Runtime {
+            store: Store::create(&root.path().join("record")).unwrap(),
+            record,
+            failed: false,
+        })));
+        let mut judge = connection.clone();
+        judge.model = Some("judge-a".into());
+        judge.access = crate::tools::AccessPolicy::review_only();
+        let identity = DelegationIdentity {
+            connections: Default::default(),
+            reviewer: None,
+            max_active: 2,
+            backend_limit: 1,
+            orchestration: Some(crate::subagents::state::OrchestrationIdentity {
+                judge: Identity::from(&judge),
+                correction_limit: 2,
+                checks: vec!["test -s greeting".into()],
+            }),
+        };
+        runtime
+            .configure_delegation(identity.clone(), Limits::default())
+            .unwrap();
+        let admission = runtime.begin_backend("reviewer").unwrap();
+        runtime.finish_model(admission).unwrap();
+        runtime
+            .configure_delegation(identity.clone(), Limits::default())
+            .unwrap();
+        assert!(runtime.begin_backend("reviewer").is_err());
+        judge.model = Some("judge-b".into());
+        let mut changed = identity.clone();
+        changed.orchestration.as_mut().unwrap().judge = Identity::from(&judge);
+        let error = runtime
+            .configure_delegation(changed, Limits::default())
+            .unwrap_err();
+        assert!(error.to_string().contains("judge"));
+        let record = runtime.record().unwrap();
+        assert_eq!(record.backend_invocations, 1);
+        assert_eq!(record.allocation.unwrap().model_calls, 0);
+        assert_eq!(record.operations.len(), 1);
+        drop(runtime);
+        assert_eq!(
+            Store::open(&root.path().join("record"))
+                .unwrap()
+                .read()
+                .unwrap()["backend_invocations"],
+            1
+        );
+    }
+
+    #[test]
+    fn orchestration_identity_rejects_a_nonfixed_correction_limit() {
         let root = tempfile::tempdir().unwrap();
         let connection: Connection =
             serde_json::from_value(serde_json::json!({"adapter":"openai-api"})).unwrap();
@@ -180,27 +357,45 @@ mod tests {
             reviewer: None,
             max_active: 2,
             backend_limit: 1,
+            orchestration: Some(crate::subagents::state::OrchestrationIdentity {
+                judge: Identity::from(&connection),
+                correction_limit: 3,
+                checks: vec!["cargo test".into()],
+            }),
         };
-        runtime
-            .configure_delegation(identity.clone(), Limits::default())
-            .unwrap();
-        let admission = runtime.begin_backend("reviewer").unwrap();
-        runtime.finish_model(admission).unwrap();
-        runtime
+        let error = runtime
             .configure_delegation(identity, Limits::default())
-            .unwrap();
-        assert!(runtime.begin_backend("reviewer").is_err());
-        let record = runtime.record().unwrap();
-        assert_eq!(record.backend_invocations, 1);
-        assert_eq!(record.allocation.unwrap().model_calls, 0);
-        assert_eq!(record.operations.len(), 1);
-        drop(runtime);
-        assert_eq!(
-            Store::open(&root.path().join("record"))
-                .unwrap()
-                .read()
-                .unwrap()["backend_invocations"],
-            1
-        );
+            .unwrap_err();
+        assert!(error.to_string().contains("exactly two"));
+    }
+
+    #[test]
+    fn validation_admission_rechecks_capacity_in_the_durable_transition() {
+        let root = tempfile::tempdir().unwrap();
+        let connection: Connection =
+            serde_json::from_value(serde_json::json!({"adapter":"openai-api"})).unwrap();
+        let identity = Identity::from(&connection);
+        let mut record: Record = serde_json::from_value(serde_json::json!({
+            "workspace":root.path(), "identity":identity, "archived":[],
+            "next_task":1, "checkpoint_cursor":0, "operations":[], "messages":[],
+            "recovery_pending":false, "decisions":[]
+        }))
+        .unwrap();
+        record.agents = vec![
+            agent(1, &identity, AgentStatus::Stopped),
+            agent(2, &identity, AgentStatus::Running),
+        ];
+        let runtime = SharedRuntime(Arc::new(Mutex::new(Runtime {
+            store: Store::create(&root.path().join("record")).unwrap(),
+            record,
+            failed: false,
+        })));
+
+        let error = runtime.admit_agent_validation(1, 1).unwrap_err();
+
+        assert!(error.to_string().contains("active agent limit"));
+        let retained = runtime.record().unwrap();
+        assert_eq!(retained.agents[0].status, AgentStatus::Stopped);
+        assert_eq!(retained.agents[0].validation_generation, 0);
     }
 }

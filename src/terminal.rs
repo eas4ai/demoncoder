@@ -350,13 +350,25 @@ impl View {
                 status,
                 objective,
                 outcome,
+                stage,
+                correction_rounds,
+                reason,
             } => {
+                let supervision = stage.map_or_else(String::new, |stage| {
+                    format!(
+                        " · {stage:?} · correction {}",
+                        correction_rounds.unwrap_or_default()
+                    )
+                });
                 self.note(
                     Role::Notice,
-                    &format!("Agent {id} · {connection} · {status:?}"),
+                    &format!("Agent {id} · {connection} · {status:?}{supervision}"),
                     &format!(
-                        "{objective}\n{}\n{outcome}",
-                        worktree.unwrap_or_else(|| "Preparing worktree".into())
+                        "{objective}\n{}\n{outcome}{}",
+                        worktree.unwrap_or_else(|| "Preparing worktree".into()),
+                        reason
+                            .filter(|reason| reason != &outcome)
+                            .map_or_else(String::new, |reason| format!("\n{reason}"))
                     ),
                 );
             }

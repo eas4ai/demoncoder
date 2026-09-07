@@ -31,12 +31,14 @@ impl Drop for DelegatingSession {
     }
 }
 
-fn is_control(text: &str) -> bool {
+fn is_agent_control(text: &str) -> bool {
     matches!(
         text.split_whitespace().next(),
         Some(
             "/delegate"
+                | "/delegate-after"
                 | "/agents"
+                | "/agents-resume"
                 | "/agent"
                 | "/agent-cancel"
                 | "/agent-validate"
@@ -64,7 +66,19 @@ async fn control(
         );
     }
     match command {
-        "/delegate" => {
+        "/delegate" | "/delegate-after" => {
+            let (dependencies, rest) = if command == "/delegate-after" {
+                let (ids, rest) = rest
+                    .split_once(char::is_whitespace)
+                    .context("use /delegate-after IDS CONNECTION OWNED,PATHS OBJECTIVE")?;
+                let dependencies = ids
+                    .split(',')
+                    .map(|id| id.parse().context("invalid prerequisite agent ID"))
+                    .collect::<Result<Vec<_>>>()?;
+                (dependencies, rest.trim())
+            } else {
+                (Vec::new(), rest)
+            };
             let mut parts = rest.splitn(3, char::is_whitespace);
             let connection = parts.next().unwrap_or("").to_owned();
             let owned_paths = parts
@@ -78,16 +92,21 @@ async fn control(
                 .context("use /delegate CONNECTION OWNED,PATHS OBJECTIVE")?
                 .trim()
                 .to_owned();
-            manager.start(
-                AssignmentRequest {
-                    connection,
-                    objective,
-                    owned_paths,
-                    context: String::new(),
-                },
-                AssignmentOrigin::Developer,
-                events,
-            )?;
+            let request = AssignmentRequest {
+                connection,
+                objective,
+                owned_paths,
+                context: String::new(),
+            };
+            if command == "/delegate" {
+                manager.start(request, AssignmentOrigin::Developer, events)?;
+            } else {
+                manager.start_after(request, AssignmentOrigin::Developer, dependencies, events)?;
+            }
+        }
+        "/agents-resume" => {
+            ensure!(rest.is_empty(), "/agents-resume takes no arguments");
+            manager.resume_queue(events)?;
         }
         "/agents" => {
             ensure!(rest.is_empty(), "/agents takes no arguments");
@@ -141,7 +160,7 @@ impl Session for DelegatingSession {
         commands: &mut mpsc::Receiver<Command>,
         events: &EventSink,
     ) -> Result<TurnEnd> {
-        if is_control(&prompt) {
+        if is_agent_control(&prompt) {
             let action = control(&self.manager, &prompt, false, events);
             tokio::pin!(action);
             loop {
@@ -168,7 +187,7 @@ impl Session for DelegatingSession {
                     command = commands.recv() => {
                         let command = match command { Some(command) => command, None => Command::Shutdown };
                         let text = match &command { Command::Prompt(text) | Command::Submit {text, ..} => Some(text.as_str()), _ => None };
-                        if let Some(text) = text.filter(|text| is_control(text)) {
+                        if let Some(text) = text.filter(|text| is_agent_control(text)) {
                             let outcome = control(&self.manager, text, true, events).await;
                             if let Command::Submit {reply, ..} = command {
                                 let _ = reply.send(if outcome.is_ok() { Ok(()) } else { Err("Agent control failed; draft retained. See the error for details.") });

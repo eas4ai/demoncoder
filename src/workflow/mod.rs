@@ -1,6 +1,6 @@
 //! Explicit developer acceptance around the existing coding session.
 pub mod allocation;
-pub(crate) mod review;
+pub mod review;
 pub mod runtime;
 pub mod state;
 pub mod store;

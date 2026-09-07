@@ -140,6 +140,17 @@ struct Runtime {
 pub struct SharedRuntime(Arc<Mutex<Runtime>>);
 
 impl SharedRuntime {
+    #[cfg(test)]
+    pub(crate) fn for_test(directory: &Path, record: Record) -> Result<Self> {
+        let mut store = Store::create(directory)?;
+        store.write(&serde_json::to_value(&record)?)?;
+        Ok(Self(Arc::new(Mutex::new(Runtime {
+            store,
+            record,
+            failed: false,
+        }))))
+    }
+
     pub fn open(
         workspace: &Path,
         connection: &Connection,
@@ -202,6 +213,10 @@ impl SharedRuntime {
                 if agent.status.active() {
                     agent.status = crate::subagents::state::AgentStatus::Uncertain;
                     agent.outcome = "Interrupted child operation; inspect before continuing. No work was replayed.".into();
+                    if let Some(state) = &mut agent.orchestration {
+                        state.stage = crate::subagents::state::OrchestrationStage::Held;
+                        state.reason = agent.outcome.clone();
+                    }
                     record.recovery_pending = true;
                 }
             }
