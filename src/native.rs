@@ -125,11 +125,15 @@ impl NativeSession {
                     tokio::select! {
                         biased;
                         command = commands.recv() => if let Some(end) = control(command, &mut corrections, events)? { return Ok(end); },
-                        result = &mut response => break result?,
+                        result = &mut response => break result,
                     }
                 }
             };
             events.finish_model(admission)?;
+            // A returned provider error has no pending native tool effects. Keep
+            // the error, but settle its admission; cancellation exits above and
+            // deliberately leaves the interrupted request uncertain.
+            let calls = calls?;
             let finished = calls.is_empty();
             anyhow::ensure!(
                 finished || self.tools.tools_enabled(),

@@ -3,7 +3,7 @@
 commitment: assignable-subagents
 commit: 2a32e0d5b8a3edd89834fdad37001d9e86575db0
 findings:
-  - open: Truncated Anthropic output incorrectly blocks the next prompt as uncertain despite admitting no tool effects.
+  - none: recorded regression repaired; final installed-candidate review remains pending
 Status: in progress
 
 ## Strict tool component specification review
@@ -121,3 +121,21 @@ model-admission completion path without weakening the interruption boundary.
 Full Rust tests, Clippy, formatting and all six verification production cases
 passed. Terminal regression drivers through startup passed. Final review and
 installed verification remain incomplete.
+
+### Truncation repair demonstration
+
+The production continuation test failed twice before the change. Native response
+errors returned before finish_model, leaving a live admission even though native
+model requests do not execute coding tools. The loop now settles a returned
+response before propagating its error. Cancellation still exits before settlement.
+The complete output-limit terminal suite and twelve Rust output-limit cases pass,
+as do production recovery VERIFY-006, all-four cancellation, native interruption
+unit tests, queue and streaming tests, formatting and Clippy. Independent source
+review approved the distinction; unknown usage remains unknown.
+
+Ripwire edit-check found no signature mismatch. Its quality delta flags recent
+churn and four lines of added explanation in run_turn; no abstraction or behavior
+change is warranted to reduce that history metric. The test gate names eight
+Rust/driver paths and dynamic-dispatch gaps; controlled Rust and terminal checks
+cover the relevant behavior. The live Oracle validator was run and rejected its
+old receipt as stale; no paid-provider run was made and no live pass is claimed.
