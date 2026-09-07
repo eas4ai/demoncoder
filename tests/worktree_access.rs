@@ -276,3 +276,112 @@ async fn configured_oracle_cannot_expand_child_access() {
     assert!(result.success, "{}", result.output);
     assert_eq!(result.output, "permitted");
 }
+
+#[tokio::test]
+async fn mounted_paths_are_rejected() {
+    const FIXTURE: &str = "DEMONCODER_MOUNT_TEST_ROOT";
+    let Some(parent) = std::env::var_os(FIXTURE) else {
+        let parent = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(parent.path().join("work/mounted")).unwrap();
+        std::fs::create_dir(parent.path().join("outside")).unwrap();
+        std::fs::write(parent.path().join("outside/canary"), "MOUNT-CANARY").unwrap();
+        std::fs::write(parent.path().join("work/mounted-file"), "placeholder").unwrap();
+        let output = std::process::Command::new("/usr/bin/unshare")
+            .args([
+                "--user",
+                "--map-root-user",
+                "--mount",
+                "--fork",
+                "/bin/bash",
+                "-c",
+                r#"set -eu
+mount --make-rprivate /
+mount --bind "$1/outside" "$1/work/mounted"
+mount --bind "$1/outside/canary" "$1/work/mounted-file"
+exec "$2" --exact mounted_paths_are_rejected --nocapture"#,
+                "mount-test",
+            ])
+            .arg(parent.path())
+            .arg(std::env::current_exe().unwrap())
+            .env(FIXTURE, parent.path())
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "mount regression failed:\n{}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        return;
+    };
+    let parent = std::path::PathBuf::from(parent);
+    let root = parent.join("work");
+    let canary = parent.join("outside/canary");
+    // Both aliases deliberately retain the outside file's device and inode.
+    // A device-number check would therefore miss this boundary crossing.
+    use std::os::unix::fs::MetadataExt;
+    let source = std::fs::metadata(&canary).unwrap();
+    for alias in ["mounted/canary", "mounted-file"] {
+        let mounted = std::fs::metadata(root.join(alias)).unwrap();
+        assert_eq!((mounted.dev(), mounted.ino()), (source.dev(), source.ino()));
+    }
+    let e = ToolExecutor::with_policy(&root, &AccessPolicy::worktree_only(vec![])).unwrap();
+    let mut escapes = Vec::new();
+    for path in ["mounted/canary", "mounted-file"] {
+        for (name, args) in [
+            ("read", json!({"path":path})),
+            ("write", json!({"path":path,"content":"ESCAPED"})),
+            (
+                "edit",
+                json!({"path":path,"old_text":"MOUNT-CANARY","new_text":"ESCAPED"}),
+            ),
+            (
+                "bash",
+                json!({"command":format!("printf ESCAPED > {path}")}),
+            ),
+        ] {
+            std::fs::write(&canary, "MOUNT-CANARY").unwrap();
+            let result = tool(&e, name, args).await;
+            if result.success || std::fs::read_to_string(&canary).unwrap() != "MOUNT-CANARY" {
+                escapes.push(format!("{name} {path}"));
+            }
+        }
+    }
+    let result = tool(
+        &e,
+        "write",
+        json!({"path":"mounted/new-file","content":"ESCAPED"}),
+    )
+    .await;
+    if result.success || parent.join("outside/new-file").exists() {
+        escapes.push("create mounted/new-file".into());
+    }
+    // A normal worktree still works after the private namespace's mounts are removed.
+    for mount in ["mounted-file", "mounted"] {
+        assert!(
+            std::process::Command::new("/usr/bin/umount")
+                .arg(root.join(mount))
+                .status()
+                .unwrap()
+                .success()
+        );
+    }
+    assert!(
+        tool(&e, "write", json!({"path":"local","content":"allowed"}))
+            .await
+            .success
+    );
+    let allowed = tool(
+        &e,
+        "bash",
+        json!({"command":"cat local; printf edited > local"}),
+    )
+    .await;
+    assert!(allowed.success, "{}", allowed.output);
+    assert_eq!(allowed.output, "allowed");
+    assert_eq!(
+        std::fs::read_to_string(root.join("local")).unwrap(),
+        "edited"
+    );
+    assert!(escapes.is_empty(), "mount crossings escaped: {escapes:?}");
+}

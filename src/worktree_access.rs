@@ -1,5 +1,6 @@
 //! Child Bash gets a fresh filesystem containing only system runtimes and its worktree.
-use anyhow::{Result, ensure};
+use anyhow::{Context, Result, ensure};
+use rustix::fs::{Mode, OFlags, ResolveFlags, openat2};
 use std::{
     fs::File,
     os::{
@@ -92,7 +93,7 @@ impl WorktreeAccess {
             std::fs::read_link(format!("/proc/self/fd/{}", root.as_raw_fd()))? == workspace,
             "worktree moved; reopen it"
         );
-        let masks = self.inspect(workspace, cancelled)?;
+        let masks = self.inspect(root, workspace, cancelled)?;
         let mut command = Command::new("/bin/bash");
         command
             .args([
@@ -173,7 +174,12 @@ exec "$@""#,
             .env_clear();
         Ok(command)
     }
-    fn inspect(&self, workspace: &Path, cancelled: &AtomicBool) -> Result<Vec<(PathBuf, bool)>> {
+    fn inspect(
+        &self,
+        root: &File,
+        workspace: &Path,
+        cancelled: &AtomicBool,
+    ) -> Result<Vec<(PathBuf, bool)>> {
         let mut pending = vec![workspace.to_path_buf()];
         let mut masks = Vec::new();
         while let Some(directory) = pending.pop() {
@@ -183,7 +189,21 @@ exec "$@""#,
                     "worktree inspection cancelled"
                 );
                 let path = entry?.path();
-                let meta = path.symlink_metadata()?;
+                // Check mount identity in the kernel, including same-filesystem
+                // bind mounts. Device numbers and symlink checks cannot detect those.
+                let entry = File::from(
+                    openat2(
+                        root,
+                        path.strip_prefix(workspace)?,
+                        OFlags::PATH | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+                        Mode::empty(),
+                        ResolveFlags::BENEATH | ResolveFlags::NO_SYMLINKS | ResolveFlags::NO_XDEV,
+                    )
+                    .with_context(|| {
+                        format!("inspect worktree entry without crossing mounts: {path:?}")
+                    })?,
+                );
+                let meta = entry.metadata()?;
                 let protected = path
                     .file_name()
                     .is_some_and(|n| n == ".git" || n == ".demoncoder")

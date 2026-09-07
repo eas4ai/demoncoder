@@ -369,8 +369,14 @@ impl ToolExecutor {
                 .context("developer tools are disabled")?
                 .check_mutation(&self.workspace.join(path))?;
         }
+        // BENEATH alone permits bind mounts that alias files outside the tree.
+        let resolve = if self.access.strict_worktree {
+            RESOLVE | ResolveFlags::NO_XDEV
+        } else {
+            RESOLVE
+        };
         let flags = flags | OFlags::CLOEXEC | OFlags::NONBLOCK;
-        let fd = openat2(&*self.root, path, flags, Mode::empty(), RESOLVE);
+        let fd = openat2(&*self.root, path, flags, Mode::empty(), resolve);
         let file = match fd {
             Ok(fd) => File::from(fd),
             Err(rustix::io::Errno::NOENT) if create => File::from(
@@ -379,7 +385,7 @@ impl ToolExecutor {
                     path,
                     flags | OFlags::CREATE | OFlags::EXCL,
                     Mode::RUSR | Mode::WUSR,
-                    RESOLVE,
+                    resolve,
                 )
                 .context("create file beneath workspace; parent directory must exist")?,
             ),
