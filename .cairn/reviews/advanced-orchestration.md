@@ -211,3 +211,12 @@ single-assignment global-cancellation test does not cover this case. Add a
 deterministic two-assignment regression that cancels only the first reservation
 and requires the unrelated second assignment to acquire a live owner. This finding
 is recorded before repair; no production stress reproduction is claimed.
+
+The worker demonstrated the new deterministic two-reservation test fails at
+cc702ba because the first cancelled registration aborts resume_queue before the
+second registration. Commit 669b633 repairs the batch loop and passes that test
+and all 57 library tests. The existing global-cancellation regression caught an
+overbroad error handler during editing; it passes again after the handler was
+corrected. Independent specification re-review remains in progress. Separately,
+the parent completed all seven ORCH, seven SUB and six VERIFY production cases
+on exact cc702ba binary 54139d61; those passes did not detect the batch defect.
