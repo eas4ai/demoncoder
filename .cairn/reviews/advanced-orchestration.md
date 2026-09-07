@@ -61,3 +61,10 @@ three roles. Added failed-check correction, subscription process termination,
 launch/request replay detection, changed-authority refusal, retained integration
 and spent-admission recovery cases. This closes the draft coverage findings;
 production execution and final mechanism assessment remain pending.
+
+## Draft proof quality review (in progress)
+
+The reviewer demonstrated that HTTP role peers accepted earlier worker/assistant
+conversation before the final supervision prompt. Matching the final evidence
+does not establish a fresh role context. Add a transport-level context check and
+reject reused worker conversation. This finding is recorded before the repair.
