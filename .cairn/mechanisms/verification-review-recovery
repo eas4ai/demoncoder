@@ -17,3 +17,5 @@ requirements:
   - VERIFY-004
   - VERIFY-005
   - VERIFY-006
+reviewed:
+  - VERIFY-004 sha256:1cd94b9629a17acb8c7dfa9ab2145c261769004143f587ef92bd5ab43ef3a279
