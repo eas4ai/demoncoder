@@ -1,6 +1,7 @@
 # Status and decisions in the terminal
 
-Status: Proposed 2026-09-07. Not an implementation commitment.
+Status: Selected direction 2026-09-07; prerequisite remediation.
+Detailed requirements and falsifiers remain proposed.
 
 Help the developer inspect progress and decide what to do next using existing
 task and agent state. Source findings and limits are in docs/recon.md.
@@ -49,10 +50,16 @@ remain in the broader development-experience backlog.
 
 ## Priority and draft review
 
-The roadmap already selects evidence-based improvement next
-(docs/spec/roadmap.md; docs/commitments/advanced-orchestration.md). Decide whether
-this UX slice precedes it. Approving the direction authorizes drafting its
-requirements and falsifiers for agreement, not implementation by itself.
+The developer classified this work as prerequisite remediation before starting
+the next commitment on 2026-09-07. Evidence-based improvement remains the next
+product commitment. This remediation prepares the existing workflow for that
+work: truthful status, readable evidence, clear available actions, and correction
+of the recorded documentation and specification-lint defects.
+
+The behavior and proof table above defines the proposed scope to turn into
+requirements. The classification does not silently promote proposed obligations
+to Agreed or change the current Cairn commitment. Track the remediation and its
+verification explicitly before advancing to evidence-based improvement.
 
 Draft review challenged dropped status events, stale evidence, completion versus
 acceptance, mutation through navigation, recovery authority, bounded evidence,
@@ -63,4 +70,3 @@ been built or run.
 The footer defect, stale README allocation claim and three lint findings remain
 recorded in docs/recon.md. Confirm the intended behavior before revising Agreed
 text; runtime changes require selected scope.
-

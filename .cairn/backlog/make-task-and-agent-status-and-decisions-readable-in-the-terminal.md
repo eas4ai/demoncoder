@@ -1,5 +1,12 @@
 # Make task and agent status and decisions readable in the terminal
 
+Developer disposition, 2026-09-07: prerequisite remediation before starting
+evidence-based-improvement. This includes truthful status, readable evidence,
+clear available actions and the recorded documentation/lint corrections.
+See docs/proposals/status-and-decisions.md for the proposed behavior and proof.
+The original capture below is retained as history; its priority question is
+resolved by this disposition. Detailed requirements remain to be agreed.
+
 Surfaced from: SWEEP-005
 Captured: 2026-09-07T22:41:25.480Z
 

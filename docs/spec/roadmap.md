@@ -42,3 +42,10 @@ and mandatory child confinement on 2026-09-07.
 Assignable-subagents is complete and installed. The developer confirmed the
 advanced-orchestration dependency, advisor/worker/judge and two-correction policy
 on 2026-09-07. Integration remains an explicit developer operation.
+
+On 2026-09-07 the developer classified the status-and-decision work as prerequisite
+remediation before starting evidence-based-improvement. The cited findings and
+proposed behavior are in docs/recon.md and docs/proposals/status-and-decisions.md.
+Prepare and verify that remediation first; evidence-based-improvement retains
+its place as the next product commitment. Detailed remediation requirements
+remain to be agreed before the Cairn implementation commitment is selected.
