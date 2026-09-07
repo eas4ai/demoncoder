@@ -33,3 +33,8 @@ receipts. The current commitment mechanism must run against committed inputs.
 Self-audit: the existing change is small, shares one prompt, preserves Oracle
 separation and truthful provider attribution, and passes the checks above.
 No additional implementation was needed to reconcile the developer's correction.
+
+Ripwire `--test-gate` over `src/` returned exit 4 with 31 impacted symbols and no
+mapped tests. This source-only graph does not map the Python PTY drivers; it is
+not a passing test gate or evidence that those runtime paths are untested. The
+executed Cargo suite and continuation driver above provide the direct checks.
