@@ -53,6 +53,7 @@ class OutputLimits(unittest.TestCase):
                     app = App(Path(directory), Provider, adapter=adapter, connection_settings="max_output_tokens=64000\n",
                               arguments=() if override is None else ("--max-output-tokens", str(override)))
                     try:
+                        app.resize(35, 160)
                         app.send(b"settings\r")
                         app.wait(lambda s: "LIMIT-CHECK-DONE" in s and "out 12000" in s, "configured output request")
                         request = app.server.requests[0]
@@ -76,6 +77,7 @@ class OutputLimits(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             app = App(Path(directory), Provider, adapter="anthropic-api")
             try:
+                app.resize(35, 160)
                 app.send(b"truncate\r")
                 app.wait(lambda s: "truncated" in s and "failed" in s and "out 12000" in s, "honest truncation failure and usage")
                 app.send(b"continue\r")
