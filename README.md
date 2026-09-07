@@ -617,7 +617,8 @@ socketpairs remain available. Local Docker, database and SSH-agent sockets requi
 the existing explicit host mode; Unix sockets created only for a local test are
 also blocked. A syscall filter rejects io_uring creation and non-native/compatibility
 syscall ABIs to prevent bypasses. The filter supports native little-endian x86_64,
-aarch64 and riscv64 Linux. Filter setup failure stops the command.
+aarch64 and riscv64 Linux. Filter setup failure stops the command. The launcher
+closes unrelated inherited file descriptors before entering confinement.
 
 Normal build hard links whose aliases are all in the project remain usable.
 Symlinks resolve within the sandbox's read/write mounts. An alias to an outside

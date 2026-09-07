@@ -220,3 +220,14 @@ and add a regression. No additional defect was found in REL-002/003/004.
 The developer clarified that Unix services remaining accessible through explicit
 --yolo host mode with Oracle review is acceptable; the confined-only creation
 restriction is retained. No release has been installed at this point.
+
+### Inherited descriptor correction
+
+The new Python driver passes a disposable Unix socket at fd 127 and an outside
+writable canary at fd 257 into a Rust test driver that calls the production
+ToolExecutor. Before the correction, the host peer received
+HOST-DESCRIPTOR-CONTACTED. The fixed trusted Bash launcher now closes all ambient
+descriptors except 0/1/2 and the policy at 3 before execing bwrap; opening the
+policy and closing descriptors fail closed. It uses Bash's variable descriptor
+redirection, with numeric validation, without eval or another runtime dependency.
+The pinned workspace input and captured output pipes remain available.

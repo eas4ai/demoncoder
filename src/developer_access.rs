@@ -313,8 +313,9 @@ impl DeveloperAccess {
         let private = inspect_links(workspace, &mut links, cancelled)?;
         let protected_inodes = self.private_links(&private, cancelled)?;
 
-        // This fixed host launcher only opens the parent-owned filter and execs
-        // bwrap. The task script remains an argument to the confined inner Bash.
+        // The fixed host launcher opens the policy, closes ambient descriptors,
+        // and execs bwrap. Only the pinned root (stdin), output pipes and policy
+        // cross this boundary. The task script stays an argument to inner Bash.
         // Opening through proc gives each launch an independent file offset.
         let mut command = Command::new("/bin/bash");
         command
@@ -322,7 +323,17 @@ impl DeveloperAccess {
                 "--noprofile",
                 "--norc",
                 "-c",
-                "exec 3<\"$1\"; shift; exec \"$@\"",
+                r#"exec 3<"$1" || exit
+shift
+for task_fd_path in /proc/self/fd/*; do
+    task_fd=${task_fd_path##*/}
+    case "$task_fd" in
+        0|1|2|3) ;;
+        *) [[ "$task_fd" =~ ^[0-9]+$ ]] || exit 1
+           exec {task_fd}>&- || exit ;;
+    esac
+done
+exec "$@""#,
                 "demoncoder-sandbox",
             ])
             .arg(format!(
