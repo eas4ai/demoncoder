@@ -1,6 +1,12 @@
 # Terminal usability sweep review
 
-Status: in progress
+commitment: terminal-usability-sweep
+commit: 7b8a8dd9c942ce6aa021607ea8350f75a89320de
+findings:
+  - none: no open findings within this commitment
+Reviewer: Codex
+Date: 2026-09-07
+Status: complete
 
 ## Requirement and mechanism review
 
@@ -16,8 +22,8 @@ new output is ingested. Narrow/Unicode screens and absent metadata remain part
 of the checks. Old lint fixes only split obligations and declare existing host
 paths, preserving their substantive meaning.
 
-Implementation and verification remain pending. Record failing demonstrations
-and passing corrections below as each mechanism is built.
+At mechanism design, implementation and verification were pending. The following
+sections retain failing demonstrations and passing corrections.
 
 ## SWEEP-001 investigation
 
@@ -75,7 +81,7 @@ under a separate budget; sharing the filesystem-specific implementation would
 couple unrelated boundaries. The public terminal::run wrapper stays for external
 adapters and is exercised by the independent registry driver in the mechanism.
 
-Final committed checks, installation and no-code review remain to be recorded.
+Final committed checks, installation and no-code review are recorded below.
 
 ## Committed interaction correction
 
@@ -86,3 +92,66 @@ were correct. SWEEP-002 correction puts activity first and strengthens the silen
 wait fixture to 60 columns. This makes the working indicator useful on ordinary
 narrow screens rather than weakening the completion observation. The failed
 receipt and its exact screen remain in SWEEP-002 evidence.
+
+## Final no-code review
+
+Reviewed the committed diff, source boundaries, current SWEEP specification,
+mechanism declarations, receipts, README and investigation record. No production
+code was changed during this review. Implementation is in 6ee2e18, with the
+narrow-header correction in 51290aa. The reviewed tree is 7b8a8dd.
+
+Attacked the gaps beyond happy-path screens: a final tool receipt replacing
+selected output; Unicode display columns and reverse selection; a second selection
+on a frozen view; compact/full rail endpoints and resized geometry; unsupported
+clipboard capability; configured Git filters; a blocked Git config read; missing
+HEAD; cached Anthropic tokens; Claude aggregate result usage; Codex cumulative
+usage; unknown, partial and zero money; per-turn context reset; tiny terminals;
+and interruption/continuation through the existing session owners.
+
+The selection stores bounded owned visible rows, independently of live chat.
+Only an explicit Ctrl-Y emits OSC 52, using Crossterm's encoder. The UI describes
+the clipboard operation as a request because terminal policy determines success.
+Git runs outside the input loop, has bounded output and a deadline, and kills its
+owned command when cancelled. Optional locks, configured filters, fsmonitor,
+external diff and textconv are disabled; submodule working contents are explicitly
+excluded. No runtime confinement or tool-admission rule changed in this sweep.
+
+Context arithmetic checks overflow and keeps missing capacity unknown. The shared
+message accumulator retains only four numeric usage fields. It resets at each
+message start and replaces streamed counts, including both kinds of cached input.
+Native byte estimates are labelled; backend aggregate billing never becomes
+occupancy. Usage and Oracle reports share cost formatting that preserves known
+zero and omits unavailable money. The existing terminal::run API remains as a
+wrapper; independent adapter registration still works.
+
+The executed committed mechanisms passed all eight requirements. Cargo ran 69
+passing tests with three intentionally ignored entry points; the independent
+registry driver was then exercised through its PTY driver. Formatting and Clippy
+with warnings denied passed. The mechanisms also passed four interaction PTY
+cases, three status cases, all four usage adapter fixtures, three chat cases,
+two scrollback cases, all four continuation/ownership fixtures, and startup,
+onboarding and configuration regressions. Specification lint is clean. Receipts
+and complete command output are retained under SWEEP-001 through SWEEP-008,
+including the earlier failed interaction observation.
+
+`cargo install --path . --locked` built the release and replaced
+`/home/shawn/.cargo/bin/demoncoder`. PATH resolves to that binary; its SHA256 matches
+`target/release/demoncoder`, and its help exposes --context-window. The same seven
+status/interaction PTY cases passed against the installed release executable.
+`.cairn/evidence/terminal-sweep-install.log` retains the path, digest and results.
+
+Limitations remain explicit: original screenshot commands were unavailable;
+nested user namespaces are still refused by this environment; terminal OSC 52
+support varies; native context estimates are not tokenizer measurements; unsupported
+capacity is unknown; Git snapshots can lag; no paid live-provider refresh was run.
+Historical live records are not presented as fresh evidence for this tree. The
+separate source-review and broader harness backlogs were not silently implemented.
+Ripwire's nonpassing heuristic reports and their assessment are recorded above,
+separately from executed Cargo/PTY evidence.
+
+The final self-audit covered all fourteen production coding rules: authorized
+scope, coherent changes, maintainability, boundary contracts, errors and secrets,
+security, lifecycle cleanup, bounded work, tracked completion, actual verification,
+honest reporting, partnership, release review and plain documentation. Within
+this commitment, the implementation and evidence satisfy that standard. No open
+finding remains in the selected scope.
