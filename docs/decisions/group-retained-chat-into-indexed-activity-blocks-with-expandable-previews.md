@@ -11,7 +11,7 @@ Keep the existing per-line transcript index inside bounded activity blocks and a
 
 ## Realized by
 
-(none yet: recorded, not built)
+- bb1324cfcfad7a9c5fbedaf9473a54910fa14175 Group chat activity with expandable output, code colors and scrollbar
 
 ## Additional supplied references
 
