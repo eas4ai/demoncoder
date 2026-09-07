@@ -19,11 +19,12 @@ import time
 import unittest
 
 sys.dont_write_bytecode = True
+from provider_metadata import ModelMetadataHandler
 from terminal_screen import screen_text
 from terminal_session import BINARY
 
 
-class Provider(http.server.BaseHTTPRequestHandler):
+class Provider(ModelMetadataHandler):
     def log_message(self, *_):
         pass
 
@@ -58,7 +59,7 @@ class Provider(http.server.BaseHTTPRequestHandler):
 
 
 class App:
-    def __init__(self, root, provider=Provider, prepare=None):
+    def __init__(self, root, provider=Provider, prepare=None, adapter="openai-api", connection_settings="", arguments=()):
         self.root = root
         self.workspace = root / "workspace"
         self.workspace.mkdir()
@@ -71,12 +72,13 @@ class App:
         self.server.more = threading.Event()
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
         config = root / "connection.toml"
-        config.write_text(f'default_connection="fixture"\n[connections.fixture]\nadapter="openai-api"\nmodel="fixture-model"\nendpoint="http://127.0.0.1:{self.server.server_port}/responses"\n')
+        route = "messages" if adapter == "anthropic-api" else "responses"
+        config.write_text(f'default_connection="fixture"\n[connections.fixture]\nadapter="{adapter}"\nmodel="fixture-model"\nendpoint="http://127.0.0.1:{self.server.server_port}/{route}"\n' + connection_settings)
         self.master, slave = pty.openpty()
         self.rows, self.columns = 35, 100
         fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", self.rows, self.columns, 0, 0))
-        env = {"PATH": "/usr/bin:/bin", "HOME": str(home), "TERM": "xterm-256color", "LANG": "C.UTF-8", "OPENAI_API_KEY": "synthetic-key"}
-        self.process = subprocess.Popen([str(BINARY), "--trust-workspace", "--workspace", str(self.workspace), "--config", str(config)],
+        env = {"PATH": "/usr/bin:/bin", "HOME": str(home), "TERM": "xterm-256color", "LANG": "C.UTF-8", "OPENAI_API_KEY": "synthetic-key", "ANTHROPIC_API_KEY": "synthetic-key"}
+        self.process = subprocess.Popen([str(BINARY), "--trust-workspace", "--workspace", str(self.workspace), "--config", str(config), *arguments],
                                         stdin=slave, stdout=slave, stderr=slave, env=env, start_new_session=True)
         os.close(slave)
         self.output = bytearray()

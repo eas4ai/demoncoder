@@ -308,6 +308,7 @@ with explicit configuration still requires a terminal for the session UI.
 | `--connection <CONNECTION>` | Saved `default_connection` | Select a named connection. A built-in adapter ID also works without a saved entry, provided required credentials/model are supplied. |
 | `--model <MODEL>` | Selected connection's saved model, otherwise backend default where supported | Override the coding connection's model for this invocation. |
 | `--effort <EFFORT>` | Selected connection's saved effort, otherwise provider/backend default | Override the coding connection's thinking/response effort. See accepted values below. |
+| `--max-output-tokens <MAX_OUTPUT_TOKENS>` | Saved limit, otherwise model/provider default | Set a positive response-token limit for a native API connection. |
 | `--setup` | Off | Reopen guided configuration, save choices, then start the selected session. |
 | `--yolo` | Off | Explicitly select unsandboxed host tool execution for this invocation. Requires a saved Oracle assignment and authorizes the selected workspace for this invocation. |
 | `--trust-workspace` | Off | Authorize the selected workspace for this invocation without saving permanent trust. It does not enable host execution. |
@@ -315,7 +316,7 @@ with explicit configuration still requires a terminal for the session UI.
 | `-h`, `--help` | — | Print help and exit. |
 | `-v`, `-V`, `--version` | — | Print the application version and exit. |
 
-Normal model/effort flags are invocation overrides. When supplied with `--setup`,
+Model, effort, and output-limit flags are invocation overrides. When supplied with `--setup`,
 they also seed the coding connection choices being saved. They do not override
 the separate Oracle model or effort assignment.
 
@@ -408,6 +409,7 @@ Each `[connections.NAME]` accepts the following fields. Unknown fields are rejec
 | `adapter` | Required adapter ID: `openai-api`, `anthropic-api`, `codex`, `claude`, or an adapter registered by an application build. |
 | `model` | Model identifier. Required for API adapters; optional for subscription adapters. |
 | `effort` | Optional thinking/response effort. Omission preserves provider/backend defaults. |
+| `max_output_tokens` | Optional positive integer for native API connections. Overrides model discovery/provider defaults. Rejected for subscription backends. |
 | `api_key` | Optional API credential stored in this private file. Rejected for subscription connections. |
 | `endpoint` | Optional full API URL, including the request path. Rejected for subscription connections. |
 | `binary` | Optional backend executable path. Otherwise `codex` or `claude` is found on `PATH`. Rejected for API connections. |
@@ -430,7 +432,7 @@ executable to make its selection independent of the launch directory.
 1. `--config` selects the entire configuration file; otherwise the home file is
    used when present.
 2. `--connection` overrides `default_connection`.
-3. `--model` and `--effort` override the selected connection's saved fields.
+3. `--model`, `--effort`, and `--max-output-tokens` override the selected connection's saved fields.
 4. For API authentication, a nonempty provider environment key overrides the saved
    `api_key`. If the environment variable is absent, the saved key is used.
 
@@ -455,6 +457,26 @@ the provider. `--effort default` is not supported. Similarly, `backend-default` 
 a guided-setup choice that omits a subscription model; it is not a special CLI
 model flag. Anthropic response effort does not itself enable an older model's
 extended-thinking mode.
+
+### Model output limits
+
+Native Anthropic sessions discover the selected model's maximum output tokens
+from the endpoint's sibling `models/{model}` route before the first message and
+cache it for that session. Discovery uses the selected API credential, refuses
+redirects, and can be cancelled. Missing metadata fails with an actionable error;
+there is no guessed fallback ceiling. Compatible endpoints without model metadata
+can use an explicit `max_output_tokens` connection setting or
+`--max-output-tokens 64000`. Choose a value supported by your selected model.
+
+Native OpenAI sessions omit the output limit by default, leaving it to the
+provider. Both native adapters accept the explicit setting. Subscription backends
+own their limits and reject this setting. Output tokens are separate from context
+size, tool argument bytes, and cumulative session budgets.
+
+A response stopped by its output or context limit fails the turn visibly. Reported
+usage remains visible, and no tool calls from that response execute. You can
+submit another prompt without pending tool calls from the incomplete response;
+its partial output is not added to model history.
 
 ### Oracle assignment
 
@@ -774,7 +796,8 @@ code. No configuration flag loads hooks or enables unrecognized plugins.
 | External steering transition | 30 seconds. |
 | Oracle review | 60 seconds; bounded response and reason; errors block access. |
 | API transport | 15-second connect timeout; 120-second read timeout. These are not a total turn budget. |
-| Native Anthropic output request | `max_tokens: 4096` per response; no CLI/config override. |
+| Native API output request | Anthropic uses discovered model maximums; OpenAI keeps provider defaults. `max_output_tokens` / `--max-output-tokens` overrides either. |
+| Anthropic model discovery | 30-second timeout; metadata bounded to 64 KiB. |
 | Terminal input / retained chat | 64 KiB / up to 1 MiB and 16,384 logical lines; older chat expires visibly. |
 | Settings file | 64 KiB. |
 | Total session allocation | No cumulative token, spend, or wall-clock budget in this release. |

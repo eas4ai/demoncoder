@@ -18,7 +18,7 @@ from terminal_session import BINARY, FIXTURE, until
 
 
 class App:
-    def __init__(self, root, workspace="project", setup=False, omit_workspace=False, config=None):
+    def __init__(self, root, workspace="project", setup=False, omit_workspace=False, config=None, arguments=()):
         self.root = root
         self.home = root / "home"
         self.home.mkdir(exist_ok=True)
@@ -34,7 +34,7 @@ class App:
         fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 40, 180, 0, 0))
         self.initial_flags = termios.tcgetattr(slave)
         self.log = root / (workspace + "-" + str(len(list(root.glob("*.jsonl")))) + ".jsonl")
-        self.process = subprocess.Popen([str(BINARY), *(["--setup"] if setup else []), * ([] if omit_workspace else ["--workspace", str(self.workspace)]), * ([] if config is None else ["--config", str(config)]), "--event-log", str(self.log)],
+        self.process = subprocess.Popen([str(BINARY), *arguments, *(["--setup"] if setup else []), * ([] if omit_workspace else ["--workspace", str(self.workspace)]), * ([] if config is None else ["--config", str(config)]), "--event-log", str(self.log)],
             stdin=slave, stdout=slave, stderr=slave, start_new_session=True,
             cwd=self.workspace if omit_workspace else root,
             env={"PATH":str(binary_dir) + ":/usr/bin:/bin", "HOME":str(self.home), "TERM":"xterm-256color", "LANG":"C.UTF-8"})
@@ -146,13 +146,14 @@ class Onboarding(unittest.TestCase):
 
     def test_key_input_is_not_echoed_and_is_saved_privately(self):
         with tempfile.TemporaryDirectory(prefix="demoncoder-onboard-key-") as directory:
-            app = App(Path(directory))
+            app = App(Path(directory), arguments=("--max-output-tokens", "64000"))
             key = "synthetic-onboarding-secret"
             try:
                 complete_setup(app, provider="3", key=key)
                 self.assertNotIn(key.encode(), app.output)
                 settings = tomllib.loads(app.settings.read_text())
                 self.assertEqual(settings["connections"]["openai-api"]["api_key"], key)
+                self.assertEqual(settings["connections"]["openai-api"]["max_output_tokens"], 64000)
                 self.assertEqual(app.settings.stat().st_mode & 0o777, 0o600)
                 self.assertNotIn(key, app.log.read_text())
                 # No prompt is submitted: this case must never send a synthetic

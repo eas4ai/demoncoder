@@ -19,6 +19,7 @@ struct Anthropic {
     model: String,
     key: String,
     effort: Option<String>,
+    max_output_tokens: Option<u32>,
     history: Vec<Value>,
     definitions: Vec<Value>,
 }
@@ -46,11 +47,62 @@ pub fn open(config: &Connection, workspace: &Path) -> Result<Box<dyn Session>> {
                 .context("select --model for the Anthropic API connection")?,
             key,
             effort: config.effort.clone(),
+            max_output_tokens: config.max_output_tokens,
             history: Vec::new(),
             definitions,
         }),
         tools,
     )))
+}
+
+impl Anthropic {
+    async fn output_limit(&mut self) -> Result<u32> {
+        if let Some(limit) = self.max_output_tokens {
+            return Ok(limit);
+        }
+        let result = self.discover_output_limit().await;
+        let limit = result.map_err(|error| anyhow::anyhow!(
+            "Cannot determine the selected model's output limit: {error:#}. Set max_output_tokens in the connection or pass --max-output-tokens for an endpoint without model metadata."
+        ))?;
+        self.max_output_tokens = Some(limit);
+        Ok(limit)
+    }
+
+    async fn discover_output_limit(&self) -> Result<u32> {
+        let mut url = self.endpoint.clone();
+        url.path_segments_mut()
+            .map_err(|_| anyhow::anyhow!("provider endpoint cannot address model metadata"))?
+            .pop_if_empty()
+            .pop()
+            .push("models")
+            .push(&self.model);
+        let request = self
+            .client
+            .get(url)
+            .header("x-api-key", &self.key)
+            .header("anthropic-version", "2023-06-01")
+            .timeout(std::time::Duration::from_secs(30));
+        let mut response = http::response(request).await?;
+        let mut bytes = Vec::new();
+        while let Some(chunk) = response
+            .chunk()
+            .await
+            .map_err(|_| anyhow::anyhow!("model metadata transfer failed"))?
+        {
+            anyhow::ensure!(
+                bytes.len() + chunk.len() <= 64 * 1024,
+                "model metadata exceeds 64 KiB"
+            );
+            bytes.extend_from_slice(&chunk);
+        }
+        let metadata: Value = serde_json::from_slice(&bytes)
+            .map_err(|_| anyhow::anyhow!("model metadata is not valid JSON"))?;
+        metadata["max_tokens"]
+            .as_u64()
+            .and_then(|value| u32::try_from(value).ok())
+            .filter(|value| *value > 0)
+            .context("model metadata has no valid positive max_tokens value")
+    }
 }
 
 #[async_trait]
@@ -83,8 +135,9 @@ impl Model for Anthropic {
     }
 
     async fn response(&mut self, events: &EventSink) -> Result<Vec<ToolCall>> {
+        let limit = self.output_limit().await?;
         let mut body = json!({
-            "model":self.model,"messages":self.history,"stream":true,"max_tokens":4096,
+            "model":self.model,"messages":self.history,"stream":true,"max_tokens":limit,
             "tools":self.definitions.clone(),
         });
         if let Some(effort) = &self.effort {
@@ -101,6 +154,7 @@ impl Model for Anthropic {
         let mut blocks: Vec<Value> = Vec::new();
         let mut partial: Vec<String> = Vec::new();
         let (mut input, mut output, mut cached) = (None, None, None);
+        let mut stop_reason = None;
         while let Some(event) = stream.next().await {
             let event = event?;
             match event["type"].as_str() {
@@ -160,8 +214,32 @@ impl Model for Anthropic {
                         _ => {}
                     }
                 }
-                Some("message_delta") => output = event["usage"]["output_tokens"].as_u64(),
+                Some("message_delta") => {
+                    if let Some(value) = event["usage"]["output_tokens"].as_u64() {
+                        output = Some(value);
+                    }
+                    if let Some(reason) = event["delta"]["stop_reason"].as_str() {
+                        stop_reason = Some(reason.to_owned());
+                    }
+                }
                 Some("message_stop") => {
+                    events
+                        .emit(Event::Usage {
+                            input,
+                            output,
+                            cached,
+                            cost_usd: None,
+                        })
+                        .await?;
+                    match stop_reason.as_deref() {
+                        Some("max_tokens") => bail!(
+                            "Anthropic response was truncated at the {limit}-token output limit; no tool calls from this response were executed. Request a smaller continuation or adjust an explicit max_output_tokens setting."
+                        ),
+                        Some("model_context_window_exceeded") => bail!(
+                            "Anthropic response exceeded the model context window; no tool calls from this response were executed. Reduce conversation context before retrying."
+                        ),
+                        _ => {}
+                    }
                     let mut calls = Vec::new();
                     for (block, partial) in blocks.iter_mut().zip(partial) {
                         if block["type"] == "tool_use" {
@@ -181,14 +259,6 @@ impl Model for Anthropic {
                             });
                         }
                     }
-                    events
-                        .emit(Event::Usage {
-                            input,
-                            output,
-                            cached,
-                            cost_usd: None,
-                        })
-                        .await?;
                     self.history
                         .push(json!({"role":"assistant", "content":blocks}));
                     return Ok(calls);

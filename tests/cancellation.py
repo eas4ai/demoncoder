@@ -20,6 +20,7 @@ import time
 import uuid
 
 sys.dont_write_bytecode = True
+from provider_metadata import ModelMetadataHandler
 from terminal_session import BINARY, FIXTURE, until
 from tool_cycle_fixture import sse_call
 
@@ -30,7 +31,7 @@ def held_tool(token):
     }}
 
 
-class Provider(http.server.BaseHTTPRequestHandler):
+class Provider(ModelMetadataHandler):
     def log_message(self, *_):
         pass
 

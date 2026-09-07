@@ -115,6 +115,7 @@ fn configure(args: &Args, config: &mut Config) -> Result<()> {
                 endpoint: None,
                 binary: None,
                 effort: None,
+                max_output_tokens: None,
                 api_key: None,
                 access: Default::default(),
             });
@@ -183,6 +184,9 @@ fn configure(args: &Args, config: &mut Config) -> Result<()> {
         } else {
             effort(&connection)?
         };
+        if let Some(limit) = args.max_output_tokens {
+            connection.max_output_tokens = Some(limit);
+        }
         connection.validate()?;
         config.connections.insert(name.clone(), connection);
         config.default_connection = Some(name);

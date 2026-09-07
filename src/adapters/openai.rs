@@ -19,6 +19,7 @@ struct OpenAi {
     model: String,
     key: String,
     effort: Option<String>,
+    max_output_tokens: Option<u32>,
     history: Vec<Value>,
     definitions: Vec<Value>,
 }
@@ -46,6 +47,7 @@ pub fn open(config: &Connection, workspace: &Path) -> Result<Box<dyn Session>> {
                 .context("select --model for the OpenAI API connection")?,
             key,
             effort: config.effort.clone(),
+            max_output_tokens: config.max_output_tokens,
             history: Vec::new(),
             definitions,
         }),
@@ -81,6 +83,9 @@ impl Model for OpenAi {
             })
             .collect();
         let mut body = json!({"model":self.model,"input":self.history,"stream":true,"store":false,"include":["reasoning.encrypted_content"],"tools":tools});
+        if let Some(limit) = self.max_output_tokens {
+            body["max_output_tokens"] = limit.into();
+        }
         if let Some(effort) = &self.effort {
             body["reasoning"] = json!({"effort":effort});
         }
@@ -143,7 +148,26 @@ impl Model for OpenAi {
                     self.history.extend(output.iter().cloned());
                     return Ok(calls);
                 }
-                Some("response.failed" | "response.incomplete" | "error") => {
+                Some("response.incomplete") => {
+                    let usage = &event["response"]["usage"];
+                    events
+                        .emit(Event::Usage {
+                            input: usage["input_tokens"].as_u64(),
+                            output: usage["output_tokens"].as_u64(),
+                            cached: usage["input_tokens_details"]["cached_tokens"].as_u64(),
+                            cost_usd: None,
+                        })
+                        .await?;
+                    if event["response"]["incomplete_details"]["reason"] == "max_output_tokens" {
+                        bail!(
+                            "OpenAI response reached its output limit; no tool calls from this response were executed. Request a smaller continuation or adjust an explicit max_output_tokens setting."
+                        );
+                    }
+                    bail!(
+                        "OpenAI response is incomplete; no tool calls from this response were executed"
+                    );
+                }
+                Some("response.failed" | "error") => {
                     bail!("OpenAI did not complete the response")
                 }
                 _ => {}

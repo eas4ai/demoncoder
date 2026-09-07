@@ -18,6 +18,7 @@ import time
 import uuid
 import sys
 sys.dont_write_bytecode = True
+from provider_metadata import ModelMetadataHandler
 from tool_cycle_fixture import Cycle, sse_call
 from terminal_screen import screen_text
 
@@ -26,7 +27,7 @@ BINARY = ROOT / "target/debug/demoncoder"
 FIXTURE = ROOT / "tests/backend_fixture.py"
 
 
-class Provider(http.server.BaseHTTPRequestHandler):
+class Provider(ModelMetadataHandler):
     def log_message(self, *_):
         pass
 

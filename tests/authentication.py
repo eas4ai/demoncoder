@@ -17,10 +17,11 @@ import time
 import unittest
 
 sys.dont_write_bytecode = True
+from provider_metadata import ModelMetadataHandler
 from terminal_session import BINARY, ROOT, until
 
 
-class Provider(http.server.BaseHTTPRequestHandler):
+class Provider(ModelMetadataHandler):
     def log_message(self, *_):
         pass
 

@@ -29,6 +29,9 @@ pub struct Args {
     /// Reasoning effort accepted by the selected connection and model.
     #[arg(long)]
     pub effort: Option<String>,
+    /// Maximum response tokens for native API connections; omission uses model/provider defaults.
+    #[arg(long, value_parser = clap::value_parser!(u32).range(1..))]
+    pub max_output_tokens: Option<u32>,
     /// Reopen guided provider, model, Oracle, and project setup.
     #[arg(long)]
     pub setup: bool,
@@ -53,6 +56,8 @@ pub struct Connection {
     /// Executable for an external backend. This is trusted configuration.
     pub binary: Option<PathBuf>,
     pub effort: Option<String>,
+    /// Explicit native API output limit. None preserves model/provider defaults.
+    pub max_output_tokens: Option<u32>,
     /// Trusted API credential. Never include this structure in events or diagnostics.
     pub api_key: Option<String>,
     /// Resolved by the host. Repository/provider payloads cannot set access policy.
@@ -78,6 +83,13 @@ impl Connection {
     }
 
     pub fn validate(&self) -> Result<()> {
+        if let Some(limit) = self.max_output_tokens {
+            anyhow::ensure!(limit > 0, "max_output_tokens must be positive");
+            anyhow::ensure!(
+                matches!(self.adapter.as_str(), "anthropic-api" | "openai-api"),
+                "max_output_tokens is supported only by native API connections; the selected backend owns its output limits"
+            );
+        }
         anyhow::ensure!(
             self.model
                 .as_ref()
@@ -243,6 +255,7 @@ impl Args {
                     endpoint: None,
                     binary: None,
                     effort: None,
+                    max_output_tokens: None,
                     api_key: None,
                     access: crate::tools::AccessPolicy::default(),
                 }
@@ -254,6 +267,9 @@ impl Args {
         }
         if let Some(effort) = &self.effort {
             connection.effort = Some(effort.clone());
+        }
+        if let Some(limit) = self.max_output_tokens {
+            connection.max_output_tokens = Some(limit);
         }
         connection.validate()?;
         let workspace = self.workspace.canonicalize().context("resolve workspace")?;

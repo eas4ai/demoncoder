@@ -16,12 +16,13 @@ import threading
 import uuid
 
 sys.dont_write_bytecode = True
+from provider_metadata import ModelMetadataHandler
 from terminal_session import BINARY, FIXTURE, until
 from tool_cycle_fixture import sse_call
 from steering_fixture import initial_calls, corrected_call
 
 
-class Provider(http.server.BaseHTTPRequestHandler):
+class Provider(ModelMetadataHandler):
     def log_message(self, *_):
         pass
 

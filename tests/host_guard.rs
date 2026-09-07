@@ -19,6 +19,7 @@ fn connection(adapter: &str) -> Connection {
         endpoint: None,
         binary: Some(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/oracle_fixture.py")),
         effort: None,
+        max_output_tokens: None,
         api_key: None,
         access: AccessPolicy::default(),
     }

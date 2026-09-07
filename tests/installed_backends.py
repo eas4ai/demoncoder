@@ -22,6 +22,7 @@ import uuid
 from urllib.parse import urlparse
 
 sys.dont_write_bytecode = True
+from provider_metadata import ModelMetadataHandler
 from terminal_session import BINARY, ROOT, until
 from boundary_fixture import requests, model_results, check_result
 import result_fixture
@@ -34,11 +35,13 @@ def fake_codex_auth(home):
     (home / "auth.json").write_text(json.dumps({"auth_mode": "chatgpt", "tokens": {"id_token": token, "access_token": "synthetic-access", "refresh_token": "synthetic-refresh", "account_id": "fixture-account"}, "last_refresh": datetime.datetime.now(datetime.timezone.utc).isoformat()}))
 
 
-class Model(http.server.BaseHTTPRequestHandler):
+class Model(ModelMetadataHandler):
     def log_message(self, *_):
         pass
 
     def do_GET(self):
+        if "/models/" in urlparse(self.path).path:
+            return super().do_GET()
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.end_headers()
