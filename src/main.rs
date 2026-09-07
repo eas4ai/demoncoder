@@ -13,12 +13,30 @@ use tokio::sync::mpsc;
 #[tokio::main]
 async fn main() -> Result<()> {
     let args = Args::parse();
+    if let Some(script) = &args.supervise_bash {
+        std::process::exit(demoncoder::supervisor::run(script).await?);
+    }
     startup::prepare(&args)?;
     let selection = args.selection()?;
+    let settings = args.workflow_settings()?;
+    let (runtime, resumed) = demoncoder::workflow::runtime::SharedRuntime::open(
+        &selection.workspace,
+        &selection.connection,
+        args.resume.as_deref(),
+    )?;
     let session = adapters::builtins()?.open(&selection.connection, &selection.workspace)?;
+    let session = Box::new(demoncoder::workflow::WorkflowSession::new(
+        session,
+        selection.connection.clone(),
+        selection.workspace.clone(),
+        settings,
+        runtime.clone(),
+        resumed,
+    )?);
     let (command_tx, command_rx) = mpsc::channel(16);
     let (event_tx, event_rx) = mpsc::channel(256);
-    let sink = EventSink::new(selection.name.clone(), event_tx, args.event_log.as_deref())?;
+    let sink = EventSink::new(selection.name.clone(), event_tx, args.event_log.as_deref())?
+        .with_runtime(runtime);
     let mut worker = tokio::spawn(session::run(session, command_rx, sink));
     let label = format!(
         "{} · {}",

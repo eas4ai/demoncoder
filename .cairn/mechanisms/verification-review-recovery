@@ -8,6 +8,7 @@ inputs:
   - scripts/
   - README.md
   - docs/spec/
+  - docs/plans/
   - docs/commitments/verification-review-recovery.md
 requirements:
   - VERIFY-001

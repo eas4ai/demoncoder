@@ -17,7 +17,8 @@ reqwest = { version = "0.12.28", default-features = false, features = ["json", "
 rustix = { version = "1.1.4", features = ["fs", "process"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time", "process", "io-util", "signal", "fs"] }
+sha2 = "0.10"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time", "process", "io-util", "io-std", "signal", "fs"] }
 toml = "0.8"
 tempfile = "3"
 unicode-width = "0.2"

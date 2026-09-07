@@ -465,6 +465,7 @@ dependencies = [
  "seccompiler",
  "serde",
  "serde_json",
+ "sha2",
  "syntect",
  "tempfile",
  "tokio",

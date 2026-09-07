@@ -57,6 +57,16 @@ pub fn open(config: &Connection, workspace: &Path) -> Result<Box<dyn Session>> {
 
 #[async_trait]
 impl Model for OpenAi {
+    fn checkpoint(&self) -> Option<Value> {
+        Some(Value::Array(self.history.clone()))
+    }
+    fn restore(&mut self, checkpoint: &Value) -> Result<()> {
+        self.history = checkpoint
+            .as_array()
+            .context("invalid OpenAI conversation checkpoint")?
+            .clone();
+        Ok(())
+    }
     fn prompt(&mut self, text: String) {
         self.history.push(json!({"role":"user", "content":text}));
     }

@@ -80,6 +80,16 @@ pub(crate) fn relay_command(
         Some(Command::Prompt(text)) => (text, None),
         Some(Command::Submit { text, reply }) => (text, Some(reply)),
     };
+    if crate::workflow::is_control(&text) {
+        if let Some(reply) = reply {
+            let _ = reply.send(Err(crate::workflow::BUSY_CONTROL));
+        } else {
+            events.emit_advisory(Event::Error {
+                message: crate::workflow::BUSY_CONTROL.into(),
+            })?;
+        }
+        return Ok(None);
+    }
     let slot = match corrections.slots.clone().try_acquire_owned() {
         Ok(slot) => slot,
         Err(TryAcquireError::NoPermits) => {
@@ -129,6 +139,25 @@ pub(crate) fn relay_command(
 #[async_trait]
 pub trait Session: Send {
     fn owner(&self) -> &'static str;
+    fn supports_workflow(&self) -> bool {
+        false
+    }
+    fn initial_events(&self) -> Result<Vec<Event>> {
+        Ok(Vec::new())
+    }
+    fn checkpoint(&self) -> Option<serde_json::Value> {
+        None
+    }
+    fn settle_interruption(&mut self) -> Result<()> {
+        Ok(())
+    }
+    fn restore(
+        &mut self,
+        _checkpoint: &serde_json::Value,
+        _results: &[crate::tools::ToolResult],
+    ) -> Result<()> {
+        bail!("this adapter cannot restore its internal conversation")
+    }
     async fn turn(
         &mut self,
         prompt: String,
@@ -290,6 +319,14 @@ pub async fn run(
         .is_some()
         {
             return Ok(());
+        }
+        for event in session.initial_events()? {
+            if publish_lifecycle(event, false, &mut commands, &events)
+                .await?
+                .is_some()
+            {
+                return Ok(());
+            }
         }
         while let Some(command) = commands.recv().await {
             let prompt = match command {

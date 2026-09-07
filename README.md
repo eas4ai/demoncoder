@@ -27,6 +27,7 @@ retains its separate review role.
 - [Project trust and execution modes](#project-trust-and-execution-modes)
 - [Steering, cancellation, and continuation](#steering-cancellation-and-continuation)
 - [Usage, results, and event logs](#usage-results-and-event-logs)
+- [Task verification and recovery](#task-verification-and-recovery)
 - [Extending DemonCoder](#extending-demoncoder)
 - [Limits and troubleshooting](#limits-and-troubleshooting)
 - [Development and verification](#development-and-verification)
@@ -121,6 +122,82 @@ file changes.
 The model chooses tool calls and interprets their results. A completed turn means
 the runtime finished that turn; inspect the actual test results before treating a
 coding task as correct.
+
+## Task verification and recovery
+
+Native OpenAI and Anthropic API sessions support an explicit task workflow.
+Select checks and a configured reviewer before starting:
+
+```bash
+demoncoder --workspace /path/to/project --check 'cargo test --locked' \
+  --reviewer review-model --correction-rounds 2 \
+  --task-seconds 900 --task-model-calls 64 --task-tool-calls 128
+```
+
+The reviewer name refers to a connection in your private settings. Ordinary
+conversation still works on all four connections. External agent backends cannot
+currently enforce individual call allocations or restore their opaque internal
+state, so explicit tasks and `--resume` require a native API connection.
+
+| Prompt | Behavior |
+|---|---|
+| `/task <objective>` | Start a task with the selected checks, reviewer and cumulative allocation. |
+| `/verify` | Run the selected commands under the current tool-access policy and retain their original results. |
+| `/review` | Give the tool-free reviewer the objective, actual workspace changes, source and check history. |
+| `/correct` | Return retained findings to the worker, then rerun checks and obtain a fresh review. |
+| `/accept` | Explicitly accept only when all selected checks pass and review is clear for the current workspace. |
+| `/task-status` | Display stopped work, verification, review, acceptance and remaining allocation. |
+| `/abandon` | Archive the task and its evidence, preserving all workspace files. |
+| `/reconcile <inspection explanation>` | Record your inspection of uncertain or changed work so execution can continue. |
+| `/workflow-help` | Display workflow controls. |
+
+No checks means unverified. Model completion never accepts a task. An edit after
+verification or review invalidates that evidence for acceptance. After evidence
+has been collected, use `/correct` to continue work; ordinary prompts cannot
+bypass the correction allowance. Commands require stopped work: cancel or wait
+before submitting them. Escape cancels checks, review and correction too.
+
+The default two correction rounds can be configured from zero to twenty before a
+task starts. The deadline includes time between prompts and time while the app is
+closed. Worker, Oracle, checks, review and corrections share the same finite call
+and tool allowances; resuming does not reset them. Limits are 1–86,400 seconds
+and 1–4,096 model or tool admissions. Reported token and cost totals retain unknown
+values when the connection does not report them. `--task-token-limit` and
+`--task-cost-limit` are rejected because the current adapters cannot enforce hard
+total token or monetary caps.
+
+Each session prints its private recovery directory under
+`~/.demoncoder/sessions/`. Resume with the same workspace, connection, access mode
+and task reviewer:
+
+```bash
+demoncoder --workspace /path/to/project --reviewer review-model \
+  --resume /home/you/.demoncoder/sessions/PRINTED-SESSION
+```
+
+Records contain conversation, tool arguments and results, source evidence and
+decisions. Directories use mode `0700`, files use `0600`, and concurrent writers
+are refused. Preserve these sensitive records privately. A damaged record or
+failed durable write holds execution. Interrupted operations are uncertain and
+are never automatically repeated. Inspect the actual files and effects, then use
+`/reconcile` with what you found. This records your judgment; it does not undo an
+effect or infer whether an interrupted command succeeded. A changed workspace
+while closed also requires inspection. An ordinary session without a previously
+captured workspace requires inspection when resumed.
+
+Task capture includes untracked files and pre-existing changes, excluding only
+the root `.git` entry. It uses repeated bounded scans, not an atomic filesystem
+snapshot; avoid concurrent edits during checks and review. Limits are 8 MiB per
+file, 64 MiB total content, 20,000 entries, depth 64 and ten seconds per capture.
+Special files, hard links, mounted subtrees and unsupported path names block
+capture. Symbolic links are recorded without following targets. Review evidence
+is limited to 1 MiB; changed binary files or evidence that cannot fit block review
+visibly. The project must exclude private session and credential paths.
+
+Retention is finite: 32 archived tasks, 128 evidence generations, 4,096 operations,
+128 recorded decisions and an 8 MiB conversation within a 64 MiB session record.
+Reaching a retention limit stops further affected work; preserve the record and
+start a new session. No automatic checkout, cleanup, commit or deletion occurs.
 
 ## Terminal controls
 
@@ -957,6 +1034,7 @@ excluded. Cairn itself is separate development tooling and is not vendored here.
 cargo fmt --check
 cargo clippy --locked --all-targets -- -D warnings
 cargo test --locked --all-targets
+bash scripts/check-verification-review-recovery.sh
 bash scripts/check-startup.sh
 bash scripts/check-developer-usability.sh
 bash scripts/check-chat-presentation.sh
@@ -1026,6 +1104,8 @@ specified by [AGENTS.md](AGENTS.md).
 | [adapters/](src/adapters/) | Native API and external backend protocol implementations. |
 | [tools.rs](src/tools.rs) | Four tools, typed hooks, final admission, confinement, host execution. |
 | [oracle.rs](src/oracle.rs) | Separate no-tools outside-access review. |
+| [workflow/](src/workflow/) | Task acceptance, workspace evidence, review, shared allocation and private recovery. |
+| [supervisor.rs](src/supervisor.rs) | Own host Bash descendants through cancellation and runtime crashes. |
 | [events.rs](src/events.rs) | Attributed events and optional JSONL publication. |
 | [terminal.rs](src/terminal.rs) | Responsive editor, scrolling, selection, activity and status. |
 | [selection.rs](src/selection.rs) | Bounded frozen visible text and Unicode selection. |
@@ -1045,11 +1125,11 @@ was challenged and what the checks do not establish. Installed-backend evidence
 covers Codex 0.153.4 and Claude Code 2.1.263; it is not a compatibility promise for
 all future versions or models.
 
-The [roadmap](docs/spec/roadmap.md) retains later commitments for verification,
-review and recovery, assignable subagents, advanced orchestration, and
-experience-based improvement. Those features are not implemented in this release.
-Other pending capabilities include a dynamic extension loader, hash-anchored edits,
-and durable application session recovery. The current `edit` tool uses exact text
+The [roadmap](docs/spec/roadmap.md) retains later commitments for assignable
+subagents, advanced orchestration and evidence-based improvement. Those features
+are not implemented in this release. Task verification, review and private native
+session recovery are described above. Other pending capabilities include a dynamic
+extension loader and hash-anchored edits. The current `edit` tool uses exact text
 matching, and the current session has one loop owner.
 
 ## Co-developer attribution

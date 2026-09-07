@@ -108,8 +108,9 @@ def wait_ending(master, process, output, log, status):
 
 def case(adapter, server):
     with tempfile.TemporaryDirectory(prefix="demoncoder-continue-") as directory:
-        workspace = Path(directory)
-        subprocess.run(["git", "init", "-q", directory], check=True)
+        workspace = Path(directory) / "project"
+        workspace.mkdir()
+        subprocess.run(["git", "init", "-q", str(workspace)], check=True)
         (workspace / "continuation").write_text("cancel" if server.state["cancel"] else "complete")
         if server.forget:
             (workspace / "forget-context").touch()
@@ -123,13 +124,13 @@ def case(adapter, server):
             settings += f'endpoint = "http://127.0.0.1:{server.server_port}/{route}"\n'
         else:
             settings += f'binary = {json.dumps(str(FIXTURE))}\n'
-        config = workspace / "connection.toml"
+        config = Path(directory) / "connection.toml"
         config.write_text(settings)
-        log = workspace / "events.jsonl"
+        log = Path(directory) / "events.jsonl"
         master, slave = pty.openpty()
         fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 35, 160, 0, 0))
         env = {"PATH": "/usr/bin:/bin", "HOME": directory, "TERM": "xterm-256color", "LANG": "C.UTF-8", "OPENAI_API_KEY": "fixture-key", "ANTHROPIC_API_KEY": "fixture-key"}
-        process = subprocess.Popen([str(BINARY), "--trust-workspace", "--workspace", directory, "--config", str(config), "--event-log", str(log)], stdin=slave, stdout=slave, stderr=slave, env=env, start_new_session=True)
+        process = subprocess.Popen([str(BINARY), "--trust-workspace", "--workspace", str(workspace), "--config", str(config), "--event-log", str(log)], stdin=slave, stdout=slave, stderr=slave, env=env, start_new_session=True)
         os.close(slave)
         output = bytearray()
         try:
@@ -141,6 +142,11 @@ def case(adapter, server):
             if server.state["cancel"]:
                 os.write(master, b"\x1b")
             wait_ending(master, process, output, log, "cancelled" if server.state["cancel"] else "complete")
+            if server.state["cancel"]:
+                assert not (workspace / "unstarted.txt").exists()
+                assert (workspace / "generated.py").read_text() == source
+                os.write(master, b"/reconcile inspected generated source and confirmed unstarted tool had no effect\r")
+                until(master, process, output, b"Inspection recorded", timeout=3)
             os.write(master, SECOND_PROMPT.encode() + b"\r")
             if corrupt_resume:
                 wait_ending(master, process, output, log, "failed")

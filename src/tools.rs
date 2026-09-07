@@ -14,10 +14,12 @@ use std::{
 
 use anyhow::{Context, Result, bail, ensure};
 use rustix::fs::{Mode, OFlags, ResolveFlags, openat2};
-use rustix::process::{Pid, Signal, WaitId, WaitIdOptions, kill_process_group, waitid};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use tokio::{io::AsyncReadExt, process::Command};
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    process::Command,
+};
 
 use crate::events::{Event, EventSink};
 
@@ -30,6 +32,8 @@ pub struct AccessPolicy {
     pub tools_enabled: bool,
     pub oracle: Option<Box<crate::config::Connection>>,
     pub credential_paths: Vec<PathBuf>,
+    /// Trusted runtime executable that supervises host Bash through a lifetime pipe.
+    pub supervisor: Option<PathBuf>,
 }
 
 impl Default for AccessPolicy {
@@ -39,6 +43,7 @@ impl Default for AccessPolicy {
             tools_enabled: true,
             oracle: None,
             credential_paths: Vec::new(),
+            supervisor: None,
         }
     }
 }
@@ -533,9 +538,14 @@ impl ToolExecutor {
         // takes this branch; a confined launch never falls back to it.
         let root_path = format!("/proc/{}/fd/{}", std::process::id(), self.root.as_raw_fd());
         let mut command = if self.access.unrestricted {
-            let mut command = Command::new("/bin/bash");
+            let mut command = Command::new(
+                self.access
+                    .supervisor
+                    .as_ref()
+                    .context("host Bash requires a configured runtime supervisor")?,
+            );
             command
-                .args(["--noprofile", "--norc", "-c", script])
+                .args(["--supervise-bash", script])
                 .current_dir(&root_path)
                 .env_clear();
             for variable in [
@@ -555,11 +565,11 @@ impl ToolExecutor {
             }
             command.env("TMPDIR", self.scratch.as_ref().expect("host scratch"));
             command
-                .stdin(Stdio::null())
+                .stdin(Stdio::piped())
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped())
                 .process_group(0)
-                .kill_on_drop(true);
+                .kill_on_drop(false);
             command
         } else {
             let mut command = self
@@ -583,16 +593,16 @@ impl ToolExecutor {
                 "Bash requires /usr/bin/bwrap; no host fallback"
             }
         })?;
-        // This guard drops before the child and signals before its PID can be
-        // reaped and reused. WNOWAIT lets normal completion use the same rule.
-        let mut group = HostGroup(if self.access.unrestricted {
-            Some(
-                Pid::from_raw(child.id().context("missing Bash PID")? as i32)
-                    .context("invalid Bash PID")?,
-            )
-        } else {
-            None
-        });
+        // Only this future owns the pipe writer. Cancellation or runtime death
+        // closes it, allowing the independent supervisor to kill Bash and its descendants.
+        let mut lifetime = child.stdin.take();
+        if self.access.unrestricted {
+            lifetime
+                .as_mut()
+                .context("missing host lifetime pipe")?
+                .write_all(b"1")
+                .await?;
+        }
         let mut stdout = child.stdout.take().context("missing Bash stdout")?;
         let mut stderr = child.stderr.take().context("missing Bash stderr")?;
         let collect = async {
@@ -602,14 +612,8 @@ impl ToolExecutor {
             let mut received_bytes = 0;
             let (mut out_decoder, mut err_decoder) =
                 (Utf8Decoder::default(), Utf8Decoder::default());
-            let mut root_exited = false;
-            let mut monitor = tokio::time::interval(Duration::from_millis(20));
-            while out_open || err_open || (self.access.unrestricted && !root_exited) {
+            while out_open || err_open {
                 let (stream, bytes) = tokio::select! {
-                    _ = monitor.tick(), if self.access.unrestricted && !root_exited => {
-                        if group.exited()? { group.stop()?; root_exited = true; }
-                        continue;
-                    },
                     n = stdout.read(&mut out_buf), if out_open => {
                         let n = n?; out_open = n != 0; ("stdout", &out_buf[..n])
                     },
@@ -656,35 +660,6 @@ fn descriptor_path(file: &File) -> Result<PathBuf> {
         file.as_raw_fd()
     ))
     .context("resolve opened tool target")
-}
-
-struct HostGroup(Option<Pid>);
-impl HostGroup {
-    fn exited(&self) -> Result<bool> {
-        let pid = self.0.context("host process group already closed")?;
-        match waitid(
-            WaitId::Pid(pid),
-            WaitIdOptions::EXITED | WaitIdOptions::NOHANG | WaitIdOptions::NOWAIT,
-        ) {
-            Ok(status) => Ok(status.is_some()),
-            Err(rustix::io::Errno::INTR) => Ok(false),
-            Err(error) => Err(error).context("observe host Bash completion without reaping"),
-        }
-    }
-    fn stop(&mut self) -> Result<()> {
-        if let Some(pid) = self.0 {
-            match kill_process_group(pid, Signal::KILL) {
-                Ok(()) | Err(rustix::io::Errno::SRCH) => self.0 = None,
-                Err(error) => return Err(error).context("stop host Bash process group"),
-            }
-        }
-        Ok(())
-    }
-}
-impl Drop for HostGroup {
-    fn drop(&mut self) {
-        let _ = self.stop();
-    }
 }
 
 fn validate_path(path: &str) -> Result<()> {

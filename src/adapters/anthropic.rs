@@ -109,6 +109,16 @@ impl Anthropic {
 
 #[async_trait]
 impl Model for Anthropic {
+    fn checkpoint(&self) -> Option<Value> {
+        Some(Value::Array(self.history.clone()))
+    }
+    fn restore(&mut self, checkpoint: &Value) -> Result<()> {
+        self.history = checkpoint
+            .as_array()
+            .context("invalid Anthropic conversation checkpoint")?
+            .clone();
+        Ok(())
+    }
     fn prompt(&mut self, text: String) {
         self.history.push(json!({"role":"user", "content":text}));
     }

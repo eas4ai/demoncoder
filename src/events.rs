@@ -19,6 +19,39 @@ pub struct ContextUsage {
 #[derive(Clone, Debug, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Event {
+    RetainedTool {
+        result: crate::tools::ToolResult,
+    },
+    SessionRecord {
+        path: String,
+        resumed: bool,
+    },
+    RetainedMessage {
+        role: String,
+        text: String,
+    },
+    TaskAllocation {
+        remaining_seconds: u64,
+        model_calls: u64,
+        model_limit: u64,
+        tool_calls: u64,
+        tool_limit: u64,
+        usage: crate::workflow::allocation::Usage,
+    },
+    ReviewUsage {
+        reviewer: String,
+        input: Option<u64>,
+        output: Option<u64>,
+        cached: Option<u64>,
+        cost_usd: Option<f64>,
+    },
+    TaskState {
+        task_id: u64,
+        stopped: bool,
+        verification: String,
+        review: String,
+        accepted: bool,
+    },
     Ready {
         owner: &'static str,
     },
@@ -83,6 +116,8 @@ pub struct EventSink {
     connection: String,
     sender: mpsc::Sender<Envelope>,
     log: Option<Arc<Mutex<File>>>,
+    runtime: Option<crate::workflow::runtime::SharedRuntime>,
+    phase: String,
 }
 
 impl EventSink {
@@ -110,7 +145,47 @@ impl EventSink {
             connection,
             sender,
             log,
+            runtime: None,
+            phase: "worker".into(),
         })
+    }
+
+    pub fn with_runtime(mut self, runtime: crate::workflow::runtime::SharedRuntime) -> Self {
+        self.runtime = Some(runtime);
+        self
+    }
+
+    pub(crate) fn child(&self, phase: &str, sender: mpsc::Sender<Envelope>) -> Self {
+        Self {
+            connection: phase.into(),
+            sender,
+            log: None,
+            runtime: self.runtime.clone(),
+            phase: phase.into(),
+        }
+    }
+
+    pub(crate) fn begin_model(&self) -> Result<Option<u64>> {
+        self.runtime
+            .as_ref()
+            .map(|r| r.begin_model(&self.phase))
+            .transpose()
+    }
+
+    pub(crate) fn finish_model(&self, id: Option<u64>) -> Result<()> {
+        if let (Some(runtime), Some(id)) = (&self.runtime, id) {
+            runtime.finish_model(id)?;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn checkpoint(&self, state: Option<serde_json::Value>) -> Result<()> {
+        if self.phase == "worker"
+            && let (Some(runtime), Some(state)) = (&self.runtime, state)
+        {
+            runtime.checkpoint(state)?;
+        }
+        Ok(())
     }
 
     pub async fn emit(&self, event: Event) -> Result<()> {
@@ -143,6 +218,9 @@ impl EventSink {
     }
 
     fn retain(&self, envelope: &Envelope) -> Result<()> {
+        if let Some(runtime) = &self.runtime {
+            runtime.observe(&envelope.event, &self.phase)?;
+        }
         if let Some(log) = &self.log {
             let mut log = log
                 .lock()

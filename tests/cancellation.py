@@ -94,8 +94,9 @@ def descendants(pid):
 
 def case(adapter, server, drop_cancel, quit_turn=False):
     with tempfile.TemporaryDirectory(prefix="demoncoder-cancel-") as directory:
-        workspace = Path(directory)
-        subprocess.run(["git", "init", "-q", directory], check=True)
+        workspace = Path(directory) / "project"
+        workspace.mkdir()
+        subprocess.run(["git", "init", "-q", str(workspace)], check=True)
         (workspace / "cancellation").write_text(server.scenario)
         token = uuid.uuid4().hex[:12]
         settings = f'default_connection = "selected"\n[connections.selected]\nadapter = "{adapter}"\nmodel = "fixture-model"\n'
@@ -105,13 +106,13 @@ def case(adapter, server, drop_cancel, quit_turn=False):
             settings += f'endpoint = "http://127.0.0.1:{server.server_port}/{route}"\n'
         else:
             settings += f'binary = {json.dumps(str(FIXTURE))}\n'
-        config = workspace / "connection.toml"
+        config = Path(directory) / "connection.toml"
         config.write_text(settings)
-        log = workspace / "events.jsonl"
+        log = Path(directory) / "events.jsonl"
         master, slave = pty.openpty()
         fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 35, 160, 0, 0))
         env = {"PATH": "/usr/bin:/bin", "HOME": directory, "TERM": "xterm-256color", "LANG": "C.UTF-8", "OPENAI_API_KEY": "fixture-key", "ANTHROPIC_API_KEY": "fixture-key"}
-        process = subprocess.Popen([str(BINARY), "--trust-workspace", "--workspace", directory, "--config", str(config), "--event-log", str(log)], stdin=slave, stdout=slave, stderr=slave, env=env, start_new_session=True)
+        process = subprocess.Popen([str(BINARY), "--trust-workspace", "--workspace", str(workspace), "--config", str(config), "--event-log", str(log)], stdin=slave, stdout=slave, stderr=slave, env=env, start_new_session=True)
         os.close(slave)
         output = bytearray()
         owned = {}
@@ -147,6 +148,9 @@ def case(adapter, server, drop_cancel, quit_turn=False):
                 return
             events = [json.loads(line) for line in log.read_text().splitlines()]
             assert any(row["event"]["type"] == "turn_finished" and row["event"].get("status") == "cancelled" for row in events), "cancelled outcome missing"
+            if server.scenario == "tool":
+                os.write(master, b"/reconcile inspected heartbeat; owned processes stopped and partial marker retained\r")
+                until(master, process, output, b"Inspection recorded", timeout=3)
             os.write(master, ("NEXT-" + token).encode() + b"\r")
             until(master, process, output, ("READY-NEXT-" + token).encode(), timeout=3)
             os.write(master, b"\x11")

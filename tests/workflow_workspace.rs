@@ -1,0 +1,225 @@
+use std::{
+    fs,
+    os::unix::fs::{PermissionsExt, symlink},
+    time::{Duration, Instant},
+};
+
+use demoncoder::workflow::workspace::{capture, review_evidence};
+use tempfile::tempdir;
+
+#[test]
+fn unchanged_capture_and_serialization_are_deterministic() {
+    let root = tempdir().unwrap();
+    fs::write(root.path().join("existing.rs"), "let old = 1;\n").unwrap();
+    fs::create_dir(root.path().join("nested")).unwrap();
+    let first = capture(root.path()).unwrap();
+    assert_eq!(first.digest, capture(root.path()).unwrap().digest);
+    let restored = serde_json::from_str(&serde_json::to_string(&first).unwrap()).unwrap();
+    assert_eq!(first, restored);
+}
+
+#[test]
+fn edits_additions_removals_modes_and_symlink_targets_change_identity() {
+    let root = tempdir().unwrap();
+    let file = root.path().join("preexisting.txt");
+    fs::write(&file, "old").unwrap();
+    let mut previous = capture(root.path()).unwrap().digest;
+    let mut changed = || {
+        let next = capture(root.path()).unwrap().digest;
+        assert_ne!(previous, next);
+        previous = next;
+    };
+    fs::write(&file, "new").unwrap();
+    changed();
+    fs::set_permissions(&file, fs::Permissions::from_mode(0o700)).unwrap();
+    changed();
+    fs::write(root.path().join("untracked.txt"), "untracked").unwrap();
+    changed();
+    fs::remove_file(file).unwrap();
+    changed();
+    symlink("outside-a", root.path().join("link")).unwrap();
+    changed();
+    fs::remove_file(root.path().join("link")).unwrap();
+    symlink("outside-b", root.path().join("link")).unwrap();
+    changed();
+}
+
+#[test]
+fn evidence_contains_actual_old_new_preexisting_and_untracked_text() {
+    let root = tempdir().unwrap();
+    fs::write(root.path().join("preexisting.rs"), "old developer edit\n").unwrap();
+    fs::write(root.path().join("retained.rs"), "relevant source\n").unwrap();
+    fs::write(root.path().join("deleted.rs"), "deleted content\n").unwrap();
+    fs::write(root.path().join(".gitignore"), "ignored.rs\n").unwrap();
+    let before = capture(root.path()).unwrap();
+    fs::write(root.path().join("preexisting.rs"), "new worker edit\n").unwrap();
+    fs::write(
+        root.path().join("ignored.rs"),
+        "new untracked ignored content\n",
+    )
+    .unwrap();
+    fs::remove_file(root.path().join("deleted.rs")).unwrap();
+    let evidence = review_evidence(&before, &capture(root.path()).unwrap()).unwrap();
+    for expected in [
+        "old developer edit",
+        "new worker edit",
+        "relevant source",
+        "deleted content",
+        "new untracked ignored content",
+        "pre-existing",
+        "untracked/ignored",
+        "NEW: absent",
+    ] {
+        assert!(
+            evidence.contains(expected),
+            "missing {expected}: {evidence}"
+        );
+    }
+}
+
+#[test]
+fn symlink_targets_are_never_read_and_only_root_git_is_excluded() {
+    let root = tempdir().unwrap();
+    let outside = tempdir().unwrap();
+    fs::write(outside.path().join("secret"), "OUTSIDE_SECRET_CANARY").unwrap();
+    symlink(outside.path(), root.path().join("link")).unwrap();
+    symlink(outside.path(), root.path().join(".git")).unwrap();
+    fs::create_dir_all(root.path().join("nested/.git")).unwrap();
+    fs::write(root.path().join("nested/.git/config"), "nested content").unwrap();
+    let before = capture(root.path()).unwrap();
+    let evidence = review_evidence(&before, &before).unwrap();
+    assert!(!evidence.contains("OUTSIDE_SECRET_CANARY"));
+    assert!(evidence.contains("nested content"));
+    fs::write(outside.path().join("secret"), "CHANGED_OUTSIDE").unwrap();
+    assert_eq!(before.digest, capture(root.path()).unwrap().digest);
+}
+
+#[test]
+fn special_files_are_rejected_without_opening_or_waiting() {
+    let root = tempdir().unwrap();
+    rustix::fs::mkfifoat(
+        rustix::fs::CWD,
+        root.path().join("pipe"),
+        rustix::fs::Mode::RUSR,
+    )
+    .unwrap();
+    let started = Instant::now();
+    assert!(
+        capture(root.path())
+            .unwrap_err()
+            .to_string()
+            .contains("special file")
+    );
+    assert!(started.elapsed() < Duration::from_secs(1));
+}
+
+#[test]
+fn changed_binary_blocks_review_but_unchanged_binary_is_identified() {
+    let root = tempdir().unwrap();
+    fs::write(root.path().join("image.bin"), [0, 1, 2]).unwrap();
+    let before = capture(root.path()).unwrap();
+    assert!(
+        review_evidence(&before, &before)
+            .unwrap()
+            .contains("Unchanged binary")
+    );
+    fs::write(root.path().join("image.bin"), [0, 1, 3]).unwrap();
+    assert!(
+        review_evidence(&before, &capture(root.path()).unwrap())
+            .unwrap_err()
+            .to_string()
+            .contains("binary")
+    );
+}
+
+#[test]
+fn oversized_file_and_evidence_are_explicit_refusals() {
+    let root = tempdir().unwrap();
+    let file = fs::File::create(root.path().join("large")).unwrap();
+    file.set_len(8 * 1024 * 1024 + 1).unwrap();
+    assert!(
+        capture(root.path())
+            .unwrap_err()
+            .to_string()
+            .contains("8 MiB")
+    );
+    fs::write(root.path().join("large"), "x".repeat(1024 * 1024)).unwrap();
+    let snapshot = capture(root.path()).unwrap();
+    assert!(
+        review_evidence(&snapshot, &snapshot)
+            .unwrap_err()
+            .to_string()
+            .contains("1 MiB")
+    );
+}
+
+#[test]
+fn hardlinks_and_symlink_roots_are_rejected() {
+    let root = tempdir().unwrap();
+    let outside = tempdir().unwrap();
+    fs::write(outside.path().join("secret"), "secret").unwrap();
+    fs::hard_link(outside.path().join("secret"), root.path().join("alias")).unwrap();
+    assert!(
+        capture(root.path())
+            .unwrap_err()
+            .to_string()
+            .contains("multiply linked")
+    );
+    symlink(root.path(), outside.path().join("root-alias")).unwrap();
+    assert!(capture(&outside.path().join("root-alias")).is_err());
+}
+
+#[test]
+fn depth_is_bounded_and_replaced_roots_cannot_share_review() {
+    let root = tempdir().unwrap();
+    let before = capture(root.path()).unwrap();
+    let other = tempdir().unwrap();
+    assert!(review_evidence(&before, &capture(other.path()).unwrap()).is_err());
+    let mut path = root.path().to_path_buf();
+    for _ in 0..65 {
+        path.push("d");
+        fs::create_dir(&path).unwrap();
+    }
+    assert!(
+        capture(root.path())
+            .unwrap_err()
+            .to_string()
+            .contains("depth limit")
+    );
+}
+
+#[test]
+fn concurrent_symlink_replacement_cannot_read_outside_content() {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    };
+    let root = tempdir().unwrap();
+    let outside = tempdir().unwrap();
+    let secret = outside.path().join("secret");
+    fs::write(&secret, "RACE_OUTSIDE_SECRET_CANARY").unwrap();
+    let target = root.path().join("target");
+    fs::write(&target, "inside").unwrap();
+    let running = Arc::new(AtomicBool::new(true));
+    let thread_running = Arc::clone(&running);
+    let scratch = root.path().join("swap");
+    let attacker = std::thread::spawn(move || {
+        while thread_running.load(Ordering::Relaxed) {
+            symlink(&secret, &scratch).unwrap();
+            fs::rename(&scratch, &target).unwrap();
+            fs::write(&scratch, "inside").unwrap();
+            fs::rename(&scratch, &target).unwrap();
+        }
+    });
+    let mut leaked = false;
+    for _ in 0..50 {
+        if let Ok(snapshot) = capture(root.path()) {
+            leaked |= serde_json::to_string(&snapshot)
+                .unwrap()
+                .contains("RACE_OUTSIDE_SECRET_CANARY");
+        }
+    }
+    running.store(false, Ordering::Relaxed);
+    attacker.join().unwrap();
+    assert!(!leaked);
+}

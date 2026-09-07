@@ -11,6 +11,9 @@ use serde::{Deserialize, Serialize};
 #[derive(Parser)]
 #[command(version, about, disable_version_flag = true)]
 pub struct Args {
+    /// Internal host-tool process lifetime protocol.
+    #[arg(long, hide = true, allow_hyphen_values = true)]
+    pub supervise_bash: Option<String>,
     /// Print the application version.
     #[arg(short = 'v', long = "version", visible_short_alias = 'V', action = clap::ArgAction::Version)]
     pub version: Option<bool>,
@@ -47,6 +50,33 @@ pub struct Args {
     /// Save session events to a new file; may contain prompts and model output.
     #[arg(long)]
     pub event_log: Option<PathBuf>,
+    /// Verification command selected for explicit /task work; repeat for several checks.
+    #[arg(long = "check")]
+    pub checks: Vec<String>,
+    /// Configured connection that reviews the actual patch without tools.
+    #[arg(long)]
+    pub reviewer: Option<String>,
+    /// Maximum correction rounds for each explicit task.
+    #[arg(long, default_value_t = 2, value_parser = clap::value_parser!(u32).range(0..=20))]
+    pub correction_rounds: u32,
+    /// Resume a private session directory printed by an earlier invocation.
+    #[arg(long)]
+    pub resume: Option<PathBuf>,
+    /// Cumulative deadline for explicit task work, including review and correction.
+    #[arg(long, default_value_t = 900, value_parser = clap::value_parser!(u64).range(1..=86400))]
+    pub task_seconds: u64,
+    /// Total model calls across worker, Oracle, reviewer and correction.
+    #[arg(long, default_value_t = 64, value_parser = clap::value_parser!(u64).range(1..=4096))]
+    pub task_model_calls: u64,
+    /// Total tool admissions across worker and verification.
+    #[arg(long, default_value_t = 128, value_parser = clap::value_parser!(u64).range(1..=4096))]
+    pub task_tool_calls: u64,
+    /// Requested hard total token cap; rejected when the adapter cannot enforce it.
+    #[arg(long)]
+    pub task_token_limit: Option<u64>,
+    /// Requested hard monetary cap; rejected when pricing or enforcement is unavailable.
+    #[arg(long)]
+    pub task_cost_limit: Option<f64>,
 }
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -222,6 +252,38 @@ pub struct Selection {
 }
 
 impl Args {
+    pub fn workflow_settings(&self) -> Result<crate::workflow::Settings> {
+        anyhow::ensure!(
+            self.task_token_limit.is_none() && self.task_cost_limit.is_none(),
+            "hard cumulative token and monetary caps cannot be enforced by these adapters; use --task-seconds, --task-model-calls and --task-tool-calls"
+        );
+        let config = self.load_config()?;
+        let reviewer = self
+            .reviewer
+            .as_ref()
+            .map(|name| {
+                let mut connection = config
+                    .connections
+                    .get(name)
+                    .cloned()
+                    .context("reviewer connection is not configured")?;
+                connection.validate()?;
+                connection.access = crate::tools::AccessPolicy::review_only();
+                Ok::<_, anyhow::Error>(connection)
+            })
+            .transpose()?;
+        Ok(crate::workflow::Settings {
+            checks: self.checks.clone(),
+            reviewer,
+            correction_limit: self.correction_rounds,
+            limits: crate::workflow::allocation::Limits {
+                seconds: self.task_seconds,
+                model_calls: self.task_model_calls,
+                tool_calls: self.task_tool_calls,
+            },
+        })
+    }
+
     pub(crate) fn config_path(&self) -> Option<PathBuf> {
         self.config.clone().or_else(|| {
             std::env::var_os("HOME")
@@ -289,6 +351,10 @@ impl Args {
             "project is not trusted; use guided setup or explicit --trust-workspace authorization"
         );
         connection.access.unrestricted = self.yolo;
+        if self.yolo {
+            connection.access.supervisor =
+                Some(std::env::current_exe().context("resolve host tool supervisor executable")?);
+        }
         if self.config.is_none()
             || config
                 .connections

@@ -327,6 +327,51 @@ impl View {
 
     fn event(&mut self, envelope: Envelope) {
         match envelope.event {
+            Event::SessionRecord { path, resumed } => self.note(
+                Role::Notice,
+                if resumed {
+                    "Session restored"
+                } else {
+                    "Session saved"
+                },
+                &format!("Resume with --resume {path}. Task controls: /workflow-help"),
+            ),
+            Event::RetainedMessage { role, text } => self.note(
+                if role == "developer" {
+                    Role::User
+                } else {
+                    Role::Assistant
+                },
+                &format!("Retained {role}"),
+                &text,
+            ),
+            Event::TaskAllocation {
+                remaining_seconds,
+                model_calls,
+                model_limit,
+                tool_calls,
+                tool_limit,
+                usage,
+            } => {
+                self.note(Role::Notice, "Task allocation", &format!("{remaining_seconds}s remaining · Model calls {model_calls}/{model_limit} · Tools {tool_calls}/{tool_limit}\nReported input {}{} · output {}{} · cost {}", usage.reported_input, if usage.unknown_input { " + unknown" } else { "" }, usage.reported_output, if usage.unknown_output { " + unknown" } else { "" }, if usage.unknown_cost { format!("${:.4} + unknown", usage.reported_cost_usd) } else { format!("${:.4}", usage.reported_cost_usd) }));
+            }
+            Event::TaskState {
+                task_id,
+                stopped,
+                verification,
+                review,
+                accepted,
+            } => {
+                self.note(
+                    Role::Notice,
+                    &format!("Task {task_id}"),
+                    &format!(
+                        "Work: {} · Verification: {verification} · Review: {review} · Accepted: {}",
+                        if stopped { "stopped" } else { "running" },
+                        if accepted { "yes" } else { "no" }
+                    ),
+                );
+            }
             Event::Ready { .. } => self.status = "Ready".into(),
             Event::TurnStarted => {
                 self.busy = true;
@@ -384,6 +429,18 @@ impl View {
                     &reason,
                 );
             }
+            Event::ReviewUsage {
+                reviewer,
+                input,
+                output,
+                cached,
+                cost_usd,
+            } => {
+                let text = usage_text(input, output, cached, cost_usd);
+                if !text.is_empty() {
+                    self.note(Role::Notice, &format!("Review usage {reviewer}"), &text);
+                }
+            }
             Event::OracleUsage {
                 reviewer,
                 input,
@@ -397,7 +454,7 @@ impl View {
                 }
             }
 
-            Event::ToolFinished { result } => {
+            Event::ToolFinished { result } | Event::RetainedTool { result } => {
                 let role = if result.success {
                     Role::Success
                 } else {

@@ -12,6 +12,8 @@ pub mod session;
 mod socket_filter;
 pub mod startup;
 pub mod status;
+pub mod supervisor;
 pub mod terminal;
 pub mod tools;
 mod transcript;
+pub mod workflow;

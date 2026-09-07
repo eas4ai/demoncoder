@@ -59,7 +59,7 @@ malformed responses. Check untracked files and pre-existing changes too.
 worker for bounded correction. Correction MUST rerun required checks and
 obtain a fresh review. The proposed default is at most two correction rounds
 per task, configurable before starting. Exhaustion MUST stop with findings
-visible; a new prompt MUST NOT silently reset the same task's allowance.
+visible. A new prompt MUST NOT silently reset the same task's allowance.
 Falsifier: A correction removes historical failures, skips verification or
 follow-up review, exceeds its allowance or is reported accepted while blocked.
 Mechanism: Drive fail/correct/pass/review through the real terminal, then
@@ -68,7 +68,7 @@ exercise persistent failure and cancellation in each phase.
 [VERIFY-005] One durable task allocation MUST bound worker work, checks,
 Oracle calls, review and correction cumulatively. The developer MUST see the
 remaining deadline and enforceable limits before starting the workflow.
-Calls and tool admissions MUST consume shared finite allowances; phase
+Calls and tool admissions MUST consume shared finite allowances. Phase
 changes and restart MUST NOT reset them. Reported tokens and costs MUST be
 accumulated without inventing unavailable values. A connection MUST reject
 a requested hard token or monetary cap if it cannot enforce that cap.
@@ -81,7 +81,7 @@ boundaries and restart, with delayed responses and missing usage fixtures.
 findings, allocations and scoped developer decisions from a private,
 versioned durable record. Persist an operation's admission before execution
 and completion before reporting success. Incomplete operations MUST be
-shown as uncertain and MUST NOT automatically replay. The developer MUST
+shown as uncertain. They MUST NOT automatically replay. The developer MUST
 inspect and explicitly reconcile them before continuing affected work.
 Falsifier: Restart repeats an uncertain mutation, forgets an answered scoped
 decision, executes an unanswered request, changes workspace authority or
