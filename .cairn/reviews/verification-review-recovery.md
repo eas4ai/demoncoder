@@ -1,7 +1,7 @@
 # Verification, review and recovery review
 
 commitment: verification-review-recovery
-commit: d94e156fa76f467fd82e1c9977cb431ba225592b
+commit: 1ca2dd5b4f10bde845c6e121f7f18a1c2dc1b0f4
 findings:
   - open: VERIFY-002/006 verification snapshot and attribution are lost when post-check capture fails
 Status: in progress
