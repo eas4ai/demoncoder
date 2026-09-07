@@ -1,10 +1,10 @@
 # Assignable subagents review
 
 commitment: assignable-subagents
-commit: 2a32e0d5b8a3edd89834fdad37001d9e86575db0
+commit: ff4ef017426dc96a4c86f9095ffef1989a4fd4a9
 findings:
-  - none: recorded regression repaired; final installed-candidate review remains pending
-Status: in progress
+  - none: all recorded findings repaired and verified
+Status: complete
 
 ## Strict tool component specification review
 
@@ -139,3 +139,66 @@ change is warranted to reduce that history metric. The test gate names eight
 Rust/driver paths and dynamic-dispatch gaps; controlled Rust and terminal checks
 cover the relevant behavior. The live Oracle validator was run and rejected its
 old receipt as stale; no paid-provider run was made and no live pass is claimed.
+
+## Final candidate review and release audit
+
+Reviewed the assembled committed manager, developer-control wrapper, native
+response loop, durable admission path, strict policy and integration boundary.
+Attacks covered dropped UI notices, held lifecycle publication, abandon followed
+by work, a third concurrent integration, failed and stale validation, configured
+Git patch prefixes, bind-mounted canaries, interrupted preparation and integration,
+and returned provider errors. Recorded findings above were fixed in separate
+commits and demonstrated to fail before their corrections. No open finding remains.
+
+The final cargo test --locked run passed all executed tests (six explicit fixture
+or live entry points remain ignored by that command). Formatting and strict
+all-target Clippy passed. Existing verification production cases VERIFY-001
+through VERIFY-006 passed; recovery and cancellation were rerun after the native
+error repair. Controlled coding-session cases passed through host access; its
+script then failed the live Oracle receipt validator because that receipt is
+stale. This is not a current live-provider pass. No paid requests were made.
+
+Additional terminal drivers passed queue responsiveness, registry, mouse and
+clipboard behavior, chat presentation, scrollback, status, usage, configuration,
+startup, output limits, authentication, capability rejection, inherited descriptors
+and the usability contract. The current seven-requirement Cairn mechanism passed
+after the native repair. Plan completion records reuse the existing private-store
+failure and old-record tests rather than claiming duplicate child-store machinery.
+
+Installed with cargo install --path . --locked. The executable at
+/home/shawn/.cargo/bin/demoncoder and target/release/demoncoder both have SHA-256
+b2bb346c5ccf8759b5f913f2ae25bc98108e117ebe204518697ee0bc6da3c492.
+With DEMONCODER_TEST_BINARY selecting that installed executable, all seven
+assignable-subagents production requirements and all three output-limit terminal
+tests passed. The four transports are controlled fixtures exercising real adapter,
+terminal, filesystem and process behavior; external service behavior is not proved.
+
+### Production standard self-audit
+
+1. Mapped the agreed requirements, existing session owners and shared runtime
+   before implementation; the glossary and contract remain authoritative.
+2. Kept changes within the selected commitment and its inherited dependencies.
+3. Reused adapters, tool execution, durable storage and review instead of adding
+   another agent loop, database or daemon.
+4. Validated assignment/configuration boundaries and preserved default four-tool
+   sessions and backward-compatible durable records.
+5. Retained original errors and results; unknown usage stays unknown. Synthetic
+   credentials and canaries exercised protection without exposing real secrets.
+6. Enforced child confinement independently of parent flags and Oracle decisions;
+   filesystem and shell escape demonstrations now fail closed.
+7. Persisted intent and admission before effects, retained interrupted identities
+   and prevented automatic replay or fabricated integration success.
+8. Bounded admissions, deadlines, active jobs, output and retained state; tested
+   cancellation under output pressure and during worktree copying.
+9. Maintained one in-progress task; marked plan items complete after their code
+   and applicable verification finished.
+10. Ran production success/failure paths, Rust checks and affected terminal drivers.
+    Recorded the stale live receipt separately from controlled passes.
+11. Completion claims are limited to executed evidence and inspected code; the
+    roadmap still contains later commitments.
+12. Applied the developer corrections for all four connection types, genuine Git
+    worktrees and mandatory child confinement.
+13. Reviewed every rule and resolved observed defects before delivery. No further
+    revision is indicated by current evidence or source review.
+14. Documented controls and limits in plain language, including no child network
+    or home toolchains, unknown backend usage and non-atomic external-writer races.

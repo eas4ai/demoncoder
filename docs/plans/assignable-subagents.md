@@ -65,21 +65,21 @@ Extract a shared hardened Git command helper from src/status.rs if appropriate.
 Files: add src/subagents/{mod,state,manager}.rs; extend workflow/runtime.rs,
 events.rs and config.rs. Use the existing store rather than another database.
 
-- [ ] Test serialized assignments and transitions. Core record fields are id,
+- [x] Test serialized assignments and transitions. Core record fields are id,
   objective, context, connection identity, owned paths, checks/reviewer, worktree
   identity, status, original results, validation snapshot and integration intent.
   State transitions reject running/stale/unvalidated integration and uncertain replay.
-- [ ] Add optional backward-compatible child records to the parent durable record.
+- [x] Add optional backward-compatible child records to the parent durable record.
   Use atomic updates to consume shared native call/tool counters and separately
   named backend invocation allowances before execution. All children share the
   parent's absolute deadline; no phase/restart refreshes it.
-- [ ] Bound active children (default two), queued work, retained messages/results
+- [x] Bound active children (default two), queued work, retained messages/results
   and assignments. Enforce child-specific and shared remaining limits. Unsupported
   backend-internal token/cost/call controls remain visibly unavailable.
-- [ ] Persist every assignment admission, result, checkpoint and validation before
+- [x] Persist every assignment admission, result, checkpoint and validation before
   publishing success. Restore native checkpoints only through existing contracts;
   interrupted opaque backends remain inspectable and stopped without a replacement.
-- [ ] Test exhaustion and restart before effects, old records, changed identity,
+- [x] Test exhaustion and restart before effects, old records, changed identity,
   disk write failure and sender/assignment-preserving message serialization.
 
 ## Task 4: adapter and terminal delegation path (SUB-001, SUB-004)
@@ -87,22 +87,22 @@ events.rs and config.rs. Use the existing store rather than another database.
 Files: extend tools.rs, session.rs, native.rs, adapters/{codex,claude,openai,
 anthropic}.rs as needed, config.rs/main.rs, terminal.rs and events.rs.
 
-- [ ] Add a host-owned optional tool extension interface shared by all adapters.
+- [x] Add a host-owned optional tool extension interface shared by all adapters.
   Parent delegation tools submit validated assignments to the manager. Child
   policies never expose delegation or integration tools. Default ordinary sessions
   retain the existing four-tool surface when delegation is not enabled.
-- [ ] Resolve developer-selected named child connections from trusted settings,
+- [x] Resolve developer-selected named child connections from trusted settings,
   preserving model/effort and authentication. Open children with existing factories
   using fresh strict policies and their own worktree/context, never inherited host
   access or child-provided connection configuration.
-- [ ] Add developer controls for listing/inspection, cancellation, validation,
+- [x] Add developer controls for listing/inspection, cancellation, validation,
   reconciliation and explicit integration. Mark them as controls so active turns
   cannot reinterpret them as worker corrections. Keep the editor responsive while
   children and parent run independently.
-- [ ] Label every child event with assignment and connection. Collect bounded
+- [x] Label every child event with assignment and connection. Collect bounded
   original activity/result/usage and present it as agent evidence. A parent request
   can inspect results; only a developer control can authorize integration.
-- [ ] Cancel one child without affecting siblings; parent cancel/shutdown stops all.
+- [x] Cancel one child without affecting siblings; parent cancel/shutdown stops all.
   Use one lifecycle owner and existing backend/subprocess cleanup. Test delayed
   children and effects stopping within two seconds on all four transports.
 
@@ -112,20 +112,20 @@ Files: add tests/assignable_subagents.py and scripts/check-assignable-subagents.
 reuse tests/verification_workflow.py, terminal_session.py and backend_fixture.py.
 Update README.md with exact controls, capability limits and recovery behavior.
 
-- [ ] First run a terminal fixture requesting delegation on the baseline and retain
+- [x] First run a terminal fixture requesting delegation on the baseline and retain
   the observed missing-command/tool failure. Then drive native and subscription
   children through actual read/edit/Bash effects in isolated worktrees.
-- [ ] Run child checks through the strict executor and existing tool-free reviewer
+- [x] Run child checks through the strict executor and existing tool-free reviewer
   with actual child baseline/patch/source/results. Require a current passing check
   set and clear review; blocked/invalid review and stale capture prevent integration.
-- [ ] Exercise parent independent work, individual/parent cancellation, budget
+- [x] Exercise parent independent work, individual/parent cancellation, budget
   exhaustion, synthetic home attacks, authentication selection and labeled results.
   Run clean integration and conflicting parent edits; parent acceptance must become
   unverified after a merge. Kill/restart at child and integration checkpoints.
-- [ ] The shell mechanism emits `cairn: SUB-00N: pass` only after that requirement's
+- [x] The shell mechanism emits `cairn: SUB-00N: pass` only after that requirement's
   production cases and determining component checks succeed. Missing support is
   failing evidence, never a skipped success. No paid requests occur by default.
-- [ ] Run format, Clippy, full Rust tests and documented affected terminal drivers.
+- [x] Run format, Clippy, full Rust tests and documented affected terminal drivers.
   Commit implementation before Cairn checks, then commit all receipts/output files.
 
 ## Release gate
