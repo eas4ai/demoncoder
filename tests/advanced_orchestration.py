@@ -30,6 +30,8 @@ class OrchestrationProvider(Provider):
         call, text = None, "Parent available for independent work."
         parsed = role_request(strings[-1]) if strings else None
         if parsed:
+            assert len(history) == 1 and last["role"] == "user", "role reused prior conversation"
+            assert not body.get("previous_response_id"), "role continued a previous response"
             role, evidence = parsed
             assert not body.get("tools"), "supervision role was given coding tools"
             self.server.role_requests.append({"role": role, "evidence": evidence, "request": body})
@@ -95,7 +97,7 @@ def server_fixture():
 
 def launch(directory, server, extra=(), *, advisor="openai-api", judge="anthropic-api", expect_start=True):
     flags = [value for adapter in ADAPTERS for value in ("--agent-connection", adapter)]
-    return App(directory, server, [*flags, "--check", "test -s greeting", "--reviewer", advisor,
+    return App(directory, server, [*flags, "--check", "printf 'executed-check-stdout\\n'; printf 'executed-check-stderr\\n' >&2; test -s greeting", "--reviewer", advisor,
                                    "--orchestrate", "--judge", judge, *extra], expect_start=expect_start)
 
 
@@ -163,6 +165,15 @@ def receipt_evidence(receipt):
 def backend_requests(directory):
     path = Path(directory) / "orchestration-peer.jsonl"
     return [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
+
+
+def wait_role_request(app, server, adapter, role):
+    if adapter in ("codex", "claude"):
+        app.wait_for(lambda: any(item["kind"] == "prompt" and role_request(item["prompt"])
+                                and role_request(item["prompt"])[0] == role
+                                for item in backend_requests(app.root)))
+    else:
+        app.wait_for(lambda: any(item["role"] == role for item in server.role_requests))
 
 
 def peer_alive(peer):
@@ -296,7 +307,11 @@ def advisor_evidence():
             assert evidence["correction_round"] == 0
             assert "developer dirty edit" in json.dumps(evidence["source_evidence"])
             assert "child result" in json.dumps(evidence["source_evidence"])
+            assert evidence["checks"] == result["checks"]
             assert evidence["checks"] and all(check["success"] for check in evidence["checks"])
+            assert all(check["exit_code"] == 0 for check in evidence["checks"])
+            assert "executed-check-stdout" in evidence["checks"][0]["output"]
+            assert "executed-check-stderr" in evidence["checks"][0]["output"]
             assert receipt["connection"]["adapter"] == adapter and not receipt["connection"]["tools_enabled"]
             assert receipt["snapshot"] == result["review"]["snapshot"]
             assert (project / "greeting").read_text() == "developer dirty edit\n"
@@ -321,10 +336,15 @@ def advisor_refusals():
         (root / "greeting").write_text("changed during advisor\n")
         assert settled(app, identifier)["status"] != "ready", "stale advisor evidence was accepted"
 
-    with scenario(["--check", "false"]) as (app, server, project):
+    with scenario(["--check", "printf failed-check-stdout; printf failed-check-stderr >&2; exit 17"]) as (app, server, project):
         result = settled(app, assign(app, server, "anthropic-api"))
         assert result["status"] != "ready", "advisor prose cleared a failed host check"
-        assert any(not check["success"] for check in result["checks"])
+        failed = [check for check in result["checks"] if not check["success"]]
+        assert failed and failed[0]["exit_code"] == 17
+        assert "failed-check-stdout" in failed[0]["output"] and "failed-check-stderr" in failed[0]["output"]
+        for receipt in role_receipts(result):
+            assert_transport_evidence(app, server, receipt)
+            assert failed[0] in receipt_evidence(receipt)["checks"]
         assert (project / "greeting").read_text() == "developer dirty edit\n"
 
 
@@ -433,13 +453,14 @@ def shared_limits():
         result = settled(app, assign(app, server, "codex", calls=[]))
         assert result["status"] != "ready" and app.record()[1]["backend_invocations"] == 1
         assert not role_receipts(result), "advisor bypassed exhausted backend invocation allowance"
-    with scenario(["--task-tool-calls", "2"]) as (app, server, project):
+    with scenario(["--task-tool-calls", "3"]) as (app, server, project):
         result = settled(app, assign(app, server, "anthropic-api", calls=[
             {"name": "write", "arguments": {"path": "greeting", "content": "admitted\n"}},
-        ], policy={"advisor": ["findings"], "judge": ["findings"], "corrections": [[
+        ], policy={"advisor": ["findings", "blocked"], "judge": ["findings"], "corrections": [[
             {"name": "write", "arguments": {"path": "greeting", "content": "unbudgeted correction\n"}},
         ]]}))
-        assert result["status"] != "ready" and app.record()[1]["allocation"]["tool_calls"] == 2
+        assert result["status"] != "ready" and app.record()[1]["allocation"]["tool_calls"] == 3
+        assert result["orchestration"]["correction_rounds"] == 1
         assert (Path(result["worktree"]["root"]) / "greeting").read_text() == "admitted\n"
         assert (project / "greeting").read_text() == "developer dirty edit\n"
     for adapter in ADAPTERS:
@@ -465,10 +486,7 @@ def cancellation():
                 with scenario(["--agent-limit", "1"], advisor=adapter, judge=adapter) as (app, server, project):
                     first = assign(app, server, adapter, policy=delayed_policy(role))
                     app.wait_for(lambda: agent(app, first)["orchestration"]["stage"] == role)
-                    if adapter in ("codex", "claude"):
-                        app.wait_for(lambda: any(item["kind"] == "prompt" and role_request(item["prompt"])
-                                                and role_request(item["prompt"])[0] == role
-                                                for item in backend_requests(app.root)))
+                    wait_role_request(app, server, adapter, role)
                     second = assign(app, server, adapter)
                     assert agent(app, second)["status"] == "queued"
                     app.send(f"/agent {first}")
@@ -543,6 +561,7 @@ def recovery():
                         else:
                             effect = None
                             app.wait_for(lambda: agent(app, first)["orchestration"]["stage"] == phase)
+                            wait_role_request(app, server, adapter, phase)
                         second = assign(app, server, adapter, dependencies=[first])
                         independent = assign(app, server, adapter)
                         assert agent(app, independent)["worktree"] is None
@@ -649,11 +668,7 @@ def recovery_limits():
                 try:
                     first = assign(app, server, adapter, calls=[], policy=delayed_policy("advisor"))
                     app.wait_for(lambda: agent(app, first)["orchestration"]["stage"] == "advisor")
-                    if adapter == "codex":
-                        app.wait_for(lambda: any(item["kind"] == "prompt" and role_request(item["prompt"])
-                                                for item in backend_requests(directory)))
-                    else:
-                        app.wait_for(lambda: bool(server.role_requests))
+                    wait_role_request(app, server, adapter, "advisor")
                     app.send(f"/delegate {adapter} greeting queued after spent allowance")
                     path, saved = app.record()
                     assert saved["agents"][-1]["status"] == "queued"
@@ -669,7 +684,12 @@ def recovery_limits():
                     app.send("/agents-resume")
                     result = settled(app, 2)
                     assert result["status"] == "failed", "restart reset spent admission allowance"
-                    assert len(server.requests) == requests and backend_requests(directory) == peers
+                    assert len(server.requests) == requests and backend_requests(directory) == peers, {
+                        "adapter": adapter, "http_before": requests, "http_after": len(server.requests),
+                        "peers_before": peers, "peers_after": backend_requests(directory),
+                        "allocation_before": saved["allocation"], "allocation_after": app.record()[1]["allocation"],
+                        "backend_before": saved["backend_invocations"], "backend_after": app.record()[1]["backend_invocations"],
+                    }
                     assert app.record()[1]["allocation"]["model_calls"] == saved["allocation"]["model_calls"]
                     assert app.record()[1]["backend_invocations"] == saved["backend_invocations"]
                 finally:

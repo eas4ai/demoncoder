@@ -85,6 +85,7 @@ def main():
     assert "OPENAI_API_KEY" not in os.environ and "ANTHROPIC_API_KEY" not in os.environ
     log_request({"kind": "launch", "adapter": "codex" if codex else "claude", "pid": os.getpid(), "start": open("/proc/self/stat").read().rsplit(")", 1)[1].split()[19]})
     pending, index, turns = [], 0, 0
+    prompts_in_context = 0
     response, turn = "", ""
     exposed_tools = None
     selected_model = None if codex else sys.argv[sys.argv.index("--model") + 1]
@@ -107,10 +108,13 @@ def main():
             send({"type": "result", "subtype": "success", "is_error": False, "session_id": "fixture-session", "usage": {"input_tokens": 12, "output_tokens": 8}})
 
     def begin(prompt):
-        nonlocal pending, index, response
+        nonlocal pending, index, response, prompts_in_context
+        prompts_in_context += 1
         log_request({"kind": "prompt", "adapter": "codex" if codex else "claude", "prompt": prompt, "model": selected_model})
         parsed = role_request(prompt)
         if parsed:
+            assert prompts_in_context == 1, "role reused an existing conversation"
+            assert "--resume" not in sys.argv and "--continue" not in sys.argv
             if codex:
                 assert exposed_tools == set(), exposed_tools
             call, response = role_reply(*parsed)
@@ -137,6 +141,7 @@ def main():
             elif method == "account/read":
                 result = {"account": {"type": "chatgpt", "email": "fixture@example.invalid", "planType": "plus"}}
             elif method == "thread/start":
+                prompts_in_context = 0
                 assert message["params"]["sandbox"] == "workspace-write"
                 selected_model = message["params"]["model"]
                 exposed_tools = {tool["name"] for tool in message["params"]["dynamicTools"]}

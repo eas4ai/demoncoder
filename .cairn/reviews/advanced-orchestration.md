@@ -87,3 +87,16 @@ case spent its two tools on parent delegation and the first child write, so it
 stopped at initial verification. Use three tool admissions and require correction
 round one to prove the corrective write itself is refused. This is a proof change,
 not an observed runtime defect.
+
+### Production probe and fixture approval
+
+The fixture quality reviewer approved the final proof component with no open
+finding. The correction allowance case now requests one correction, observes its
+denied write with three tools spent, then returns a blocked advisor verdict.
+Independent parent runs passed all ORCH-005 and ORCH-007 cases against a copied
+debug candidate with SHA-256
+9006a68d18e1375d68a0b98285efc0a5a56ea7d3e501f909c532b32d07ace05e.
+The worker's recovery test had exposed a subscription process launch before
+exhausted backend admission; its preflight repair is present in this candidate.
+These are editing-time probes, not Cairn receipts or installed-release evidence.
+Runtime source review, remaining regressions and final checks are still pending.
