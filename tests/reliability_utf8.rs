@@ -108,3 +108,36 @@ async fn bash_keeps_stream_decoders_separate_and_flushes_incomplete_eof() {
     )
     .await;
 }
+
+#[tokio::test]
+async fn replacement_expansion_preserves_the_raw_byte_limit() {
+    let root = tempfile::tempdir().unwrap();
+    let executor = ToolExecutor::new(root.path()).unwrap();
+    for size in [1024 * 1024, 1024 * 1024 + 1] {
+        let (tx, mut rx) = mpsc::channel(16);
+        let events = EventSink::new("utf8-bound".into(), tx, None).unwrap();
+        let drain = tokio::spawn(async move {
+            let mut displayed = String::new();
+            while let Some(envelope) = rx.recv().await {
+                if let Event::ToolOutput { text, .. } = envelope.event {
+                    displayed.push_str(&text);
+                }
+            }
+            displayed
+        });
+        let result = executor.execute(ToolCall {
+            id: "bound-call".into(), name: "bash".into(),
+            arguments: json!({"command":format!("python3 -c 'import os; os.write(1, bytes([255])*{size})'")}),
+        }, &events).await.unwrap();
+        drop(events);
+        let displayed = drain.await.unwrap();
+        if size == 1024 * 1024 {
+            assert!(result.success, "{}", result.output);
+            assert_eq!(result.output, "�".repeat(size));
+            assert_eq!(result.output, displayed);
+        } else {
+            assert!(!result.success);
+            assert!(result.output.contains("Bash output exceeds 1 MiB"));
+        }
+    }
+}

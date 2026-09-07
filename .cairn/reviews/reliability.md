@@ -127,3 +127,15 @@ pipes and send invalid or incomplete sequences. The test compares each stream,
 the live concatenation, the final tool receipt and the retained event log. Small
 writer delays encourage separate OS reads; deterministic decoder tests will cover
 all boundaries directly once the implementation exists.
+
+### REL-004 failure and correction
+
+The committed baseline rendered a split é as two replacement characters. A
+separate case assembled stdout's E2 with stderr's 82 AC into a euro sign in the
+receipt while the display showed three replacements. The correction keeps one
+incomplete code point per pipe and adds each decoded fragment to both the live
+event and final receipt in the same order. EOF replaces an incomplete suffix once.
+The existing one-MiB limit still counts raw pipe bytes, so replacement expansion
+does not change which commands exceed the limit. Deterministic tests enumerate
+every partition of representative valid, invalid, overlong, surrogate and
+out-of-range sequences and compare standard-library whole-stream decoding.

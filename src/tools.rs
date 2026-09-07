@@ -598,7 +598,10 @@ impl ToolExecutor {
         let collect = async {
             let (mut out_open, mut err_open) = (true, true);
             let (mut out_buf, mut err_buf) = ([0u8; 4096], [0u8; 4096]);
-            let mut output = Vec::new();
+            let mut output = String::new();
+            let mut received_bytes = 0;
+            let (mut out_decoder, mut err_decoder) =
+                (Utf8Decoder::default(), Utf8Decoder::default());
             let mut root_exited = false;
             let mut monitor = tokio::time::interval(Duration::from_millis(20));
             while out_open || err_open || (self.access.unrestricted && !root_exited) {
@@ -615,25 +618,29 @@ impl ToolExecutor {
                     },
                 };
                 ensure!(
-                    output.len() + bytes.len() <= MAX_BYTES,
+                    bytes.len() <= MAX_BYTES - received_bytes,
                     "Bash output exceeds 1 MiB"
                 );
-                output.extend_from_slice(bytes);
-                if !bytes.is_empty() {
+                received_bytes += bytes.len();
+                let decoder = if stream == "stdout" {
+                    &mut out_decoder
+                } else {
+                    &mut err_decoder
+                };
+                let text = decoder.decode(bytes, bytes.is_empty());
+                output.push_str(&text);
+                if !text.is_empty() {
                     events
                         .emit(Event::ToolOutput {
                             call_id: id.into(),
                             stream,
-                            text: String::from_utf8_lossy(bytes).into_owned(),
+                            text,
                         })
                         .await?;
                 }
             }
             let status = child.wait().await?;
-            Ok((
-                String::from_utf8_lossy(&output).into_owned(),
-                Some(status.code().unwrap_or(-1)),
-            ))
+            Ok((output, Some(status.code().unwrap_or(-1))))
         };
         match tokio::time::timeout(Duration::from_secs(120), collect).await {
             Ok(result) => result,
@@ -719,4 +726,79 @@ pub fn definitions() -> Vec<Value> {
     ].into_iter().map(|(name, description, properties, required)| json!({
         "name":name,"description":description,"input_schema":{"type":"object","properties":properties,"required":required,"additionalProperties":false}
     })).collect()
+}
+
+/// Keep only an incomplete code point between reads, separately for each pipe.
+#[derive(Default)]
+struct Utf8Decoder {
+    pending: Vec<u8>,
+}
+
+impl Utf8Decoder {
+    fn decode(&mut self, bytes: &[u8], eof: bool) -> String {
+        self.pending.extend_from_slice(bytes);
+        let mut text = String::new();
+        let mut consumed = 0;
+        while consumed < self.pending.len() {
+            match std::str::from_utf8(&self.pending[consumed..]) {
+                Ok(valid) => {
+                    text.push_str(valid);
+                    consumed = self.pending.len();
+                }
+                Err(error) => {
+                    let valid_end = consumed + error.valid_up_to();
+                    text.push_str(
+                        std::str::from_utf8(&self.pending[consumed..valid_end])
+                            .expect("validated UTF-8 prefix"),
+                    );
+                    consumed = valid_end;
+                    match error.error_len() {
+                        Some(length) => {
+                            text.push('\u{fffd}');
+                            consumed += length;
+                        }
+                        None => break,
+                    }
+                }
+            }
+        }
+        self.pending.drain(..consumed);
+        if eof && !self.pending.is_empty() {
+            text.push('\u{fffd}');
+            self.pending.clear();
+        }
+        text
+    }
+}
+
+#[cfg(test)]
+mod utf8_tests {
+    use super::Utf8Decoder;
+
+    #[test]
+    fn every_partition_matches_whole_stream_lossy_decoding() {
+        for bytes in [
+            "Aé€🙂Z".as_bytes(),
+            &[0xff, b'a', 0xe2, b'b', 0xf0, 0x9f],
+            &[0xe0, 0x80, 0x80, 0xed, 0xa0, 0x80],
+            &[0xf4, 0x90, 0x80, 0x80, 0xc3],
+        ] {
+            for boundaries in 0..(1 << (bytes.len() - 1)) {
+                let mut decoder = Utf8Decoder::default();
+                let mut decoded = String::new();
+                let mut start = 0;
+                for end in 1..=bytes.len() {
+                    if end == bytes.len() || boundaries & (1 << (end - 1)) != 0 {
+                        decoded.push_str(&decoder.decode(&bytes[start..end], false));
+                        assert!(decoder.pending.len() <= 3);
+                        start = end;
+                    }
+                }
+                decoded.push_str(&decoder.decode(&[], true));
+                assert_eq!(decoded, String::from_utf8_lossy(bytes));
+                assert!(decoder.pending.is_empty());
+                assert!(decoder.decode(&[], true).is_empty());
+            }
+        }
+    }
 }
