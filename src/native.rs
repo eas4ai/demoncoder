@@ -1,7 +1,7 @@
 //! One small model/tool loop shared by direct API providers.
 use crate::{
     events::{Event, EventSink},
-    session::{Command, Session, TurnEnd},
+    session::{CORRECTION_CAPACITY, CORRECTION_REJECTION, Command, Session, TurnEnd},
     tools::{ToolCall, ToolExecutor, ToolResult},
 };
 use anyhow::Result;
@@ -90,7 +90,7 @@ impl NativeSession {
                 loop {
                     tokio::select! {
                         biased;
-                        command = commands.recv() => if let Some(end) = control(command, &mut corrections, events).await? { return Ok(end); },
+                        command = commands.recv() => if let Some(end) = control(command, &mut corrections, events)? { return Ok(end); },
                         result = &mut response => break result?,
                     }
                 }
@@ -103,7 +103,7 @@ impl NativeSession {
             self.pending = calls.into();
             while let Some(call) = self.pending.front().cloned() {
                 while let Ok(command) = commands.try_recv() {
-                    if let Some(end) = control(Some(command), &mut corrections, events).await? {
+                    if let Some(end) = control(Some(command), &mut corrections, events)? {
                         return Ok(end);
                     }
                 }
@@ -123,7 +123,7 @@ impl NativeSession {
                 let result = loop {
                     tokio::select! {
                         biased;
-                        command = commands.recv() => if let Some(end) = control(command, &mut corrections, events).await? { return Ok(end); },
+                        command = commands.recv() => if let Some(end) = control(command, &mut corrections, events)? { return Ok(end); },
                         result = &mut operation => break result?,
                     }
                 };
@@ -143,7 +143,7 @@ impl NativeSession {
     }
 }
 
-async fn control(
+fn control(
     command: Option<Command>,
     corrections: &mut Vec<String>,
     events: &EventSink,
@@ -152,15 +152,36 @@ async fn control(
         Some(Command::Cancel) => Ok(Some(TurnEnd::Cancelled)),
         Some(Command::Shutdown) | None => Ok(Some(TurnEnd::Shutdown)),
         Some(Command::Prompt(text)) => {
-            corrections.push(text);
-            events
-                .emit(Event::Text {
-                    text: "\n[Correction queued for the next tool boundary]\n".into(),
-                })
-                .await?;
+            let admitted = corrections.len() < CORRECTION_CAPACITY;
+            if admitted {
+                corrections.push(text);
+            }
+            correction_notice(events, admitted)?;
+            Ok(None)
+        }
+        Some(Command::Submit { text, reply }) => {
+            if corrections.len() >= CORRECTION_CAPACITY {
+                let _ = reply.send(Err(CORRECTION_REJECTION));
+                correction_notice(events, false)?;
+            } else if reply.send(Ok(())).is_ok() {
+                corrections.push(text);
+                correction_notice(events, true)?;
+            }
             Ok(None)
         }
     }
+}
+
+fn correction_notice(events: &EventSink, admitted: bool) -> Result<()> {
+    events.emit_advisory(if admitted {
+        Event::Text {
+            text: "\n[Correction queued for the next tool boundary]\n".into(),
+        }
+    } else {
+        Event::Error {
+            message: CORRECTION_REJECTION.into(),
+        }
+    })
 }
 
 #[cfg(test)]

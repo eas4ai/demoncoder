@@ -1,18 +1,33 @@
-use std::{collections::BTreeMap, path::Path};
+use std::{collections::BTreeMap, path::Path, sync::Arc};
 
 use anyhow::{Context, Result, bail};
 use async_trait::async_trait;
-use tokio::sync::mpsc;
+use tokio::sync::{OwnedSemaphorePermit, Semaphore, TryAcquireError, mpsc, oneshot};
 
 use crate::{
     config::Connection,
-    events::{Event, EventSink},
+    events::{Envelope, Event, EventSink},
 };
 
 pub const ADAPTER_INTERFACE_VERSION: u32 = 1;
 
+/// Result sent when the session owner accepts or rejects a submitted draft.
+pub type PromptAdmission = std::result::Result<(), &'static str>;
+pub(crate) const CORRECTION_CAPACITY: usize = 32;
+pub(crate) const CORRECTION_REJECTION: &str =
+    "Correction queue is full; draft retained. Wait for a tool boundary and try again.";
+pub(crate) const CORRECTION_CLOSED: &str =
+    "Session ended before prompt admission; draft retained. Start a new turn and try again.";
+const CORRECTION_ACCEPTED: &str = "\n[Correction queued for the next tool boundary]\n";
+
 pub enum Command {
     Prompt(String),
+    /// Submit a draft while retaining it in the editor until the session owner
+    /// replies. The owner replies before awaiting terminal event publication.
+    Submit {
+        text: String,
+        reply: oneshot::Sender<PromptAdmission>,
+    },
     Cancel,
     Shutdown,
 }
@@ -22,6 +37,93 @@ pub enum TurnEnd {
     Complete,
     Cancelled,
     Shutdown,
+}
+
+pub(crate) struct Correction {
+    text: String,
+    _slot: OwnedSemaphorePermit,
+}
+
+#[derive(Clone)]
+pub(crate) struct CorrectionSender {
+    sender: mpsc::Sender<Correction>,
+    slots: Arc<Semaphore>,
+}
+
+pub(crate) fn correction_channel() -> (CorrectionSender, mpsc::Receiver<Correction>) {
+    let (sender, receiver) = mpsc::channel(CORRECTION_CAPACITY);
+    (
+        CorrectionSender {
+            sender,
+            slots: Arc::new(Semaphore::new(CORRECTION_CAPACITY)),
+        },
+        receiver,
+    )
+}
+
+pub(crate) fn correction_prompt(corrections: Vec<Correction>) -> String {
+    corrections
+        .into_iter()
+        .map(|correction| correction.text)
+        .collect::<Vec<_>>()
+        .join("\n\n")
+}
+
+pub(crate) fn relay_command(
+    command: Option<Command>,
+    corrections: &CorrectionSender,
+    events: &EventSink,
+) -> Result<Option<TurnEnd>> {
+    let (text, reply) = match command {
+        Some(Command::Cancel) => return Ok(Some(TurnEnd::Cancelled)),
+        Some(Command::Shutdown) | None => return Ok(Some(TurnEnd::Shutdown)),
+        Some(Command::Prompt(text)) => (text, None),
+        Some(Command::Submit { text, reply }) => (text, Some(reply)),
+    };
+    let slot = match corrections.slots.clone().try_acquire_owned() {
+        Ok(slot) => slot,
+        Err(TryAcquireError::NoPermits) => {
+            if let Some(reply) = reply {
+                let _ = reply.send(Err(CORRECTION_REJECTION));
+            }
+            events.emit_advisory(Event::Error {
+                message: CORRECTION_REJECTION.into(),
+            })?;
+            return Ok(None);
+        }
+        Err(TryAcquireError::Closed) => {
+            if let Some(reply) = reply {
+                let _ = reply.send(Err(CORRECTION_CLOSED));
+            }
+            return Ok(Some(TurnEnd::Shutdown));
+        }
+    };
+    match corrections.sender.try_reserve() {
+        Ok(permit) => {
+            let acknowledged = reply.is_none_or(|reply| reply.send(Ok(())).is_ok());
+            if acknowledged {
+                permit.send(Correction { text, _slot: slot });
+                events.emit_advisory(Event::Text {
+                    text: CORRECTION_ACCEPTED.into(),
+                })?;
+            }
+        }
+        Err(mpsc::error::TrySendError::Full(_)) => {
+            if let Some(reply) = reply {
+                let _ = reply.send(Err(CORRECTION_REJECTION));
+            }
+            events.emit_advisory(Event::Error {
+                message: CORRECTION_REJECTION.into(),
+            })?;
+        }
+        Err(mpsc::error::TrySendError::Closed(_)) => {
+            if let Some(reply) = reply {
+                let _ = reply.send(Err(CORRECTION_CLOSED));
+            }
+            return Ok(Some(TurnEnd::Shutdown));
+        }
+    }
+    Ok(None)
 }
 
 #[async_trait]
@@ -129,48 +231,112 @@ impl Registry {
     }
 }
 
+/// Lifecycle publication must keep draining controls too. A held terminal can
+/// delay display, but cannot keep the owner alive after shutdown or admit more
+/// prompts into an unbounded holding area.
+async fn publish_lifecycle(
+    event: Event,
+    allow_cancel: bool,
+    commands: &mut mpsc::Receiver<Command>,
+    events: &EventSink,
+) -> Result<Option<TurnEnd>> {
+    let publication = events.emit(event);
+    tokio::pin!(publication);
+    loop {
+        tokio::select! {
+            biased;
+            result = &mut publication => return match result {
+                Ok(()) => Ok(None),
+                // The UI closes its receiver on quit; that is a cleanup request,
+                // while a retained-log error must still be reported.
+                Err(error) if error.downcast_ref::<mpsc::error::SendError<Envelope>>().is_some() => Ok(Some(TurnEnd::Shutdown)),
+                Err(error) => Err(error),
+            },
+            command = commands.recv() => match command {
+                Some(Command::Shutdown) | None => return Ok(Some(TurnEnd::Shutdown)),
+                Some(Command::Cancel) if allow_cancel => return Ok(Some(TurnEnd::Cancelled)),
+                Some(Command::Cancel) => {},
+                Some(command) => {
+                    const REASON: &str = "Session is waiting for terminal output; draft retained. Try again shortly.";
+                    let report = match command {
+                        Command::Submit { reply, .. } => reply.send(Err(REASON)).is_ok(),
+                        Command::Prompt(_) => true,
+                        _ => unreachable!("control commands handled above"),
+                    };
+                    if report {
+                        events.emit_advisory(Event::Error { message: REASON.into() })?;
+                    }
+                },
+            },
+        }
+    }
+}
+
 pub async fn run(
     mut session: Box<dyn Session>,
     mut commands: mpsc::Receiver<Command>,
     events: EventSink,
 ) -> Result<()> {
     let result = async {
-        events
-            .emit(Event::Ready {
+        if publish_lifecycle(
+            Event::Ready {
                 owner: session.owner(),
-            })
-            .await?;
+            },
+            false,
+            &mut commands,
+            &events,
+        )
+        .await?
+        .is_some()
+        {
+            return Ok(());
+        }
         while let Some(command) = commands.recv().await {
-            match command {
-                Command::Prompt(prompt) => {
-                    events.emit(Event::TurnStarted).await?;
-                    match session.turn(prompt, &mut commands, &events).await {
-                        Ok(TurnEnd::Shutdown) => break,
-                        Ok(end) => {
-                            events
-                                .emit(Event::TurnFinished {
-                                    status: if end == TurnEnd::Complete {
-                                        "complete"
-                                    } else {
-                                        "cancelled"
-                                    },
-                                })
-                                .await?
-                        }
-                        Err(error) => {
-                            events
-                                .emit(Event::Error {
-                                    message: error.to_string(),
-                                })
-                                .await?;
-                            events
-                                .emit(Event::TurnFinished { status: "failed" })
-                                .await?;
-                        }
-                    }
-                }
+            let prompt = match command {
+                Command::Prompt(prompt) => Some(prompt),
+                Command::Submit { text, reply } => reply.send(Ok(())).ok().map(|()| text),
                 Command::Shutdown => break,
-                Command::Cancel => {}
+                Command::Cancel => None,
+            };
+            let Some(prompt) = prompt else {
+                continue;
+            };
+            let outcome =
+                match publish_lifecycle(Event::TurnStarted, true, &mut commands, &events).await? {
+                    Some(end) => Ok(end),
+                    None => session.turn(prompt, &mut commands, &events).await,
+                };
+            let status = match outcome {
+                Ok(TurnEnd::Shutdown) => break,
+                Ok(TurnEnd::Complete) => "complete",
+                Ok(TurnEnd::Cancelled) => "cancelled",
+                Err(error) => {
+                    if publish_lifecycle(
+                        Event::Error {
+                            message: error.to_string(),
+                        },
+                        false,
+                        &mut commands,
+                        &events,
+                    )
+                    .await?
+                    .is_some()
+                    {
+                        break;
+                    }
+                    "failed"
+                }
+            };
+            if publish_lifecycle(
+                Event::TurnFinished { status },
+                false,
+                &mut commands,
+                &events,
+            )
+            .await?
+            .is_some()
+            {
+                break;
             }
         }
         Ok(())
@@ -178,4 +344,31 @@ pub async fn run(
     .await;
     let close = session.close().await;
     result.and(close)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn closed_correction_handoff_returns_a_specific_admission_reason() {
+        let (corrections, receiver) = correction_channel();
+        drop(receiver);
+        let (event_tx, _event_rx) = mpsc::channel(1);
+        let events = EventSink::new("closed".into(), event_tx, None).unwrap();
+        let (reply, admission) = oneshot::channel();
+
+        let end = relay_command(
+            Some(Command::Submit {
+                text: "retained draft".into(),
+                reply,
+            }),
+            &corrections,
+            &events,
+        )
+        .unwrap();
+
+        assert!(matches!(end, Some(TurnEnd::Shutdown)));
+        assert_eq!(admission.await.unwrap(), Err(CORRECTION_CLOSED));
+    }
 }

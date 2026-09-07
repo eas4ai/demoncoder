@@ -56,3 +56,46 @@ so no notice or subsequent frame arrived. This is a real held-consumer failure,
 not a source-shape assertion. Runtime cancellation under event backpressure and
 normal accepted-prompt continuation still need adding before this requirement
 can be considered proved.
+
+### REL-002 correction and integration inspection
+
+The terminal uses an acknowledged Submit command while retaining the original
+Prompt variant and Session::turn signature. It keeps one pending draft, accepts
+edits during admission, clears only an unchanged accepted draft, and shows a
+rejection reason. Cancellation has one nonblocking pending request, and quit is
+not awaited in an input branch. Main's shutdown deadline includes queue submission
+and aborts/joins a timed-out worker.
+
+The runtime worker reproduced native advisory cancellation blocking beyond 500 ms
+and Codex blocking beyond two seconds. An intermediate test also found a dropped
+admission receiver consuming a native correction slot, and a drained Codex queue
+accepting correction 33. The corrected code replies without awaiting event delivery,
+reserves capacity before acceptance, and holds a shared permit across the channel
+and adapter-local vector until application/drop. Native and subscription owners
+now bound unapplied corrections at 32. Only advisory correction notices can omit
+the live copy under pressure; optional logs retain them, while substantive text
+and original tool receipts still use awaited publication.
+
+Parent integration inspection then found lifecycle publication outside the
+cancellable turn. A new public session::run test failed after 500 ms with shutdown
+blocked behind Ready. The corrected helper keeps polling controls while Ready,
+TurnStarted, Error or TurnFinished waits for capacity. Additional prompts receive
+an immediate rejection, Cancel can skip a waiting turn, and Shutdown closes the
+owner. The corrected test covers Ready, start and finish, checks rejection reasons,
+checks that cancellation does not start work, and observes owner cleanup without
+draining the held event channel. A closed UI receiver is treated as shutdown;
+retained-log errors still propagate.
+
+The five runtime cases (including the parent's lifecycle test) pass in
+local verification, as do the closed-handoff unit and retained-receipt cancellation
+unit. Parent PTY cases exercise full command queues, delayed acceptance/rejection,
+edits during admission, repeated Enter, retry and quit. Existing independent
+registration, four-connection steering and all eight provider/tool cancellation
+cases pass. Additional actual-main quit cases stop owned tools on all four
+connections within two seconds. Clippy with warnings denied passes after the
+lifecycle correction. The full committed mechanism will supply the receipt.
+
+Limits: synchronous event-log writes can still be delayed by a stalled filesystem;
+these checks exercise queue backpressure, not filesystem stalls. Exhaustive matches
+in custom Session implementations must handle Command::Submit; this additive enum
+change is documented. The Session::turn signature remains unchanged.

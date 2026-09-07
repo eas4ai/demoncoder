@@ -3,7 +3,7 @@ use crate::{
     events::{ContextUsage, Envelope, Event},
     highlight::Source,
     selection::Selection,
-    session::Command,
+    session::{Command, PromptAdmission},
     status::{DisplayOptions, GitPoller, GitStatus, context_text, usage_text},
 };
 use anyhow::{Context, Result, bail};
@@ -24,7 +24,7 @@ use ratatui::{
     widgets::{Block, Borders, Paragraph},
 };
 use std::{collections::BTreeMap, io::IsTerminal, path::Path, time::Duration};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 use unicode_width::UnicodeWidthStr;
 
 const MAX_INPUT_BYTES: usize = 64 * 1024;
@@ -49,6 +49,13 @@ struct View {
     rail: Option<ScrollRail>,
     drag_offset: Option<u16>,
     copy_notice: Option<&'static str>,
+    pending_prompt: Option<PendingPrompt>,
+    cancel_pending: bool,
+}
+
+struct PendingPrompt {
+    text: String,
+    reply: oneshot::Receiver<PromptAdmission>,
 }
 
 #[derive(Clone, Copy)]
@@ -128,6 +135,90 @@ impl ToolActivity {
 }
 
 impl View {
+    fn submit(&mut self, commands: &mpsc::Sender<Command>) {
+        if self.pending_prompt.is_some() {
+            self.copy_notice = Some("Waiting for prompt admission · draft retained and editable");
+            return;
+        }
+        if self.cancel_pending {
+            self.copy_notice = Some("Cancellation pending · draft retained");
+            return;
+        }
+        let (reply, received) = oneshot::channel();
+        match commands.try_send(Command::Submit {
+            text: self.input.clone(),
+            reply,
+        }) {
+            Ok(()) => {
+                self.pending_prompt = Some(PendingPrompt {
+                    text: self.input.clone(),
+                    reply: received,
+                });
+                self.copy_notice = Some("Submitting prompt · draft retained until accepted");
+            }
+            Err(mpsc::error::TrySendError::Full(_)) => {
+                self.copy_notice =
+                    Some("Command queue is full · draft retained · try again when work advances");
+            }
+            Err(mpsc::error::TrySendError::Closed(_)) => {
+                self.copy_notice = Some("Session stopped · prompt was not sent · draft retained");
+            }
+        }
+    }
+
+    // Poll once per event/frame, without waiting for either queue. At most one
+    // admission and one cancellation are pending, even under repeated keys.
+    fn poll_commands(&mut self, commands: &mpsc::Sender<Command>) {
+        if let Some(pending) = &mut self.pending_prompt {
+            let admitted = match pending.reply.try_recv() {
+                Ok(result) => Some(result),
+                Err(oneshot::error::TryRecvError::Empty) => None,
+                Err(oneshot::error::TryRecvError::Closed) => Some(Err(
+                    "Session stopped before accepting prompt · draft retained",
+                )),
+            };
+            if let Some(admitted) = admitted {
+                let pending = self.pending_prompt.take().expect("pending admission");
+                match admitted {
+                    Ok(()) => {
+                        if self.input == pending.text {
+                            self.input.clear();
+                            self.copy_notice = None;
+                        } else {
+                            self.copy_notice = Some("Prompt accepted · edited draft retained");
+                        }
+                        self.selection = None;
+                        self.note(Role::User, "You:", &pending.text);
+                        self.anchor = None;
+                        self.status = if self.busy {
+                            "Queuing correction"
+                        } else {
+                            "Starting"
+                        }
+                        .into();
+                        self.busy = true;
+                    }
+                    Err(reason) => self.copy_notice = Some(reason),
+                }
+            }
+        }
+        if self.cancel_pending {
+            match commands.try_send(Command::Cancel) {
+                Ok(()) => {
+                    self.cancel_pending = false;
+                    if self.busy {
+                        self.status = "Cancelling".into();
+                    }
+                }
+                Err(mpsc::error::TrySendError::Full(_)) => {}
+                Err(mpsc::error::TrySendError::Closed(_)) => {
+                    self.cancel_pending = false;
+                    self.copy_notice = Some("Session stopped · cancellation receiver closed");
+                }
+            }
+        }
+    }
+
     fn append(&mut self, text: &str) {
         if text.is_empty() {
             return;
@@ -445,10 +536,16 @@ async fn run_view(
     let mut input_events = EventStream::new();
     let mut refresh = tokio::time::interval(Duration::from_millis(33));
     loop {
+        view.poll_commands(commands);
         tokio::select! {
             Some(status) = git_rx.recv() => view.git = Some(status),
             event = events.recv() => match event {
-                Some(event) => view.event(event),
+                Some(event) => {
+                    // Admission precedes turn events in the runtime. Consume it
+                    // first even when this select woke on the event channel.
+                    view.poll_commands(commands);
+                    view.event(event);
+                },
                 None => bail!("session runtime stopped"),
             },
             _ = refresh.tick() => {
@@ -465,7 +562,7 @@ async fn run_view(
                                 view.copy_notice = Some("Prompt copy requested · terminal must allow OSC 52");
                         }
                         KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) && !key.modifiers.contains(KeyModifiers::SHIFT) => {
-                            if view.busy { commands.send(Command::Cancel).await.context("cancel session")?; }
+                            if view.busy || view.pending_prompt.is_some() { view.cancel_pending = true; }
                             else { view.input.clear(); }
                         }
                         KeyCode::Esc if view.selection.is_some() => { view.selection = None; view.copy_notice = None; },
@@ -478,7 +575,7 @@ async fn run_view(
                                 }
                             }
                         },
-                        KeyCode::Esc if view.busy => { commands.send(Command::Cancel).await.context("cancel session")?; }
+                        KeyCode::Esc if view.busy || view.pending_prompt.is_some() => { view.cancel_pending = true; }
                         KeyCode::Char('o') if key.modifiers.contains(KeyModifiers::CONTROL) => { view.selection = None; view.copy_notice = None; view.chat.toggle(); },
                         KeyCode::PageUp => view.scroll(-i64::from(view.chat_area.height.max(1))),
                         KeyCode::PageDown => view.scroll(i64::from(view.chat_area.height.max(1))),
@@ -491,13 +588,7 @@ async fn run_view(
                         }
                         KeyCode::End => { view.selection = None; view.copy_notice = None; view.anchor = None; },
                         KeyCode::Enter if !view.input.trim().is_empty() => {
-                            view.selection = None; view.copy_notice = None;
-                            let prompt = std::mem::take(&mut view.input);
-                            view.note(Role::User, "You:", &prompt);
-                            view.anchor = None;
-                            view.status = if view.busy { "Queuing correction" } else { "Starting" }.into();
-                            view.busy = true;
-                            commands.send(Command::Prompt(prompt)).await.context("submit prompt")?;
+                            view.submit(commands);
                         }
                         KeyCode::Backspace => { view.input.pop(); }
                         KeyCode::Char(c) if !key.modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) && !c.is_control()

@@ -191,6 +191,12 @@ terminal shows an explicit notice. This bounds display storage, separately from
 the model's conversation history; it is not provider-context compaction or session
 recovery.
 
+Prompt submission keeps the draft until the runtime accepts it. A full command or
+correction queue leaves the draft editable and shows a reason. If you edit while
+admission is pending, acceptance preserves the edited draft. At most one submission
+waits for admission, and each active turn queues at most 32 unapplied corrections. Cancellation
+and quit remain responsive while either queue is full.
+
 ## How the coding loop works
 
 A **session** is the continuing conversation plus its selected workspace and
@@ -830,6 +836,12 @@ normal configuration selection do not require provider-specific branches in the
 terminal or native coding loop. Additional adapter-specific configuration controls
 may need validation code; the current shared effort validation names the built-ins.
 
+Custom session implementations must handle both legacy `Command::Prompt` and
+`Command::Submit`. The latter carries a reply for immediate acceptance or rejection
+of a prompt; do not await event delivery before replying or checking cancellation.
+The terminal uses this acknowledgement to retain rejected drafts. Exhaustive command
+matches need the added variant; the `Session::turn` signature is unchanged.
+
 The [independent registry driver](tests/registry_driver.rs) is an executable
 example. Capability declarations are promises made by trusted adapter code;
 behavioral tests must establish that those promises hold.
@@ -961,11 +973,11 @@ They require Linux confinement support and the installed Codex/Claude executable
 for their installed-backend cases. Python 3, Git, and the Rust toolchain are test
 prerequisites.
 
-Three Rust test entry points are intentionally ignored in an ordinary Cargo test
-run: the independent adapter driver is launched by `tests/registry.py` in a PTY;
-the live Oracle test has its explicit driver; the selected-repository assessment
-requires an explicit workspace and public network access. An ignored
-entry point alone is not passing evidence.
+Some Rust test entry points need explicit drivers: `tests/registry.py` and
+`tests/reliability_queues.py` launch their terminal drivers in a PTY; the live
+Oracle test has its own driver; the selected-repository assessment requires an
+explicit workspace and public network access. These entry points are ignored in
+an ordinary Cargo test run. An ignored entry point alone is not passing evidence.
 
 ### Live evidence
 

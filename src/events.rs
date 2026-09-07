@@ -118,6 +118,31 @@ impl EventSink {
             connection: self.connection.clone(),
             event,
         };
+        self.retain(&envelope)?;
+        self.sender
+            .send(envelope)
+            .await
+            .context("terminal event receiver closed")
+    }
+
+    /// Retain a control acknowledgement without letting UI backpressure delay
+    /// cancellation. Advisory events may be omitted from the live copy when the
+    /// terminal queue is full; the ordered event log remains authoritative.
+    pub(crate) fn emit_advisory(&self, event: Event) -> Result<()> {
+        let envelope = Envelope {
+            connection: self.connection.clone(),
+            event,
+        };
+        self.retain(&envelope)?;
+        match self.sender.try_send(envelope) {
+            Ok(()) | Err(mpsc::error::TrySendError::Full(_)) => Ok(()),
+            Err(mpsc::error::TrySendError::Closed(_)) => {
+                anyhow::bail!("terminal event receiver closed")
+            }
+        }
+    }
+
+    fn retain(&self, envelope: &Envelope) -> Result<()> {
         if let Some(log) = &self.log {
             let mut log = log
                 .lock()
@@ -126,9 +151,6 @@ impl EventSink {
             log.write_all(b"\n").context("append session event")?;
             log.flush().context("flush session event")?;
         }
-        self.sender
-            .send(envelope)
-            .await
-            .context("terminal event receiver closed")
+        Ok(())
     }
 }

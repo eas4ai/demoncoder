@@ -19,7 +19,7 @@ async fn main() -> Result<()> {
     let (command_tx, command_rx) = mpsc::channel(16);
     let (event_tx, event_rx) = mpsc::channel(256);
     let sink = EventSink::new(selection.name.clone(), event_tx, args.event_log.as_deref())?;
-    let worker = tokio::spawn(session::run(session, command_rx, sink));
+    let mut worker = tokio::spawn(session::run(session, command_rx, sink));
     let label = format!(
         "{} · {}",
         selection.name,
@@ -40,10 +40,19 @@ async fn main() -> Result<()> {
         },
     )
     .await;
-    let _ = command_tx.send(Command::Shutdown).await;
-    let worker_result = tokio::time::timeout(Duration::from_secs(3), worker)
-        .await
-        .context("session shutdown timed out")?
-        .context("session runtime failed")?;
+    // Queue submission belongs inside the deadline too: a stopped consumer must
+    // not trap quit before the cleanup timeout even starts.
+    let shutdown = async {
+        let _ = command_tx.send(Command::Shutdown).await;
+        (&mut worker).await.context("session runtime failed")?
+    };
+    let worker_result = match tokio::time::timeout(Duration::from_secs(3), shutdown).await {
+        Ok(result) => result,
+        Err(error) => {
+            worker.abort();
+            let _ = worker.await;
+            return Err(error).context("session shutdown timed out");
+        }
+    };
     ui_result.and(worker_result)
 }

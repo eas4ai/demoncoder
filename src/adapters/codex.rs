@@ -2,7 +2,9 @@ use super::process::{BackendProcess, executable};
 use crate::{
     config::Connection,
     events::{ContextUsage, Event, EventSink},
-    session::{Command, Session, TurnEnd},
+    session::{
+        Command, Correction, Session, TurnEnd, correction_channel, correction_prompt, relay_command,
+    },
     tools::{ToolCall, ToolExecutor},
 };
 use anyhow::{Context, Result, bail};
@@ -176,7 +178,7 @@ impl Codex {
     async fn run_turn(
         &mut self,
         mut prompt: String,
-        steering: &mut mpsc::Receiver<String>,
+        steering: &mut mpsc::Receiver<Correction>,
         events: &EventSink,
     ) -> Result<TurnEnd> {
         self.connect().await?;
@@ -219,7 +221,7 @@ impl Codex {
                         Some(tokio::time::Instant::now() + std::time::Duration::from_secs(30));
                 }
                 if completed && interrupt_ack {
-                    prompt = corrections.join("\n\n");
+                    prompt = correction_prompt(corrections);
                     continue 'turns;
                 }
                 let message = tokio::select! {
@@ -375,23 +377,14 @@ impl Session for Codex {
         commands: &mut mpsc::Receiver<Command>,
         events: &EventSink,
     ) -> Result<TurnEnd> {
-        let (corrections, mut steering) = mpsc::channel(32);
+        let (corrections, mut steering) = correction_channel();
         let outcome = {
             let run = self.run_turn(prompt, &mut steering, events);
             tokio::pin!(run);
             loop {
                 tokio::select! {
                     biased;
-                    command = commands.recv() => match command {
-                        Some(Command::Cancel) => break Ok(TurnEnd::Cancelled),
-                        Some(Command::Shutdown) | None => break Ok(TurnEnd::Shutdown),
-                        Some(Command::Prompt(text)) => {
-                            match corrections.try_send(text) {
-                                Ok(()) => events.emit(Event::Text { text:"\n[Correction queued for the next tool boundary]\n".into() }).await?,
-                                Err(_) => events.emit(Event::Error { message:"Correction queue is full; wait for the current tool boundary and submit again.".into() }).await?,
-                            }
-                        },
-                    },
+                    command = commands.recv() => if let Some(end) = relay_command(command, &corrections, events)? { break Ok(end); },
                     result = &mut run => break result,
                 }
             }
