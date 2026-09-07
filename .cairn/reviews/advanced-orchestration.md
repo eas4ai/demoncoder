@@ -234,3 +234,18 @@ The retained live-Oracle validator was run and failed because its historical inp
 digest is stale. No live provider call was made. This commitment uses controlled
 production transports and does not refresh the earlier live-provider evidence;
 that limitation is not represented as a passing live check.
+
+## Independent runtime quality review: interrupted integration
+
+P1 finding recorded before repair at 669b633. Cancellation now changes Integrating
+to Cancelled, and finish_job handles a cancelled integration before its integration
+error branch can set recovery_pending. The interruption guard also checks the
+Integrating status that cancellation has already replaced. Integration applies
+the patch to the parent before awaiting metadata reconciliation and capture, so
+cancellation can leave changed or partial parent files without requiring explicit
+inspection. Restart sees Cancelled rather than an uncertain integration. The
+prior error settlement preserved that uncertainty. Preserve uncertain integration
+and parent recovery_pending durably before draining, including forced-abort
+fallback, and demonstrate cancellation after a parent effect with a deterministic
+regression. This is a source-confirmed interleaving; no terminal reproduction has
+yet been claimed. Quality review remains open and the candidate stays unchanged.
