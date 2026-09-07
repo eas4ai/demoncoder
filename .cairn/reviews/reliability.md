@@ -1,7 +1,7 @@
 # Reliability mechanism and implementation review
 
 commitment: reliability
-commit: 33a416bd0935d1c98107d945643778a9f43971a6
+commit: 70ad705c32f4c0763e500a9bef9f96ed02a2c234
 findings:
   - resolved: REL-003 inline input and fragmented input now reject before any response calls
   - resolved: REL-003 output-limit PTY assertions pass at sufficient width
