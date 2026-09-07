@@ -11,4 +11,4 @@ A disposable crash test showed a host Bash descendant still active two seconds a
 
 ## Realized by
 
-(none yet: recorded, not built)
+- d94e156fa76f467fd82e1c9977cb431ba225592b Add explicit task verification and durable recovery
