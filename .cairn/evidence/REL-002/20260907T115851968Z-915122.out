@@ -1,0 +1,43 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s
+Traceback (most recent call last):
+  File "/home/shawn/workspace2/demoncoder/tests/reliability_queues.py", line 76, in <module>
+    main()
+    ~~~~^^
+  File "/home/shawn/workspace2/demoncoder/tests/reliability_queues.py", line 56, in main
+    wait(lambda screen: "queue is full" in screen.lower() and "retained-draft" in screen,
+    ~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+         "full queue did not visibly reject and retain draft")
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/shawn/workspace2/demoncoder/tests/reliability_queues.py", line 50, in wait
+    raise AssertionError(f"{action}: {description}\n{screen_text(output, 160, 30)}")
+AssertionError: prompt: full queue did not visibly reject and retain draft
+DemonCoder · ⠋ Working · held-consumer                                                                                                                          
+Conversation starts with your next prompt.                                                                                                                      
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+                                                                                                                                                                
+┌Correction · Enter sends · Ctrl-Shift-C/V copy/paste · Esc cancels─────────────────────────────────────────────────────────────────────────────────────────┐   
+│                                                                                                                                                           │   
+└───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘   
+Model backend-default · Ctx ?/? · ? free · Git ? · diff ? · agents 0                                                                                            
+PgUp/PgDn scroll · Ctrl-O full output · Ctrl-Q quit                                                                                                             
