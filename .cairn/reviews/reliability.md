@@ -1,9 +1,11 @@
 # Reliability mechanism and implementation review
 
 commitment: reliability
-commit: 37b78a8a19b447dca3b955ab048fc14d500da846
+commit: 33a416bd0935d1c98107d945643778a9f43971a6
 findings:
-  - open: REL-003 inline oversized arguments permit earlier response tool effects
+  - resolved: REL-003 inline input and fragmented input now reject before any response calls
+  - open: REL-003 output-limit PTY fixture clips its required usage assertion at 100 columns
+  - open: reliability fresh independent review and installed release verification pending
 Status: in progress
 
 ## REL-001 mechanism design
@@ -188,3 +190,17 @@ fixtures now place a valid write before the candidate call, checking that neithe
 call has an effect on rejection. The block-start path now validates serialized
 input before storing the block; exact-bound input remains accepted. Final review
 and fresh independent acceptance are still pending.
+
+## Correction review
+
+The inline input change checks at block start before retaining or returning calls.
+Held inline and delta fixtures now include an earlier valid write and prove no
+batch effects on rejection; exact one-MiB calls still execute. The full Rust suite
+passed again (87 passed, five driver-only ignored), as did fmt and Clippy. All
+four REL requirements have fresh passing committed receipts. Authentication,
+connection ownership, capability rejection and usage fixtures passed separately.
+
+The additional output-limit PTY regression has a stale width assumption: the
+100-column terminal visibly clips out 12000 to out 1, despite receiving the
+correct output and status. Its assertions should use the existing resize helper
+to fit the full status. Keep all original output-limit assertions unchanged.
