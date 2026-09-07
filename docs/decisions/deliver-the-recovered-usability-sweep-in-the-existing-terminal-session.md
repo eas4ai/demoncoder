@@ -11,4 +11,4 @@ Keep the existing session and transcript. Investigate the four reported PTY, nam
 
 ## Realized by
 
-6ee2e180832697df6e0a418ec464595490c7a5fc Deliver terminal interaction and truthful status sweep
+- 6ee2e180832697df6e0a418ec464595490c7a5fc Deliver terminal interaction and truthful status sweep
