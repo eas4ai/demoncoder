@@ -68,3 +68,9 @@ The reviewer demonstrated that HTTP role peers accepted earlier worker/assistant
 conversation before the final supervision prompt. Matching the final evidence
 does not establish a fresh role context. Add a transport-level context check and
 reject reused worker conversation. This finding is recorded before the repair.
+
+The quality review also found that silent checks cannot expose erased stdout or
+stderr, and recovery can kill between a persisted role stage and its actual
+transport request. Add distinctive executed output on successful and failed
+checks and gate interruption on the selected role request. These are recorded
+before repair; runtime defects have not been inferred from the proof gaps.
