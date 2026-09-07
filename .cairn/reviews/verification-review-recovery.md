@@ -3,7 +3,7 @@
 commitment: verification-review-recovery
 commit: d94e156fa76f467fd82e1c9977cb431ba225592b
 findings:
-  - none: mechanism reviews below have no open mismatch; final implementation review remains pending
+  - VERIFY-006: incomplete model requests are automatically reconciled on in-process cancellation; require explicit inspection and add a production refusal case
 Status: in progress
 
 ## VERIFY-004 mechanism review
@@ -49,3 +49,17 @@ its durable checkpoint. That last case withholds execution while retaining the
 spent admission and a completed result. The admission and completion paths are
 intentionally distinct. All determining runtime/fixture dependencies are declared.
 No mechanism mismatch found.
+
+## VERIFY-006 mechanism review: finding recorded before repair
+
+The sentence split did not change policy. The production crash/restart cases
+pass on both native adapters, including pre-execution, mid-mutation and saved
+result checkpoints, corrupt records, exclusive opens, private record failure and
+changed workspaces. However, reviewing runtime::finish_phase found an exception
+that the mechanism did not challenge: incomplete model admissions were marked
+reconciled automatically after ordinary cancellation. VERIFY-006 requires the
+developer to inspect and explicitly reconcile incomplete operations before
+continuing affected work. Billing uncertainty alone does not supply that
+inspection. Add a same-process cancelled-model refusal case and preserve the
+uncertain admission until /reconcile. Do not mark this mechanism reviewed until
+that implementation and its failing/corrected demonstration are complete.
