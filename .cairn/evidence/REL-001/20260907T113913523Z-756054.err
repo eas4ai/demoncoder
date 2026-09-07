@@ -1,0 +1,3 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.09s
+     Running tests/developer_access.rs (target/debug/deps/developer_access-a7db3c5eefb1fca4)
+error: test failed, to rerun pass `--test developer_access`

@@ -1,0 +1,36 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.09s
+     Running tests/developer_access.rs (target/debug/deps/developer_access-a7db3c5eefb1fca4)
+
+running 15 tests
+test native_read_accepts_outside_documentation_and_git_metadata_but_mutation_stays_rooted ... ok
+test bash_can_reach_a_network_documentation_endpoint ... ok
+test installed_developer_tools_are_available_without_exposing_provider_environment ... ok
+test bash_does_not_inherit_a_host_directory_descriptor ... ok
+test selected_repository_read_only_assessment ... ignored, requires DEMONCODER_ASSESS_WORKSPACE and uses public network services
+test selected_private_config_cannot_be_changed_by_native_tools ... ok
+test normal_build_links_and_reference_symlinks_do_not_disable_bash ... ok
+test git_can_inspect_and_commit_the_selected_repository ... ok
+test nested_private_settings_are_hidden_without_blocking_the_shell ... ok
+test reliability_host_socket_is_not_reachable_from_confined_bash ... FAILED
+test sweep_public_skill_read_preserves_private_canary ... ok
+test sweep_nested_namespace_probe_retains_its_actual_disposition ... ok
+test sweep_temporary_files_and_pty_work_inside_the_production_sandbox ... ok
+test outside_hard_link_and_symlink_writes_are_blocked_without_disabling_other_commands ... ok
+test private_workspace_settings_and_their_aliases_are_unreadable ... ok
+
+failures:
+
+---- reliability_host_socket_is_not_reachable_from_confined_bash stdout ----
+
+thread 'reliability_host_socket_is_not_reachable_from_confined_bash' (756361) panicked at tests/developer_access.rs:443:5:
+host socket reached: HOST-SOCKET-CONTACTED
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    reliability_host_socket_is_not_reachable_from_confined_bash
+
+test result: FAILED. 13 passed; 1 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.75s
+
+error: test failed, to rerun pass `--test developer_access`
