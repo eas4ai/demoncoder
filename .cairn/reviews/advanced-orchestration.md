@@ -74,3 +74,16 @@ stderr, and recovery can kill between a persisted role stage and its actual
 transport request. Add distinctive executed output on successful and failed
 checks and gate interruption on the selected role request. These are recorded
 before repair; runtime defects have not been inferred from the proof gaps.
+
+### Draft proof quality repair
+
+The reviewer independently confirmed fresh role contexts succeed and contaminated
+or reused contexts fail across all four peers. Check output now has distinct stdout
+and stderr markers, including an exit-17 failure, and recovery waits for the actual
+selected role request before interruption. These three findings are closed.
+
+A further precision issue was found before repair: the correction tool allowance
+case spent its two tools on parent delegation and the first child write, so it
+stopped at initial verification. Use three tool admissions and require correction
+round one to prove the corrective write itself is refused. This is a proof change,
+not an observed runtime defect.
