@@ -329,13 +329,6 @@ def advisor_refusals():
         with scenario() as (app, server, _):
             result = settled(app, assign(app, server, "anthropic-api", policy=policy))
             assert result["status"] != "ready", result
-    with scenario() as (app, server, _):
-        identifier = assign(app, server, "anthropic-api", policy={"role_delay": {"advisor": 1}})
-        app.wait_for(lambda: agent(app, identifier)["orchestration"]["stage"] == "advisor")
-        root = Path(agent(app, identifier)["worktree"]["root"])
-        (root / "greeting").write_text("changed during advisor\n")
-        assert settled(app, identifier)["status"] != "ready", "stale advisor evidence was accepted"
-
     with scenario(["--check", "printf failed-check-stdout; printf failed-check-stderr >&2; exit 17"]) as (app, server, project):
         result = settled(app, assign(app, server, "anthropic-api"))
         assert result["status"] != "ready", "advisor prose cleared a failed host check"
@@ -346,6 +339,30 @@ def advisor_refusals():
             assert_transport_evidence(app, server, receipt)
             assert failed[0] in receipt_evidence(receipt)["checks"]
         assert (project / "greeting").read_text() == "developer dirty edit\n"
+
+
+def stale_role_retention():
+    for role in ("advisor", "worker_response", "judge"):
+        for adapter in ADAPTERS:
+            original = {"verdict": "findings", "findings": [f"Original {role} finding from {adapter}"],
+                        "explanation": f"Original {role} explanation must survive stale source"}
+            policy = {"advisor": ["findings"], "worker_response": ["findings"], "judge": ["findings"],
+                      role: [original], "role_delay": {role: 1}}
+            with scenario(advisor=adapter, judge=adapter) as (app, server, project):
+                identifier = assign(app, server, adapter, policy=policy)
+                wait_role_request(app, server, adapter, role)
+                root = Path(agent(app, identifier)["worktree"]["root"])
+                (root / "greeting").write_text("changed while role inspected original snapshot\n")
+                result = settled(app, identifier)
+                assert result["status"] != "ready" and result["orchestration"]["correction_rounds"] == 0
+                receipts = role_receipts(result)
+                roles = ("advisor", "worker_response", "judge")
+                assert [receipt["role"] for receipt in receipts] == list(roles[:roles.index(role) + 1])
+                for field in ("verdict", "findings", "explanation"):
+                    assert receipts[-1][field] == original[field], "runtime staleness replaced original role response"
+                assert_transport_evidence(app, server, receipts[-1])
+                app.send(f"/agent-integrate {identifier}")
+                assert (project / "greeting").read_text() == "developer dirty edit\n"
 
 
 def disputes():
@@ -453,6 +470,8 @@ def shared_limits():
         result = settled(app, assign(app, server, "codex", calls=[]))
         assert result["status"] != "ready" and app.record()[1]["backend_invocations"] == 1
         assert not role_receipts(result), "advisor bypassed exhausted backend invocation allowance"
+        launches = [item for item in backend_requests(app.root) if item["kind"] == "launch"]
+        assert len(launches) == 1, "unavailable advisor started an extra backend process"
     with scenario(["--task-tool-calls", "3"]) as (app, server, project):
         result = settled(app, assign(app, server, "anthropic-api", calls=[
             {"name": "write", "arguments": {"path": "greeting", "content": "admitted\n"}},
@@ -626,6 +645,9 @@ def recovery():
                         assert agent(app, first)["status"] == "failed"
                         assert agent(app, second)["worktree"] is None
                         app.send("/reconcile inspected parent files and interrupted descendants")
+                        app.send(f"/delegate {adapter} greeting new assignment must not resume retained queue")
+                        time.sleep(.15)
+                        assert agent(app, independent)["worktree"] is None, "new assignment resumed retained queue without /agents-resume"
                         app.send("/agents-resume")
                         ready(app, independent)
                         assert agent(app, second)["worktree"] is None
@@ -733,7 +755,7 @@ def main():
     cases = {
         "ORCH-001": (queue_capacity, invalid_dependencies),
         "ORCH-002": (dependencies, failed_prerequisites),
-        "ORCH-003": (advisor_evidence, advisor_refusals),
+        "ORCH-003": (advisor_evidence, advisor_refusals, stale_role_retention),
         "ORCH-004": (disputes, dispute_refusals),
         "ORCH-005": (correction_bounds, correction_check_freshness, shared_limits),
         "ORCH-006": (cancellation, cancellation_persistence_failure),

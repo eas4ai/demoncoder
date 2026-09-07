@@ -159,3 +159,13 @@ one prompt and one charged invocation with an allowance of one: role backend ope
 precedes admission. No extra prompt or model invocation was observed. Apply the
 same preflight used for workers before starting an unavailable role backend.
 The runtime source reviewer changed no files and examined clean commit 105c250.
+
+### Added production falsifiers
+
+All three new production cases fail on the reviewed 105c250 binary, copied with
+SHA-256 ad5e2b32799657d4fa35f791d366887745c1353679fe2229169227c89addf9ec:
+stale_role_retention detects replaced original response fields; shared_limits
+detects the unavailable advisor process launch; recovery detects a new assignment
+releasing retained work without /agents-resume. The Python fixture parses. Runtime
+repairs and deterministic concurrency regressions are in progress; these failures
+are editing-time demonstrations, not new passing or formal Cairn evidence.
