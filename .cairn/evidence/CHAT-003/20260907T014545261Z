@@ -1,0 +1,18 @@
+requirement: CHAT-003
+requirement_digest: sha256:e32d199d4cbcaf2221ec9dbfcfab6d8b315f06305a436a477ba526b57fb142db
+mechanism: chat-presentation
+commit: 290745f
+inputs_digest: sha256:bc57f02e28a71d086de434c56dfa3fa47ddd8a420709e12fcc5baba4f80a0c75
+mechanism_digest: sha256:d581fc6158c400fb50c04712fde2b94c5fdc3bfb0035187f4de571313608463e
+command: bash scripts/check-chat-presentation.sh
+cwd: .
+exit: 0
+output_digest: sha256:e46efc8800790656cae1fef485979c1f7ce1e2d29db8ed422cd40e810bd3cf1c
+output: .cairn/evidence/CHAT-001/20260907T014537471Z-12209.out
+stderr_output: .cairn/evidence/CHAT-001/20260907T014537471Z-12209.err
+stderr_digest: sha256:f558bdb92e792a58b7d7a46d7247d6faf059e633e8a4a8f58b7dca9a1872de5f
+signal: none
+execution_error: null
+result: pass
+source: line
+recorded: 2026-09-07T01:45:45.261Z

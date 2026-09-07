@@ -1,0 +1,52 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.19s
+     Running unittests src/lib.rs (target/debug/deps/demoncoder-f9fb17bedf5daaf9)
+
+running 23 tests
+test chat::tests::final_tool_receipt_replaces_streamed_output ... ok
+test chat::tests::compact_wrapped_rows_expand_without_losing_content ... ok
+test developer_access::tests::cancelled_preparation_yields_and_stops_without_starting_a_command ... ok
+test chat::tests::full_view_anchor_survives_new_output_resize_and_toggle ... ok
+test adapters::process::tests::group_cleanup_covers_drop_and_exited_leader ... ok
+test terminal::tests::empty_output_deltas_do_not_accumulate_transcript_entries ... ok
+test native::tests::cancellation_during_result_publication_preserves_completed_receipt ... ok
+test terminal::tests::scrollbar_tracks_full_history_and_leaves_two_empty_outer_columns ... ok
+test transcript::tests::empty_fragments_and_many_newlines_have_bounded_metadata ... ok
+test highlight::tests::fenced_code_is_colored_and_unknown_languages_remain_plain ... ok
+test terminal::tests::fenced_code_renders_styles_without_interpreting_control_sequences ... ok
+test highlight::tests::multiline_code_state_and_oversized_fallback_are_bounded ... ok
+test transcript::tests::rows_beyond_u16_are_reachable_and_controls_stay_literal ... ok
+test transcript::tests::scroll_anchor_survives_new_output_and_resize_until_expiry ... ok
+test transcript::tests::streamed_fences_and_unicode_keep_the_same_text_and_colors ... ok
+test transcript::tests::streaming_graphemes_match_a_single_complete_append ... ok
+test developer_access::tests::cold_cache_keeps_installed_tools_and_does_not_write_the_host_cache ... ok
+test chat::tests::retained_blocks_and_indexes_remain_bounded ... ok
+test transcript::tests::idle_layout_and_visible_rows_do_not_scan_the_history ... ok
+test transcript::tests::oversized_unicode_retains_a_bounded_valid_tail_and_expires_old_anchors ... ok
+test native::tests::presentation_error_preserves_actual_failure_for_the_next_prompt ... ok
+test transcript::tests::many_lines_and_resizes_keep_the_index_bounded_and_visit_only_visible_lines ... ok
+test adapters::process::tests::interrupted_receive_retains_partial_json ... ok
+
+test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.01s
+
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.17s
+...
+----------------------------------------------------------------------
+Ran 3 tests in 2.917s
+
+OK
+..
+----------------------------------------------------------------------
+Ran 2 tests in 1.531s
+
+OK
+test_reported_partial_zero_and_absent_usage (__main__.Usage.test_reported_partial_zero_and_absent_usage) ... ok
+
+----------------------------------------------------------------------
+Ran 1 test in 1.572s
+
+OK
+cairn: CONN-006: pass
+cairn: CHAT-001: pass
+cairn: CHAT-002: pass
+cairn: CHAT-003: pass
+cairn: CHAT-004: pass
