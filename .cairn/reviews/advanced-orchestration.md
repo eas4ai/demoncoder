@@ -100,3 +100,18 @@ The worker's recovery test had exposed a subscription process launch before
 exhausted backend admission; its preflight repair is present in this candidate.
 These are editing-time probes, not Cairn receipts or installed-release evidence.
 Runtime source review, remaining regressions and final checks are still pending.
+
+## Runtime self-review before handoff
+
+The implementer found and is repairing three issues before independent source
+review: selected checks were not frozen in resumed orchestration identity;
+individual cancellation could return on a failed durable write before draining;
+and role-admission bookkeeping used the global operation count instead of the
+assignment's exact phase under concurrent work. The parent is adding a production
+changed-check refusal case. The prior seven ORCH, seven SUB and six VERIFY manual
+passes apply to copied candidate 9006a68d only, before these further repairs.
+
+While preparing the refusal falsifier, the parent found that the shared Python
+App constructor did not close an unexpectedly accepted application when its
+expected-startup-refusal wait timed out. Repair the fixture's exception cleanup
+before demonstrating the violating case, so the failed test leaves no owner alive.
