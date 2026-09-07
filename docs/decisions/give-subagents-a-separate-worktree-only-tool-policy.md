@@ -11,4 +11,5 @@ Construct child access independently of the parent. Route API and subscription c
 
 ## Realized by
 
-(none yet: recorded, not built)
+94cd704af806fee84f8712d1c5b09aefb39cd048 Confine child tools to their worktree
+962010ed71e03d3d897dc3a6a8b63510c65195ea Reject mount crossings in strict worktree tools
