@@ -11,4 +11,4 @@ The developer confirmed status and decision prerequisite remediation. Project a 
 
 ## Realized by
 
-(none yet: recorded, not built)
+- 353907d Show authoritative status and bounded readable task and agent evidence
