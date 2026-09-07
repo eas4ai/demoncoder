@@ -4,7 +4,8 @@ commitment: reliability
 commit: 33a416bd0935d1c98107d945643778a9f43971a6
 findings:
   - resolved: REL-003 inline input and fragmented input now reject before any response calls
-  - open: REL-003 output-limit PTY fixture clips its required usage assertion at 100 columns
+  - resolved: REL-003 output-limit PTY assertions pass at sufficient width
+  - open: REL-001 inherited host socket descriptors bypass creation filter
   - open: reliability fresh independent review and installed release verification pending
 Status: in progress
 
@@ -204,3 +205,18 @@ The additional output-limit PTY regression has a stale width assumption: the
 100-column terminal visibly clips out 12000 to out 1, despite receiving the
 correct output and status. Its assertions should use the existing resize helper
 to fit the full status. Keep all original output-limit assertions unchanged.
+
+## Fresh independent review: fix-first
+
+Reviewer /root/reliability_final_review inspected candidate 70ad705c3 and returned
+fix-first. Requested model/effort: gpt-5.6-sol/high; actual model, effort and usage
+were unobservable. It found one REL-001 defect: the fixed launcher/bwrap path
+preserves unrelated inherited descriptors. Its disposable socketpair probe passed
+fd 9 into the namespace and wrote HOST-SOCKET-CONTACTED to the host peer. Seccomp
+cannot revoke a socket already opened before sandbox entry. The parent will
+reproduce through the production executor, close unrelated inherited descriptors,
+and add a regression. No additional defect was found in REL-002/003/004.
+
+The developer clarified that Unix services remaining accessible through explicit
+--yolo host mode with Oracle review is acceptable; the confined-only creation
+restriction is retained. No release has been installed at this point.
