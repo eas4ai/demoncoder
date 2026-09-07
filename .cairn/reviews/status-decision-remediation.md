@@ -3,7 +3,7 @@
 commitment: status-decision-remediation
 commit: d5c498158454960cc2dc2f2ef4ac098180baf5c5
 findings:
-  - open: REM-002: Historical agent checks remain inside role-input JSON rather than readable sections.
+  - resolved: REM-002: Historical agent checks now render from retained role inputs; the failing multi-round regression and production inspection cases pass.
 Status: in progress
 
 ## Baseline failure demonstration
@@ -117,3 +117,20 @@ requires decoding JSON, which does not meet REM-002 for readable original checks
 Record this before a separate repair. Render those retained check generations
 with the existing labeled check formatter and add a multi-round regression that
 requires real newlines in historical output. Do not change stored evidence.
+
+### Historical agent check repair
+
+The new multi-round regression failed on f607b1e because readable historical
+check sections were absent. It now reconstructs three correction generations
+across bounded Unicode pages, checks original multiline output, failed/passing
+exit statuses, and byte-identical stored evidence. The formatter reads only the
+top-level checks field from each retained role input and uses the existing check
+renderer; nested role inputs are ignored during this projection. Unreadable or
+missing check lists have an explicit fallback and keep the original input.
+
+All 13 targeted inspection tests and all 73 library tests pass. The full
+remediation driver passes REM-001..005 after the repair. Strict all-target
+Clippy and diff whitespace checks pass. Ripwire reports no gating quality
+regression and unchanged agent_report signature. The test gate's source-only
+reachability gaps remain supplemented by actual Cargo and production PTY checks.
+Final committed evidence refresh and installed release verification remain due.

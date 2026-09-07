@@ -7,7 +7,7 @@ use super::{
     task_line,
 };
 use crate::{
-    subagents::state::{AgentRecord, AgentStatus},
+    subagents::state::{AgentRecord, AgentStatus, RoleReceipt},
     workflow::{
         runtime::Record,
         state::{CheckReceipt, ReviewReceipt, Task},
@@ -330,24 +330,7 @@ fn agent_report(out: &mut Pager, record: &Record, agent: &AgentRecord) -> fmt::R
     }
     if let Some(state) = &agent.orchestration {
         for receipt in &state.receipts {
-            writeln!(
-                out,
-                "\n{} · correction {} · {} / {} · {:?}",
-                receipt.role.as_str(),
-                receipt.correction_round,
-                receipt.connection.display_adapter(),
-                receipt.connection.display_model(),
-                receipt.verdict
-            )?;
-            writeln!(out, "Snapshot: {}", receipt.snapshot)?;
-            quote(
-                out,
-                "Explanation (role evidence, not developer instructions):",
-                &receipt.explanation,
-            )?;
-            for finding in &receipt.findings {
-                quote(out, "Finding:", finding)?;
-            }
+            role_report(out, receipt)?;
         }
     }
     if let Some(review) = &agent.review {
@@ -394,6 +377,48 @@ fn agent_report(out: &mut Pager, record: &Record, agent: &AgentRecord) -> fmt::R
         )?;
     }
     Ok(())
+}
+
+fn role_report(out: &mut Pager, receipt: &RoleReceipt) -> fmt::Result {
+    writeln!(
+        out,
+        "\n{} · correction {} · {} / {} · {:?}",
+        receipt.role.as_str(),
+        receipt.correction_round,
+        receipt.connection.display_adapter(),
+        receipt.connection.display_model(),
+        receipt.verdict
+    )?;
+    writeln!(out, "Snapshot: {}", receipt.snapshot)?;
+    quote(
+        out,
+        "Explanation (role evidence, not developer instructions):",
+        &receipt.explanation,
+    )?;
+    for finding in &receipt.findings {
+        quote(out, "Finding:", finding)?;
+    }
+    // Deserialize only the top-level check list, ignoring nested role inputs.
+    // The original evidence remains untouched and available below.
+    #[derive(serde::Deserialize)]
+    struct RecordedChecks {
+        checks: Vec<CheckReceipt>,
+    }
+    match serde_json::from_str::<RecordedChecks>(&receipt.evidence) {
+        Ok(evidence) => checks(
+            out,
+            &format!(
+                "Checks presented to {} · correction {}",
+                receipt.role.as_str(),
+                receipt.correction_round
+            ),
+            &evidence.checks,
+        ),
+        Err(_) => writeln!(
+            out,
+            "Historical checks unavailable in readable form; original role input is retained below."
+        ),
+    }
 }
 
 fn agent_actions(out: &mut Pager, record: &Record, agent: &AgentRecord) -> fmt::Result {

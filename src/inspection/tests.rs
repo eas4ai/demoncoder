@@ -217,6 +217,58 @@ fn agent_roles_and_source_are_readable_without_rewriting_original_evidence() {
 }
 
 #[test]
+fn historical_agent_checks_are_readable_across_correction_rounds_and_pages() {
+    let root = tempfile::tempdir().unwrap();
+    let mut record = record(root.path());
+    let mut child = agent(1, AgentStatus::Ready, &record.identity);
+    let mut state = OrchestrationState::new(vec![]);
+    for round in 0..=2 {
+        let snapshot = format!("round-{round}");
+        let output = format!(
+            "round-{round}-start\n{}\nround-{round}-end",
+            "original-λ\n".repeat(1600)
+        );
+        let check = CheckReceipt {
+            command: format!("check-round-{round}"),
+            snapshot: snapshot.clone(),
+            success: round == 2,
+            output,
+            exit_code: Some(if round == 2 { 0 } else { 17 }),
+        };
+        state.receipts.push(
+            RoleReceipt::new(
+                Role::Advisor,
+                round,
+                record.identity.clone(),
+                snapshot,
+                json!({"checks": [check]}).to_string(),
+                Decision {
+                    verdict: Verdict::Clear,
+                    findings: vec![],
+                    explanation: "retained conclusion".into(),
+                },
+            )
+            .unwrap(),
+        );
+    }
+    child.orchestration = Some(state);
+    record.agents.push(child);
+    let original = serde_json::to_vec(&record).unwrap();
+    let text = all_pages(&record, Target::Agent(1));
+    for round in 0..=2 {
+        assert!(text.contains(&format!("Checks presented to advisor · correction {round}")));
+        assert!(
+            text.contains(&format!("  | round-{round}-start\n  | original-λ\n")),
+            "historical output remained JSON escaped"
+        );
+        assert!(text.contains(&format!("\n  | round-{round}-end\n")));
+    }
+    assert!(text.contains("recorded fail · exit Some(17)"));
+    assert!(text.contains("recorded pass · exit Some(0)"));
+    assert_eq!(original, serde_json::to_vec(&record).unwrap());
+}
+
+#[test]
 fn recovery_and_missing_targets_are_explicit_and_offer_no_automatic_effects() {
     let root = tempfile::tempdir().unwrap();
     let mut record = record(root.path());
