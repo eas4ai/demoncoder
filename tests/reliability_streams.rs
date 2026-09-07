@@ -14,7 +14,7 @@ use tokio::{
 
 const LIMIT: usize = 1024 * 1024;
 
-async fn stream_case(extra: usize, fragment: usize) {
+async fn stream_case(extra: usize, fragment: usize, inline: bool) {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let endpoint = format!("http://{}/v1/messages", listener.local_addr().unwrap());
     let (sent, received) = oneshot::channel();
@@ -55,16 +55,23 @@ async fn stream_case(extra: usize, fragment: usize) {
             )
             .await
             .unwrap();
+        let input = if inline {
+            serde_json::from_str(&arguments).unwrap()
+        } else {
+            json!({})
+        };
         let mut values = vec![
-            json!({"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"stream-call","name":"write","input":{}}}),
+            json!({"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"earlier-call","name":"write","input":{"path":"earlier-write","content":"effect"}}}),
+            json!({"type":"content_block_stop","index":0}),
+            json!({"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"stream-call","name":"write","input":input}}),
         ];
         let mut start = 0;
-        while start < arguments.len() {
+        while !inline && start < arguments.len() {
             let mut end = (start + fragment).min(arguments.len());
             while !arguments.is_char_boundary(end) {
                 end -= 1;
             }
-            values.push(json!({"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":&arguments[start..end]}}));
+            values.push(json!({"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":&arguments[start..end]}}));
             start = end;
         }
         for value in values {
@@ -77,7 +84,7 @@ async fn stream_case(extra: usize, fragment: usize) {
         // Deliberately omit block_stop and message_stop until the test releases us.
         let _ = released.await;
         for value in [
-            json!({"type":"content_block_stop","index":0}),
+            json!({"type":"content_block_stop","index":1}),
             json!({"type":"message_delta","delta":{"stop_reason":"tool_use"}}),
             json!({"type":"message_stop"}),
         ] {
@@ -125,6 +132,7 @@ async fn stream_case(extra: usize, fragment: usize) {
             .expect("oversized arguments accepted");
         assert!(format!("{error:#}").contains("1 MiB"), "{error:#}");
         assert!(!root.path().join("stream-write").exists());
+        assert!(!root.path().join("earlier-write").exists());
         while let Ok(envelope) = rx.try_recv() {
             assert!(!matches!(
                 envelope.event,
@@ -139,6 +147,7 @@ async fn stream_case(extra: usize, fragment: usize) {
             "exact-bound response must await completion"
         );
         assert!(!root.path().join("stream-write").exists());
+        assert!(!root.path().join("earlier-write").exists());
         release.send(()).unwrap();
         assert!(matches!(
             tokio::time::timeout(Duration::from_secs(5), turn)
@@ -149,6 +158,10 @@ async fn stream_case(extra: usize, fragment: usize) {
             TurnEnd::Complete
         ));
         server.await.unwrap();
+        assert_eq!(
+            std::fs::read_to_string(root.path().join("earlier-write")).unwrap(),
+            "effect"
+        );
         assert_eq!(
             std::fs::read_to_string(root.path().join("stream-write"))
                 .unwrap()
@@ -161,11 +174,17 @@ async fn stream_case(extra: usize, fragment: usize) {
 #[tokio::test]
 async fn anthropic_rejects_excess_before_completion() {
     for fragment in [64 * 1024, LIMIT + 1] {
-        stream_case(1, fragment).await;
+        stream_case(1, fragment, false).await;
     }
 }
 
 #[tokio::test]
 async fn anthropic_accepts_exact_byte_bound_after_completion() {
-    stream_case(0, 64 * 1024).await;
+    stream_case(0, 64 * 1024, false).await;
+}
+
+#[tokio::test]
+async fn anthropic_bounds_inline_input_before_admitting_any_response_calls() {
+    stream_case(1, LIMIT + 1, true).await;
+    stream_case(0, LIMIT, true).await;
 }

@@ -13,6 +13,8 @@ use reqwest::{Client, Url};
 use serde_json::{Value, json};
 use std::path::Path;
 
+const MAX_TOOL_INPUT_BYTES: usize = 1024 * 1024;
+
 struct Anthropic {
     client: Client,
     endpoint: Url,
@@ -184,7 +186,14 @@ impl Model for Anthropic {
                         index == blocks.len(),
                         "out of order Anthropic content block"
                     );
-                    blocks.push(event["content_block"].clone());
+                    let block = &event["content_block"];
+                    if block["type"] == "tool_use" {
+                        anyhow::ensure!(
+                            serde_json::to_vec(&block["input"])?.len() <= MAX_TOOL_INPUT_BYTES,
+                            "Anthropic tool input exceeds 1 MiB; no tool calls from this response were executed"
+                        );
+                    }
+                    blocks.push(block.clone());
                     partial.push(String::new());
                 }
                 Some("content_block_delta") => {
@@ -210,7 +219,7 @@ impl Model for Anthropic {
                                 .context("missing tool input delta")?;
                             anyhow::ensure!(
                                 fragment.len()
-                                    <= (1024 * 1024_usize).saturating_sub(partial[index].len()),
+                                    <= MAX_TOOL_INPUT_BYTES.saturating_sub(partial[index].len()),
                                 "Anthropic tool input exceeds 1 MiB; no tool calls from this response were executed"
                             );
                             partial[index].push_str(fragment);

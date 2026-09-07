@@ -179,3 +179,12 @@ changes. test-gate named 11 harnesses and 21 statically unlinked impacted symbol
 drivers cover the applicable runtime paths; the live Oracle driver retains the
 limitation just described. Complete accumulated-diff review supplies the committed
 change assessment that quality-delta cannot provide.
+
+### Inline argument finding correction
+
+The new held-inline regression failed before the fix: the adapter waited for
+completion instead of rejecting the oversized block. Both inline and fragmented
+fixtures now place a valid write before the candidate call, checking that neither
+call has an effect on rejection. The block-start path now validates serialized
+input before storing the block; exact-bound input remains accepted. Final review
+and fresh independent acceptance are still pending.

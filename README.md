@@ -872,11 +872,11 @@ code. No configuration flag loads hooks or enables unrecognized plugins.
 |---|---|
 | Platform | Linux. |
 | Native text file | Up to 1 MiB; whole-file operations. |
-| Serialized tool arguments | Up to 1 MiB. |
+| Serialized tool arguments | Up to 1 MiB. Anthropic checks inline input and each streamed fragment before admitting any calls from that response. |
 | Tool path | Up to 4096 bytes. |
 | Tool call ID | Nonempty, up to 256 bytes. |
 | Bash command | Nonempty, up to 65,536 bytes. |
-| Bash duration/output | 120 seconds and 1 MiB combined captured output. |
+| Bash duration/output | 120 seconds and 1 MiB of combined raw stdout/stderr bytes. Each pipe preserves split UTF-8 characters; incomplete endings become replacement characters. |
 | Cancellation grace | Two seconds. |
 | External steering transition | 30 seconds. |
 | Oracle review | 60 seconds; bounded response and reason; errors block access. |
