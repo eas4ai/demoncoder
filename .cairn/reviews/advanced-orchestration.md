@@ -32,3 +32,15 @@ instead of [10]. Restoring it passed all thirteen cases. Both specification
 and quality reviewers independently reran thirteen passing tests and approved
 5f01da072eaf0d7dfaebb220c328bb2972a8bdad. The reviewed branch was merged with
 no fast-forward; there is no remaining component finding.
+
+## Production fixture specification review (in progress)
+
+Before repairs, independent review found these gaps in the draft proof:
+role peers accepted only assignment and round, without requiring source, checks,
+original advisor findings or worker response; assertions inspected retained
+receipts without comparing actual transport input. Recovery counted HTTP requests
+but had no subscription peer request log, so silent backend replay could escape.
+Recovery also did not challenge changed connection authority or retain an already
+integrated prerequisite, and ample limits did not demonstrate spent admission after
+restart. These are proof findings, not observed runtime defects. Production
+execution remains pending the coupled manager implementation.
