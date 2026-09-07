@@ -1,0 +1,14 @@
+command: bash scripts/check-clipboard-shortcuts.sh
+results: per-requirement
+inputs:
+  - Cargo.toml
+  - Cargo.lock
+  - src/
+  - tests/
+  - scripts/check-clipboard-shortcuts.sh
+  - README.md
+  - docs/spec/
+  - docs/commitments/clipboard-shortcuts.md
+requirements:
+  - CLIP-001
+  - CLIP-002
