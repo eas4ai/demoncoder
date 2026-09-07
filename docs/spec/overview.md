@@ -40,6 +40,7 @@ responsible for choosing sound requirements and meaningful checks.
 | [output-limits.md](output-limits.md) | OUTPUT | Model output settings, discovery and incomplete-response handling. |
 | [usage-display.md](usage-display.md) | DISPLAY | Visibility of current-turn usage. |
 | [chat-presentation.md](chat-presentation.md) | CHAT | Activity hierarchy, expandable output, syntax colors and spacing. |
+| [terminal-usability-sweep.md](terminal-usability-sweep.md) | SWEEP | The selected reliability investigation, mouse interaction, activity and status sweep. |
 | [roadmap.md](roadmap.md) | — | The selected commitment and intended delivery sequence. |
 
 The broader [design narrative](../spec.md) retains product direction,
