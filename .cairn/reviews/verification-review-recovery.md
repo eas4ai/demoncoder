@@ -3,7 +3,7 @@
 commitment: verification-review-recovery
 commit: d94e156fa76f467fd82e1c9977cb431ba225592b
 findings:
-  - none: mechanism reviews have no open mismatch; final implementation review remains pending
+  - open: VERIFY-002/006 verification snapshot and attribution are lost when post-check capture fails
 Status: in progress
 
 ## VERIFY-004 mechanism review
@@ -102,3 +102,18 @@ that pidfd-based fixture cleanup cannot signal a recycled PID. Private records
 retain sensitive conversation/source, so owner-only permissions and finite
 retention are material limits, not encryption. The mechanism declares every
 repository file used by these checks. No remaining mismatch found.
+
+## Final integration review: finding recorded before repair
+
+Independent production reproduction ran a task check that created a 9,000,000-byte
+file after an input file was added following the initial task snapshot. The shell
+check succeeded, but post-check capture exceeded the 8 MiB limit before the task
+saved its receipt. The durable operation said phase worker and lacked the actual
+pre-check snapshot; task.checks remained empty. Persist check admission with task,
+generation, command and snapshot before execution. Retain completion and capture
+limitations even when post-check capture fails. Add a production regression.
+
+Other examined acceptance, correction, allocation, checkpoint and reviewer paths
+had no new concrete finding. Full Rust checks passed 127 tests with six ignored;
+Clippy and release build passed. Retained live-provider checks report stale
+evidence; no fresh paid provider execution was requested or claimed.
