@@ -3,7 +3,7 @@
 commitment: status-decision-remediation
 commit: d5c498158454960cc2dc2f2ef4ac098180baf5c5
 findings:
-  - REM-002: Historical agent checks remain inside role-input JSON rather than readable sections.
+  - open: REM-002: Historical agent checks remain inside role-input JSON rather than readable sections.
 Status: in progress
 
 ## Baseline failure demonstration
