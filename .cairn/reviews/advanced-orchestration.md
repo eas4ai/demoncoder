@@ -185,3 +185,14 @@ new record with the expected objective. On immutable candidate ad5e2b32, those
 acceptance assertions passed and the retained-queue assertion still failed, which
 confirms the observed defect follows an accepted command. Syntax and whitespace
 checks passed; repaired runtime production passes remain pending.
+
+### Repaired candidate production verification
+
+The parent copied the worker's rebuilt binary before running tests, with SHA-256
+fd5821f5abbb8723df4e18eede9cb68fac6f4526ca8670bd45dd5e90c267f57e.
+All seven ORCH, seven SUB and six VERIFY production requirements passed on that
+immutable candidate. This includes the new accepted-command recovery refusal,
+all sixteen stale-role cases, exhausted backend launch refusal and cancellation
+during failed persistence. These are editing-time checks. Independent runtime
+source re-review, quality review, formal receipts and installed release checks
+remain pending; production passes alone do not close the source review findings.
