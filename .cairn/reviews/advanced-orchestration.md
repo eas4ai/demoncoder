@@ -24,3 +24,11 @@ assignments than remaining capacity. Removing the final capacity truncation
 would therefore still pass. Add an unsorted overfull eligible queue and a fully
 occupied limit, demonstrate the violating implementation fails, then re-review.
 This finding is recorded before the test repair.
+
+### Scheduling capacity repair
+
+Removing ready.truncate(capacity) made the new test fail with IDs [10,70,90]
+instead of [10]. Restoring it passed all thirteen cases. Both specification
+and quality reviewers independently reran thirteen passing tests and approved
+5f01da072eaf0d7dfaebb220c328bb2972a8bdad. The reviewed branch was merged with
+no fast-forward; there is no remaining component finding.
