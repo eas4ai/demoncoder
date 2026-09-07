@@ -274,3 +274,22 @@ without truncation, alongside 17 Rust obligations. Many are test functions or
 adapter callbacks exercised by the production drivers; this static-map limitation
 does not excuse the missing integration-cancellation test. That repair is now
 authorized within the existing decision and will receive both re-reviews.
+
+### Integration repair verification and healthy-admission regression
+
+Commit 8af2e80 passes the three new lifecycle regressions, 60 library tests,
+192 full-suite tests, formatting and Clippy (worker results). The parent ran
+ORCH-002/006/007 and SUB-003/004/005/007 successfully on its exact binary, SHA-256
+396b69cac37cf5806b1fd62d160cc046b41fb4273806f7ab026a677c556b71f4.
+
+Re-review and implementer analysis identified an overbroad repair before further
+changes: setting global recovery_pending during healthy integration rejects
+model, backend and tool admissions from unrelated children that remain active.
+Durable Integrating before effects is required; a global recovery hold throughout
+healthy integration is not. Preserve recovery plus Uncertain atomically before
+cancellation drains the owner, and retain interruption/restart protection, while
+allowing unrelated children during healthy integration. Replace the admission
+test's overbroad global-hold assertion with a real unrelated model admission;
+keep both real-parent-effect cancellation regressions. This records the newly
+introduced behavior error before its repair, rather than relaxing the recovery
+requirement. No timing-based terminal reproduction is claimed.
