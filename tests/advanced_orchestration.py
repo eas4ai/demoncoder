@@ -342,9 +342,11 @@ def advisor_refusals():
 
 
 def stale_role_retention():
-    for role in ("advisor", "worker_response", "judge"):
+    for role, verdict in (("advisor", "clear"), ("advisor", "findings"),
+                          ("worker_response", "findings"), ("judge", "findings")):
         for adapter in ADAPTERS:
-            original = {"verdict": "findings", "findings": [f"Original {role} finding from {adapter}"],
+            original = {"verdict": verdict,
+                        "findings": [f"Original {role} finding from {adapter}"] if verdict == "findings" else [],
                         "explanation": f"Original {role} explanation must survive stale source"}
             policy = {"advisor": ["findings"], "worker_response": ["findings"], "judge": ["findings"],
                       role: [original], "role_delay": {role: 1}}
@@ -645,7 +647,12 @@ def recovery():
                         assert agent(app, first)["status"] == "failed"
                         assert agent(app, second)["worktree"] is None
                         app.send("/reconcile inspected parent files and interrupted descendants")
+                        previous_ids = {item["id"] for item in app.record()[1]["agents"]}
                         app.send(f"/delegate {adapter} greeting new assignment must not resume retained queue")
+                        records = app.record()[1]["agents"]
+                        assert len(records) == len(previous_ids) + 1, "new assignment was not accepted"
+                        new_assignment = next(item for item in records if item["id"] not in previous_ids)
+                        assert new_assignment["request"]["objective"] == "new assignment must not resume retained queue"
                         time.sleep(.15)
                         assert agent(app, independent)["worktree"] is None, "new assignment resumed retained queue without /agents-resume"
                         app.send("/agents-resume")

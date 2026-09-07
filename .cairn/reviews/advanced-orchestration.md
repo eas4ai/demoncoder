@@ -178,3 +178,10 @@ prove stale approval cannot make work ready. The recovery case also submitted a
 new assignment without proving it was accepted; a rejected command could satisfy
 the queue assertion. Require a new retained assignment before testing the pause.
 The backend launch assertion and targeted cleanup passed this review.
+
+The reviewer approved both repairs. Stale-clear advisor coverage now runs on all
+four adapters alongside original findings retention. Recovery requires exactly one
+new record with the expected objective. On immutable candidate ad5e2b32, those
+acceptance assertions passed and the retained-queue assertion still failed, which
+confirms the observed defect follows an accepted command. Syntax and whitespace
+checks passed; repaired runtime production passes remain pending.
