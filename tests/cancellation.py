@@ -148,8 +148,8 @@ def case(adapter, server, drop_cancel, quit_turn=False):
                 return
             events = [json.loads(line) for line in log.read_text().splitlines()]
             assert any(row["event"]["type"] == "turn_finished" and row["event"].get("status") == "cancelled" for row in events), "cancelled outcome missing"
-            if server.scenario == "tool":
-                os.write(master, b"/reconcile inspected heartbeat; owned processes stopped and partial marker retained\r")
+            if native or server.scenario == "tool":
+                os.write(master, b"/reconcile inspected interrupted request and heartbeat; owned work stopped, retained effects and unknown billing reviewed\r")
                 until(master, process, output, b"Inspection recorded", timeout=3)
             os.write(master, ("NEXT-" + token).encode() + b"\r")
             until(master, process, output, ("READY-NEXT-" + token).encode(), timeout=3)

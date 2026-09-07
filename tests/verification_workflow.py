@@ -77,9 +77,9 @@ class WorkflowProvider(Provider):
 
 
 class App:
-    def __init__(self, directory, server, extra=(), expect_start=True):
+    def __init__(self, directory, server, extra=(), expect_start=True, home_workspace=False):
         self.root = Path(directory)
-        self.workspace = self.root / "project"
+        self.workspace = self.root if home_workspace else self.root / "project"
         self.workspace.mkdir(exist_ok=True)
         self.config = self.root / "settings.toml"
         adapter = getattr(server, "adapter", "anthropic-api")
@@ -668,6 +668,77 @@ def recovery_before_execution(server):
             app.close()
 
 
+def cancelled_model_requires_inspection(server):
+    with tempfile.TemporaryDirectory(prefix="demoncoder-cancelled-model-") as directory:
+        app = App(directory, server)
+        server.delay_worker = True
+        try:
+            before = len(server.requests)
+            finished = sum(e["type"] == "turn_finished" for e in app.events())
+            os.write(app.master, b"/task inspect any interrupted model admission\r")
+            app.wait_for(lambda: len(server.requests) > before)
+            os.write(app.master, b"\x1b")
+            app.wait_for(lambda: sum(e["type"] == "turn_finished" for e in app.events()) > finished, timeout=2)
+            _, record = app.record()
+            assert record["recovery_pending"], "cancelled model admission was automatically reconciled"
+            assert any(not o["complete"] and not o["reconciled"] for o in record["operations"])
+            assert record["allocation"]["usage"]["unknown_cost"]
+            before = len(server.requests)
+            app.send("continue before inspection")
+            assert len(server.requests) == before
+            app.send("/reconcile inspected the interrupted request; no tool ran and billing is unknown")
+            server.delay_worker = False
+            app.send("continue after inspecting the interrupted request")
+            assert len(server.requests) == before + 1
+            _, record = app.record()
+            assert not record["recovery_pending"]
+            assert record["allocation"]["model_calls"] == 2
+        finally:
+            server.delay_worker = False
+            app.close()
+
+
+def ordinary_home_reconciliation(server):
+    with tempfile.TemporaryDirectory(prefix="demoncoder-home-reconcile-") as directory:
+        app = App(directory, server, home_workspace=True)
+        secret = "synthetic-home-file-not-for-task-capture"
+        (Path(directory) / "private-canary").write_text(secret)
+        server.delay_worker = True
+        try:
+            before = len(server.requests)
+            finished = sum(e["type"] == "turn_finished" for e in app.events())
+            os.write(app.master, b"ordinary conversation at the home directory\r")
+            app.wait_for(lambda: len(server.requests) > before)
+            os.write(app.master, b"\x1b")
+            app.wait_for(lambda: sum(e["type"] == "turn_finished" for e in app.events()) > finished, timeout=2)
+            path, record = app.record()
+            assert record["recovery_pending"]
+            app.send("/reconcile inspected interrupted conversation and home workspace")
+            server.delay_worker = False
+            app.send("continue the ordinary conversation")
+            _, record = app.record()
+            assert not record["recovery_pending"]
+            assert record["last_snapshot"] is None
+            assert secret not in (path / "state.json").read_text()
+            decisions = record["decisions"]
+        finally:
+            server.delay_worker = False
+            app.close()
+        before = len(server.requests)
+        app = App(directory, server, ["--resume", str(path)], home_workspace=True)
+        try:
+            app.send("continue before workspace inspection")
+            assert len(server.requests) == before
+            app.send("/reconcile inspected home workspace after reopening")
+            app.send("continue after workspace inspection")
+            assert len(server.requests) == before + 1
+            _, record = app.record()
+            assert record["decisions"][:-1] == decisions
+            assert secret not in (path / "state.json").read_text()
+        finally:
+            app.close()
+
+
 def unsupported_backend_recovery(server):
     previous = server.adapter
     try:
@@ -730,6 +801,8 @@ def main():
                 recovery_refusals(server)
                 recovery_completed_tool(server)
                 recovery_before_execution(server)
+                cancelled_model_requires_inspection(server)
+                ordinary_home_reconciliation(server)
             unsupported_backend_recovery(server)
         else:
             raise AssertionError(f"production coverage not implemented for {args.requirement}")

@@ -3,7 +3,7 @@
 commitment: verification-review-recovery
 commit: d94e156fa76f467fd82e1c9977cb431ba225592b
 findings:
-  - VERIFY-006: incomplete model requests are automatically reconciled on in-process cancellation; require explicit inspection and add a production refusal case
+  - none: recorded recovery gap repaired; mechanism re-review and final implementation review remain pending
 Status: in progress
 
 ## VERIFY-004 mechanism review
@@ -63,3 +63,22 @@ continuing affected work. Billing uncertainty alone does not supply that
 inspection. Add a same-process cancelled-model refusal case and preserve the
 uncertain admission until /reconcile. Do not mark this mechanism reviewed until
 that implementation and its failing/corrected demonstration are complete.
+
+### VERIFY-006 repair demonstration
+
+The new same-process model-cancellation case failed on the committed candidate:
+`cancelled model admission was automatically reconciled`. The repair retains
+every incomplete native admission as uncertain until an explicit /reconcile.
+Both native adapters now refuse a new provider request before inspection and
+continue afterward without resetting spent calls or unknown billing.
+
+Ordinary sessions have no acceptance snapshot. They accept a developer inspection
+explanation without traversing home files, and require a fresh workspace inspection
+on each resume. The production home-directory case retains previous decisions
+while proving that a synthetic private file is not copied into the session record.
+Explicit tasks still compare their full bounded snapshot before resuming or
+accepting. Updated cancellation tests inspect and reconcile interrupted native
+requests; all four adapters still stop owned work within two seconds and continue
+with retained context. VERIFY-004 and VERIFY-006 production cases and Clippy
+passed after this repair. The unused Tokio standard-input feature was removed;
+the host supervisor already uses cancellable nonblocking descriptor reads.

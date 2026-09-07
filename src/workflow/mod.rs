@@ -173,21 +173,30 @@ impl WorkflowSession {
         events: &EventSink,
     ) -> Result<TurnEnd> {
         if !self.resume_inspected {
-            let current = self.snapshot().await?;
-            if self
-                .runtime
-                .record()?
-                .last_snapshot
-                .as_ref()
-                .is_none_or(|old| old != &current.digest)
-            {
+            // Ordinary conversations have no acceptance snapshot. Inspect on
+            // each resume rather than capturing private files in a home workspace.
+            let changed = if self.task.is_some() {
+                let current = self.snapshot().await?;
+                self.runtime
+                    .record()?
+                    .last_snapshot
+                    .as_ref()
+                    .is_none_or(|old| old != &current.digest)
+            } else {
+                true
+            };
+            if changed {
                 self.runtime.hold()?;
             }
             self.resume_inspected = true;
         }
         if let Some(explanation) = prompt.strip_prefix("/reconcile ") {
-            let snapshot = self.snapshot().await?;
-            self.runtime.reconcile(explanation, &snapshot.digest)?;
+            let digest = if self.task.is_some() {
+                Some(self.snapshot().await?.digest)
+            } else {
+                None
+            };
+            self.runtime.reconcile(explanation, digest.as_deref())?;
             events.checkpoint(self.inner.checkpoint())?;
             events
                 .emit(Event::Text {

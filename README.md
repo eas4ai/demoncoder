@@ -182,8 +182,9 @@ failed durable write holds execution. Interrupted operations are uncertain and
 are never automatically repeated. Inspect the actual files and effects, then use
 `/reconcile` with what you found. This records your judgment; it does not undo an
 effect or infer whether an interrupted command succeeded. A changed workspace
-while closed also requires inspection. An ordinary session without a previously
-captured workspace requires inspection when resumed.
+while closed also requires inspection. Ordinary conversations have no acceptance
+snapshot and require workspace inspection on every resume. Their reconciliation
+records your explanation without capturing private files in a home workspace.
 
 Task capture includes untracked files and pre-existing changes, excluding only
 the root `.git` entry. It uses repeated bounded scans, not an atomic filesystem

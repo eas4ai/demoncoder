@@ -303,16 +303,8 @@ impl SharedRuntime {
     pub fn finish_phase(&self) -> Result<()> {
         self.update(|r| {
             r.phase = None;
-            // A stopped model request cannot itself have changed workspace files.
-            // Its billing/result remains unknown, but there is no tool to replay.
-            for operation in &mut r.operations {
-                if operation.call.is_none() && !operation.complete {
-                    operation.reconciled = true;
-                    if let Some(a) = &mut r.allocation {
-                        a.usage.uncertain();
-                    }
-                }
-            }
+            // Cancellation does not establish a remote request's outcome or
+            // billing. The developer reconciles every incomplete admission.
             if r.operations.iter().any(|o| !o.complete && !o.reconciled) {
                 r.recovery_pending = true;
                 if let Some(a) = &mut r.allocation {
@@ -330,15 +322,18 @@ impl SharedRuntime {
         })
     }
 
-    pub fn reconcile(&self, explanation: &str, digest: &str) -> Result<()> {
+    pub fn reconcile(&self, explanation: &str, digest: Option<&str>) -> Result<()> {
         ensure!(
             !explanation.trim().is_empty() && explanation.len() <= 4096,
             "reconciliation needs an inspection explanation of 1 to 4096 bytes"
         );
         self.update(|r| {
             ensure!(r.decisions.len() < 128, "decision history is full");
-            r.decisions
-                .push(format!("Inspected workspace {digest}: {explanation}"));
+            r.decisions.push(format!(
+                "Inspected workspace {} ({}): {explanation}",
+                r.workspace.display(),
+                digest.unwrap_or("ordinary conversation; no acceptance snapshot")
+            ));
             for operation in &mut r.operations {
                 if !operation.complete {
                     operation.reconciled = true;
@@ -346,7 +341,7 @@ impl SharedRuntime {
             }
             r.phase = None;
             r.recovery_pending = false;
-            r.last_snapshot = Some(digest.into());
+            r.last_snapshot = digest.map(str::to_owned);
             Ok(())
         })
     }
