@@ -1,0 +1,21 @@
+requirement: REM-002
+requirement_digest: sha256:06bd912dd259b2328eb9c3ecdb6c2245db402268eac0ada5dd403c62b319b546
+sequence: 2
+history_digest: sha256:915490013dbeeac20be03bfe8c45f38ddc11163fdf618b6cbb1519b39bd8a393
+mechanism: status-decision-remediation
+commit: 7c41d14
+inputs_digest: sha256:bd7837e52ec5621a2a645015eaa7b718067c951468165aa7d09ebcd7bfafed27
+mechanism_digest: sha256:72d30e54e16a428b68d9a906ff56ed50ef15f298994bc301d02c95025a5b2ba9
+inputs_detail: .cairn/evidence/REM-001/20260907T235218830Z-1448900.inputs.json
+command: bash scripts/check-status-decision-remediation.sh
+cwd: .
+exit: 0
+output_digest: sha256:f23abddadc1c04a07ae0b7d14bdcca2535c6c4e6e6f5748c33a9a477bacbd829
+output: .cairn/evidence/REM-001/20260907T235218830Z-1448900.out
+stderr_output: .cairn/evidence/REM-001/20260907T235218830Z-1448900.err
+stderr_digest: sha256:a661647a54e494a13780b32c88e1a12223a9d7d47c06725c26f451cde2dc0413
+signal: none
+execution_error: null
+result: pass
+source: line
+recorded: 2026-09-07T23:52:29.043Z
