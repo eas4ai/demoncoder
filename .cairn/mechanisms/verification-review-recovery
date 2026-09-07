@@ -1,0 +1,18 @@
+command: bash scripts/check-verification-review-recovery.sh
+results: per-requirement
+inputs:
+  - Cargo.toml
+  - Cargo.lock
+  - src/
+  - tests/
+  - scripts/
+  - README.md
+  - docs/spec/
+  - docs/commitments/verification-review-recovery.md
+requirements:
+  - VERIFY-001
+  - VERIFY-002
+  - VERIFY-003
+  - VERIFY-004
+  - VERIFY-005
+  - VERIFY-006
