@@ -204,11 +204,17 @@ impl Model for Anthropic {
                             append(block, "text", text)?;
                             events.emit(Event::Text { text: text.into() }).await?;
                         }
-                        Some("input_json_delta") => partial[index].push_str(
-                            delta["partial_json"]
+                        Some("input_json_delta") => {
+                            let fragment = delta["partial_json"]
                                 .as_str()
-                                .context("missing tool input delta")?,
-                        ),
+                                .context("missing tool input delta")?;
+                            anyhow::ensure!(
+                                fragment.len()
+                                    <= (1024 * 1024_usize).saturating_sub(partial[index].len()),
+                                "Anthropic tool input exceeds 1 MiB; no tool calls from this response were executed"
+                            );
+                            partial[index].push_str(fragment);
+                        }
                         Some("thinking_delta") => append(
                             block,
                             "thinking",

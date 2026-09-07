@@ -107,3 +107,13 @@ tool arguments at exactly one MiB and one byte beyond. It sends either several
 fragments or one oversized fragment and holds block/message completion. Excess
 must fail within one second, with no tool admission or filesystem effect. The
 exact-bound case must wait for completion, then write the expected byte count.
+
+### REL-003 failure and correction
+
+The committed baseline failed because the oversized response remained pending for
+one second while the fixture withheld block completion. The exact-bound case
+already passed. The adapter now checks each fragment's byte length against the
+remaining allowance before appending. The check uses subtraction to avoid length
+addition overflow. Returning an error at that point prevents response tool
+admission. This is the specified per-call argument bound, not a new response-wide
+allocation policy.
