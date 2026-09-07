@@ -3,7 +3,7 @@
 commitment: verification-review-recovery
 commit: d94e156fa76f467fd82e1c9977cb431ba225592b
 findings:
-  - none: recorded recovery gap repaired; mechanism re-review and final implementation review remain pending
+  - none: mechanism reviews have no open mismatch; final implementation review remains pending
 Status: in progress
 
 ## VERIFY-004 mechanism review
@@ -82,3 +82,23 @@ requests; all four adapters still stop owned work within two seconds and continu
 with retained context. VERIFY-004 and VERIFY-006 production cases and Clippy
 passed after this repair. The unused Tokio standard-input feature was removed;
 the host supervisor already uses cancellable nonblocking descriptor reads.
+
+### VERIFY-006 mechanism re-review
+
+After the recorded repair, the complete production recovery suite passed against
+committed inputs on both native adapters. It covers saved acceptance, native
+conversation and original tool results, retained archive allocations, scoped
+inspection decisions, unchanged budgets, refusals before inspection, unsafe
+records and workspace/connection authority changes. Interrupted operations do
+not replay, whether interruption comes from process death or in-process native
+model cancellation. Ordinary home-directory recovery does not capture private
+files. Codex and Claude backend task/recovery requests are explicitly refused.
+
+The store's 15 tests passed, including corrupt/oversized/nested records, exclusive
+writer locks, symlink/hardlink substitution and injected directory-sync failure.
+Five focused host lifecycle tests passed, including detached grandchildren,
+missing handshake and deep fork chains. Earlier independent review confirmed
+that pidfd-based fixture cleanup cannot signal a recycled PID. Private records
+retain sensitive conversation/source, so owner-only permissions and finite
+retention are material limits, not encryption. The mechanism declares every
+repository file used by these checks. No remaining mismatch found.
