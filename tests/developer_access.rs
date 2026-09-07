@@ -400,3 +400,53 @@ async fn sweep_public_skill_read_preserves_private_canary() {
     assert!(!denied.output.contains("PRIVATE-CANARY"));
     println!("SWEEP skill read: public native/Bash reads pass; selected credential remains denied");
 }
+
+#[tokio::test]
+async fn reliability_host_socket_is_not_reachable_from_confined_bash() {
+    use std::os::unix::net::UnixListener;
+    // Keep the harmless host service outside /tmp, which the sandbox hides.
+    let host = tempfile::Builder::new()
+        .prefix("demoncoder-socket-fixture-")
+        .tempdir_in(std::env::var_os("HOME").expect("Linux test home"))
+        .unwrap();
+    let workspace = host.path().join("workspace");
+    std::fs::create_dir(&workspace).unwrap();
+    let address = host.path().join("control.sock");
+    let listener = UnixListener::bind(&address).unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let executor = ToolExecutor::new(&workspace).unwrap();
+    let address = serde_json::to_string(address.to_str().unwrap()).unwrap();
+    let result = bash(
+        &executor,
+        format!(
+            r#"python3 - <<'PYTHON'
+import socket
+client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+client.settimeout(1)
+try:
+    client.connect({address})
+except OSError:
+    print('SOCKET-DENIED')
+else:
+    print('HOST-SOCKET-CONTACTED')
+finally:
+    client.close()
+PYTHON"#
+        ),
+    )
+    .await;
+    assert!(
+        result.success,
+        "fixture could not execute: {}",
+        result.output
+    );
+    assert!(
+        result.output.contains("SOCKET-DENIED"),
+        "host socket reached: {}",
+        result.output
+    );
+    assert_eq!(
+        listener.accept().unwrap_err().kind(),
+        std::io::ErrorKind::WouldBlock
+    );
+}
