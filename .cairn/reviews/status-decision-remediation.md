@@ -47,3 +47,21 @@ include tested methods/types whose receiver edges are not resolved. Edit-check
 identifies Inspection as a new symbol with no incompatible callers found.
 The source test-gate exits 4 and cannot map the external Python PTY drivers;
 Cargo and the declared production mechanisms supply the actual verification.
+
+## Revised mechanism review: SUB-007
+
+Compared 3cdf445..HEAD specification text, the assignable-subagents declaration,
+its shell runner, and recovery/interrupted_transition in the production driver.
+The edit splits uncertainty and no-replay obligations without changing either,
+identity, original results, allocation, or message authority. The driver kills
+actual work and preparation/integration intent; restart assertions check uncertain
+state, retained identity/allocation, no new provider request, and unchanged files.
+The integration case also retains original passing checks and review evidence.
+No mismatch or missing declared input was found.
+
+Safe violating observation: wrapped only the test reader's returned dictionary
+to substitute integrated for uncertain after a real restart. SUB-007 rejected
+that fabricated success at its status assertion. The durable record and runtime
+were unchanged. Then the unmodified SUB-007 production driver passed all four
+transport recovery cases and interrupted preparation/integration cases. This
+demonstrates the relevant assertion, not arbitrary corruption detection.

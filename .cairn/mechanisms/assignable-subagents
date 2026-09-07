@@ -18,3 +18,5 @@ requirements:
   - SUB-005
   - SUB-006
   - SUB-007
+reviewed:
+  - SUB-007 sha256:e0d4d2e36df980a9ecdb5fe60ff466fd4c24504a6256cd6b1d5c7b9c21daf367
