@@ -249,3 +249,28 @@ and parent recovery_pending durably before draining, including forced-abort
 fallback, and demonstrate cancellation after a parent effect with a deterministic
 regression. This is a source-confirmed interleaving; no terminal reproduction has
 yet been claimed. Quality review remains open and the candidate stays unchanged.
+
+### Quality verdict and measured tradeoffs
+
+The final quality verdict requires that one integration-cancellation fix and
+identifies no other concrete defect. Independent library and orchestration-state
+tests passed (57 and 6). The baseline-to-669b633 quality delta remains nonzero:
+65 regressions, 31 preexisting-worse, 34 new-symbol and 16 gating findings. This is
+not a clean quality-gate claim or a blanket acknowledgment.
+
+The reviewer examined the real added complexity in pump and finish_job and tied
+the cancellation defect to missing behavior coverage. Record construction in
+start_after, ordered capture/check/capture in collect_current_evidence and the
+receipt-before-staleness order in role_receipt remain cohesive operations. The
+existing Oracle and reviewer transports retain different policies; generic
+transport consolidation is not required here. Several dead-code flags are tests
+that ran or used types; tiny iterator clones and same-name run/control locators
+do not establish harmful duplication. Two lifecycle fixtures share setup, an
+accepted two-case tradeoff. Required recovery and terminal display changes account
+for their recorded growth. No broad refactor is warranted by these measurements.
+
+The exact test-gate replacement now lists all 48 potentially untested symbols
+without truncation, alongside 17 Rust obligations. Many are test functions or
+adapter callbacks exercised by the production drivers; this static-map limitation
+does not excuse the missing integration-cancellation test. That repair is now
+authorized within the existing decision and will receive both re-reviews.
