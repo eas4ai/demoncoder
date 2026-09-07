@@ -11,4 +11,4 @@ Use a bounded delegation manager attached to the existing session owner and shar
 
 ## Realized by
 
-(none yet: recorded, not built)
+- 65bb87becd6b69709a52880448deb9de81561b9f Add bounded subagents across API and subscription connections
