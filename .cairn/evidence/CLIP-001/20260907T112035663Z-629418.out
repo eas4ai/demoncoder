@@ -1,0 +1,66 @@
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.11s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.11s
+     Running unittests src/lib.rs (target/debug/deps/demoncoder-0773d5cb978cf781)
+
+running 34 tests
+test context::tests::context_message_start_resets_previous_request_and_deltas_replace_counts ... ok
+test context::tests::context_estimate_includes_instructions_and_tools_without_inventing_capacity ... ok
+test chat::tests::final_tool_receipt_replaces_streamed_output ... ok
+test context::tests::context_uses_last_request_and_counts_cached_anthropic_input ... ok
+test chat::tests::compact_wrapped_rows_expand_without_losing_content ... ok
+test developer_access::tests::cancelled_preparation_yields_and_stops_without_starting_a_command ... ok
+test chat::tests::full_view_anchor_survives_new_output_resize_and_toggle ... ok
+test adapters::process::tests::group_cleanup_covers_drop_and_exited_leader ... ok
+test selection::tests::reverse_unicode_selection_uses_display_columns_and_keeps_snapshot_bytes ... ok
+test selection::tests::snapshot_rejects_excess_bytes_or_rows ... ok
+test status::tests::status_context_and_cost_keep_unknown_estimates_and_zero_distinct ... ok
+test status::tests::status_output_and_diff_parsing_are_bounded_and_nul_delimited ... ok
+test native::tests::cancellation_during_result_publication_preserves_completed_receipt ... ok
+test terminal::tests::empty_output_deltas_do_not_accumulate_transcript_entries ... ok
+test status::tests::status_uses_actual_workspace_and_never_runs_configured_filters ... ok
+test terminal::tests::scrollbar_drag_endpoints_follow_compact_full_and_resized_geometry ... ok
+test terminal::tests::scrollbar_tracks_full_history_and_leaves_two_empty_outer_columns ... ok
+test terminal::tests::selection_survives_final_receipt_resize_and_reselection ... ok
+test highlight::tests::multiline_code_state_and_oversized_fallback_are_bounded ... ok
+test highlight::tests::fenced_code_is_colored_and_unknown_languages_remain_plain ... ok
+test terminal::tests::status_and_oracle_omit_unknown_money_but_keep_zero_and_reset_context ... ok
+test terminal::tests::fenced_code_renders_styles_without_interpreting_control_sequences ... ok
+test developer_access::tests::cold_cache_keeps_installed_tools_and_does_not_write_the_host_cache ... ok
+test transcript::tests::empty_fragments_and_many_newlines_have_bounded_metadata ... ok
+test transcript::tests::scroll_anchor_survives_new_output_and_resize_until_expiry ... ok
+test chat::tests::retained_blocks_and_indexes_remain_bounded ... ok
+test transcript::tests::streaming_graphemes_match_a_single_complete_append ... ok
+test transcript::tests::streamed_fences_and_unicode_keep_the_same_text_and_colors ... ok
+test transcript::tests::rows_beyond_u16_are_reachable_and_controls_stay_literal ... ok
+test transcript::tests::oversized_unicode_retains_a_bounded_valid_tail_and_expires_old_anchors ... ok
+test transcript::tests::idle_layout_and_visible_rows_do_not_scan_the_history ... ok
+test native::tests::presentation_error_preserves_actual_failure_for_the_next_prompt ... ok
+test transcript::tests::many_lines_and_resizes_keep_the_index_bounded_and_visit_only_visible_lines ... ok
+test adapters::process::tests::interrupted_receive_retains_partial_json ... ok
+
+test result: ok. 34 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.01s
+
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.08s
+FF
+======================================================================
+FAIL: test_copy_uses_prompt_text_without_submitting_or_cancelling (__main__.PromptClipboard.test_copy_uses_prompt_text_without_submitting_or_cancelling)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/shawn/workspace2/demoncoder/tests/prompt_clipboard.py", line 32, in test_copy_uses_prompt_text_without_submitting_or_cancelling
+    self.assertIsNotNone(match, 'prompt copy emitted no clipboard request')
+    ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: unexpectedly None : prompt copy emitted no clipboard request
+
+======================================================================
+FAIL: test_terminal_paste_is_editor_text_and_modes_are_restored (__main__.PromptClipboard.test_terminal_paste_is_editor_text_and_modes_are_restored)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/shawn/workspace2/demoncoder/tests/prompt_clipboard.py", line 44, in test_terminal_paste_is_editor_text_and_modes_are_restored
+    self.assertIn(b'\x1b[?2004h', app.output, 'bracketed paste is not enabled')
+    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: b'\x1b[?2004h' not found in bytearray(b'\x1b[?1049h\x1b[?1000h\x1b[?1002h\x1b[?1003h\x1b[?1015h\x1b[?1006h\x1b[1;1H\x1b[38;5;6;49mDemonCoder \xc2\xb7 Ready \xc2\xb7 fixture \xc2\xb7 Project writes \xc2\xb7 normal reads/network                             \x1b[2;1H\x1b[38;5;8;49mConversation starts with your next prompt.                                                       \x1b[3;1H                                                                                                 \x1b[4;1H                                                                                                 \x1b[5;1H                                                                                                 \x1b[6;1H                                                                                                 \x1b[7;1H                                                                                                 \x1b[8;1H                                                                                                 \x1b[9;1H                                                                                                 \x1b[10;1H                                                                                                 \x1b[11;1H                                                                                                 \x1b[12;1H                                                                                                 \x1b[13;1H                                                                                                 \x1b[14;1H                                                                                                 \x1b[15;1H                                                                                                 \x1b[16;1H                                                                                                 \x1b[17;1H                                                                                                 \x1b[18;1H                                                                                                 \x1b[19;1H                                                                                                 \x1b[20;1H                                                                                                 \x1b[21;1H                                                                                                 \x1b[22;1H                                                                                                 \x1b[23;1H                                                                                                 \x1b[24;1H                                                                                                 \x1b[25;1H                                                                                                 \x1b[26;1H                                                                                                 \x1b[27;1H                                                                                                 \x1b[28;1H                                                                                                 \x1b[29;1H                                                                                                 \x1b[30;1H                                                                                                 \x1b[31;1H\x1b[39;49m\xe2\x94\x8cPrompt\x1b[31;9H\xc2\xb7\x1b[31;11HEnter\x1b[31;17Hsends\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x90\x1b[32;1H\xe2\x94\x82\x1b[32;97H\xe2\x94\x82\x1b[33;1H\xe2\x94\x94\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x98\x1b[34;1H\x1b[38;5;8;49mModel fixture-model \xc2\xb7 Ctx ?/? \xc2\xb7 ? free \xc2\xb7 Git ? \xc2\xb7 diff ? \xc2\xb7 agents 0                               \x1b[35;1HPgUp/PgDn scroll \xc2\xb7 Ctrl-O full output \xc2\xb7 Ctrl-Q quit                                              \x1b[39m\x1b[49m\x1b[59m\x1b[0m\x1b[?25h\x1b[32;2H') : bracketed paste is not enabled
+
+----------------------------------------------------------------------
+Ran 2 tests in 4.054s
+
+FAILED (failures=2)
