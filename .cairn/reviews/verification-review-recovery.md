@@ -1,10 +1,10 @@
 # Verification, review and recovery review
 
 commitment: verification-review-recovery
-commit: 1ca2dd5b4f10bde845c6e121f7f18a1c2dc1b0f4
+commit: 30f892db2ee239a51cf8816860fcc76450a50e4e
 findings:
-  - none: recorded verification capture finding repaired; final evidence and installed-release verification pending
-Status: in progress
+  - none: final review and installed-release verification complete
+Status: complete
 
 ## VERIFY-004 mechanism review
 
@@ -138,3 +138,55 @@ a passing receipt.
 Independent quality review approved this repair after checking state safety,
 record compatibility, phase observers and error boundaries. It was source review;
 it did not claim another test run.
+
+## Production self-audit
+
+1. Reviewed the agreed six requirements, session ownership, native adapters and durable state paths before implementation.
+2. Kept the workflow in the existing session and executor; the subprocess supervisor addresses a demonstrated owner-death defect.
+3. State, capture, storage, allocation and review have separate responsibilities; shared native interruption handling avoids duplicate cleanup logic.
+4. External backends refuse unsupported task and restoration guarantees; retained schema and capability checks reject unsafe records.
+5. Durable write failures stop admissions; output and capture limitations stay visible. Synthetic credential canaries exercise the existing access boundary.
+6. Private records use checked owner-only files and directories, exclusive locks, safe descriptor-relative access, bounded reads and checksum and schema checks.
+7. Admission precedes execution; completion precedes reporting. Uncertain work needs explicit inspection and never replays automatically.
+8. Finite cumulative allowances and deadlines span phases and restart. Owned descendants stop after cancellation or runtime death.
+9. The implementation plan and active todo tracked the work through verified repair, evidence collection and installed-release checks.
+10. Actual Rust, PTY, controlled-adapter and installed-release results are listed below; historical live records remain stale.
+11. Review defects were recorded before separate fixes and verified with failing/corrected demonstrations.
+12. The developer selected the sequence and acceptance policy; routine implementation stayed inside that contract.
+13. The final candidate satisfies these rules within the stated limits; no known in-scope defect or unfinished release check remains.
+14. Reviewed commands, errors, README and records for direct descriptions of behavior and limitations.
+
+Static analysis limits: Ripwire reports pre-existing/event-size/churn and protocol similarity flags; its name-based test obligations do not account for all dynamic adapter paths. These are not claimed clean. Runtime tests and focused component reviews cover the applicable boundaries.
+
+## Final evidence and installed release
+
+Candidate implementation: 412aca53dfbbde13695e75aceb858f4b97f25a13.
+Committed current receipts: 30f892db2ee239a51cf8816860fcc76450a50e4e.
+Cairn recorded all six requirements passing on 2026-09-07 at 15:39:53 UTC.
+The final Rust run passed 127 tests with six explicit-driver entry points ignored
+across 17 suites. Formatting, Clippy with warnings denied, release build and
+whitespace checks passed. The six-requirement mechanism exercised production
+terminal behavior plus workspace, state, store and host lifecycle tests.
+
+Installed with cargo install --path . --locked. PATH resolves to
+/home/shawn/.cargo/bin/demoncoder. Its SHA-256 matches target/release/demoncoder:
+86a872155c0641a6084c445744d2725f6a7302196ccc53c3f06a39e1862c7515.
+All six production verification drivers passed with their binary redirected to
+that installed executable, using disposable workspaces and controlled peers.
+This includes acceptance, original results and capture failure, tool-free review,
+correction and cumulative allocations, and interrupted recovery on both native
+adapters. Installation and these checks complete the plan release sequence.
+
+Earlier documented startup, usability, presentation, sweep, ordinary connection,
+access, usage, queue and cancellation checks passed during implementation.
+The retained live connection and Oracle checks were rerun after commit and report
+stale evidence. No current live-provider success or fresh paid execution is
+claimed; this commitment proves its workflow against controlled local peers.
+
+Material limits remain explicit in README: Linux-only host lifecycle support;
+bounded, repeated workspace scans rather than atomic filesystem snapshots;
+finite private records with owner permissions rather than encryption; cumulative
+call and deadline limits rather than unsupported hard token or monetary caps;
+and native-only explicit task recovery. Private records retain source and
+conversation. Keep them private and avoid concurrent workspace edits during
+verification. These are declared capabilities and constraints, not hidden passes.
