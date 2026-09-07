@@ -1,0 +1,10 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.10s
+     Running tests/reliability_streams.rs (target/debug/deps/reliability_streams-74b062508a434b79)
+
+running 2 tests
+test anthropic_accepts_exact_byte_bound_after_completion ... ok
+test anthropic_rejects_excess_before_completion ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.29s
+
+cairn: REL-003: pass
