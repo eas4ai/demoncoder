@@ -1,7 +1,8 @@
 use crate::{
+    chat::{Anchor, Chat, Role},
     events::{Envelope, Event},
+    highlight::Source,
     session::Command,
-    transcript::{Position, Transcript},
 };
 use anyhow::{Context, Result, bail};
 use crossterm::{
@@ -15,10 +16,9 @@ use futures_util::StreamExt;
 use ratatui::{
     layout::{Constraint, Layout, Rect},
     style::{Color, Style},
-    text::Line,
-    widgets::{Block, Borders, Paragraph},
+    widgets::{Block, Borders, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState},
 };
-use std::{io::IsTerminal, time::Duration};
+use std::{collections::BTreeMap, io::IsTerminal, path::Path, time::Duration};
 use tokio::sync::mpsc;
 use unicode_width::UnicodeWidthStr;
 
@@ -27,24 +27,79 @@ const MAX_INPUT_BYTES: usize = 64 * 1024;
 #[derive(Default)]
 struct View {
     input: String,
-    transcript: Transcript,
-    anchor: Option<Position>,
+    chat: Chat,
+    assistant: Option<u64>,
+    tools: BTreeMap<String, ToolActivity>,
+    anchor: Option<Anchor>,
     chat_area: Rect,
     status: String,
     usage: String,
     busy: bool,
 }
 
+struct ToolActivity {
+    block: u64,
+    name: String,
+    target: String,
+}
+
+impl ToolActivity {
+    fn title(&self, role: Role, exit: Option<i32>) -> String {
+        let verb = match role {
+            Role::Success => match self.name.as_str() {
+                "read" => "Read",
+                "write" => "Wrote",
+                "edit" => "Edited",
+                "bash" => "Ran",
+                _ => "Finished",
+            },
+            Role::Failed => "Failed",
+            Role::Stopped => "Stopped",
+            _ => "Running",
+        };
+        let tool = if role == Role::Success {
+            ""
+        } else {
+            &self.name
+        };
+        let detail = format!("{verb} {tool} {}", self.target)
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ");
+        match exit.filter(|code| *code != 0) {
+            Some(code) => format!("{detail} · exit {code}"),
+            None => detail,
+        }
+    }
+}
+
 impl View {
     fn append(&mut self, text: &str) {
-        self.transcript.append(text);
+        if text.is_empty() {
+            return;
+        }
+        let id = match self.assistant.filter(|id| self.chat.contains(*id)) {
+            Some(id) => id,
+            None => {
+                let id = self
+                    .chat
+                    .begin(Role::Assistant, "Assistant", Source::Markdown);
+                self.assistant = Some(id);
+                id
+            }
+        };
+        self.chat.append(id, text);
+    }
+
+    fn note(&mut self, role: Role, title: &str, text: &str) {
+        self.assistant = None;
+        let id = self.chat.begin(role, title, Source::Markdown);
+        self.chat.append(id, text);
     }
 
     fn scroll(&mut self, rows: i64) {
-        self.transcript.layout(self.chat_area.width);
-        self.anchor = self
-            .transcript
-            .scroll(self.anchor, rows, self.chat_area.height);
+        self.chat.layout(self.chat_area.width);
+        self.anchor = self.chat.scroll(self.anchor, rows, self.chat_area.height);
     }
 
     fn event(&mut self, envelope: Envelope) {
@@ -54,12 +109,43 @@ impl View {
                 self.busy = true;
                 self.status = "Working".into();
                 self.usage.clear();
+                self.assistant = None;
             }
             Event::Text { text } => self.append(&text),
-            Event::ToolStarted { call } => self.append(&format!("\n[{} {}]\n", call.name, call.id)),
-            Event::ToolOutput { text, .. } => self.append(&text),
+            Event::ToolStarted { call } => {
+                self.assistant = None;
+                let target = call
+                    .arguments
+                    .get("path")
+                    .or_else(|| call.arguments.get("command"))
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("");
+                let source = if call.name == "read" {
+                    Path::new(target)
+                        .extension()
+                        .and_then(|s| s.to_str())
+                        .filter(|extension| extension.len() <= 64)
+                        .map_or(Source::Plain, |extension| Source::Code(extension.into()))
+                } else {
+                    Source::Markdown
+                };
+                let mut activity = ToolActivity {
+                    block: 0,
+                    name: call.name,
+                    target: target.chars().take(384).collect(),
+                };
+                activity.block =
+                    self.chat
+                        .begin(Role::Running, &activity.title(Role::Running, None), source);
+                self.tools.insert(call.id, activity);
+            }
+            Event::ToolOutput { call_id, text, .. } => {
+                if let Some(activity) = self.tools.get(&call_id) {
+                    self.chat.append(activity.block, &text);
+                }
+            }
             Event::ToolPresentation { call_id, text } => {
-                self.append(&format!("\n[Presentation for {call_id}]\n{text}\n"))
+                self.note(Role::Notice, &format!("Presentation · {call_id}"), &text);
             }
             Event::ToolReview {
                 call_id,
@@ -67,9 +153,11 @@ impl View {
                 decision,
                 reason,
             } => {
-                self.append(&format!(
-                    "\n[Oracle {reviewer} · {call_id} · {decision}] {reason}\n"
-                ));
+                self.note(
+                    Role::Notice,
+                    &format!("Oracle {reviewer} · {call_id} · {decision}"),
+                    &reason,
+                );
             }
             Event::OracleUsage {
                 reviewer,
@@ -80,20 +168,44 @@ impl View {
             } => {
                 let count =
                     |value: Option<u64>| value.map_or_else(|| "unknown".into(), |v| v.to_string());
-                self.append(&format!(
-                    "\n[Oracle usage {reviewer}] in {} · out {} · cached {} · cost {}\n",
-                    count(input),
-                    count(output),
-                    count(cached),
-                    cost_usd.map_or_else(|| "unknown".into(), |v| format!("${v:.4}"))
-                ));
+                self.note(
+                    Role::Notice,
+                    &format!("Oracle usage {reviewer}"),
+                    &format!(
+                        "in {} · out {} · cached {} · cost {}",
+                        count(input),
+                        count(output),
+                        count(cached),
+                        cost_usd.map_or_else(|| "unknown".into(), |v| format!("${v:.4}"))
+                    ),
+                );
             }
-            Event::ToolFinished { result } => self.append(&format!(
-                "\n[{}: {}]\n{}\n",
-                result.call_id,
-                if result.success { "ok" } else { "failed" },
-                result.output
-            )),
+            Event::ToolFinished { result } => {
+                let role = if result.success {
+                    Role::Success
+                } else {
+                    Role::Failed
+                };
+                let activity = self.tools.remove(&result.call_id).unwrap_or_else(|| {
+                    let mut activity = ToolActivity {
+                        block: 0,
+                        name: result.tool.clone(),
+                        target: String::new(),
+                    };
+                    activity.block = self.chat.begin(
+                        role,
+                        &activity.title(role, result.exit_code),
+                        Source::Markdown,
+                    );
+                    activity
+                });
+                self.chat.replace(activity.block, &result.output);
+                self.chat.heading(
+                    activity.block,
+                    role,
+                    &activity.title(role, result.exit_code),
+                );
+            }
             Event::Usage {
                 input,
                 output,
@@ -102,25 +214,35 @@ impl View {
             } => {
                 if input.is_none() && output.is_none() && cached.is_none() && cost_usd.is_none() {
                     self.usage.clear();
-                    return;
+                } else {
+                    let count = |value: Option<u64>| {
+                        value.map_or_else(|| "unknown".into(), |v| v.to_string())
+                    };
+                    self.usage = format!(
+                        "in {} · out {} · cached {} · cost {}",
+                        count(input),
+                        count(output),
+                        count(cached),
+                        cost_usd.map_or_else(|| "unknown".into(), |v| format!("${v:.4}"))
+                    );
                 }
-                let count =
-                    |value: Option<u64>| value.map_or_else(|| "unknown".into(), |v| v.to_string());
-                self.usage = format!(
-                    "in {} · out {} · cached {} · cost {}",
-                    count(input),
-                    count(output),
-                    count(cached),
-                    cost_usd.map_or_else(|| "unknown".into(), |v| format!("${v:.4}"))
-                );
             }
             Event::TurnFinished { status } => {
                 self.busy = false;
                 self.status = status.into();
-                self.append("\n");
+                self.assistant = None;
+                for (_, activity) in std::mem::take(&mut self.tools) {
+                    self.chat.heading(
+                        activity.block,
+                        Role::Stopped,
+                        &activity.title(Role::Stopped, None),
+                    );
+                }
             }
-            Event::Error { message } => self.append(&format!("\nError: {message}\n")),
+            Event::Error { message } => self.note(Role::Failed, "Error", &message),
         }
+        self.tools
+            .retain(|_, activity| self.chat.contains(activity.block));
     }
 }
 
@@ -191,34 +313,7 @@ async fn run_view(
                 None => bail!("session runtime stopped"),
             },
             _ = refresh.tick() => {
-                terminal.draw(|frame| {
-                    let [header, notice, body, editor, usage, help] = Layout::vertical([Constraint::Length(1), Constraint::Length(u16::from(view.transcript.expired())), Constraint::Min(1), Constraint::Length(3), Constraint::Length(u16::from(!view.usage.is_empty())), Constraint::Length(1)]).areas(frame.area());
-                    frame.render_widget(Paragraph::new(format!("DemonCoder · {} · {}", visible_text(connection), view.status)).style(Style::default().fg(Color::Cyan)), header);
-                    if view.transcript.expired() {
-                        frame.render_widget(Paragraph::new("Older chat expired · display retention limit").style(Style::default().fg(Color::Yellow)), notice);
-                    }
-                    view.chat_area = body;
-                    view.transcript.layout(body.width);
-                    if view.transcript.is_empty() {
-                        frame.render_widget(Paragraph::new("Conversation starts with your next prompt.").style(Style::default().fg(Color::DarkGray)), body);
-                    } else {
-                        let window = view.transcript.window(view.anchor, body.height);
-                        frame.render_widget(Paragraph::new(window.rows.into_iter().map(Line::raw).collect::<Vec<_>>()), body);
-                    }
-                    let width = editor.width.saturating_sub(2) as usize;
-                    let mut start = view.input.len();
-                    let mut columns = 0;
-                    for (index, c) in view.input.char_indices().rev() {
-                        let w = unicode_width::UnicodeWidthChar::width(c).unwrap_or(0);
-                        if columns + w >= width { break; }
-                        start = index; columns += w;
-                    }
-                    let shown = &view.input[start..];
-                    frame.render_widget(Paragraph::new(shown).block(Block::default().borders(Borders::ALL).title(if view.busy { "Correction · Enter sends · Esc cancels" } else { "Prompt · Enter sends" })), editor);
-                    if width > 0 && editor.height > 1 { frame.set_cursor_position((editor.x + 1 + shown.width() as u16, editor.y + 1)); }
-                    frame.render_widget(Paragraph::new(view.usage.as_str()).style(Style::default().fg(Color::DarkGray)), usage);
-                    frame.render_widget(Paragraph::new(if view.anchor.is_some() { "History · PgUp/PgDn scroll · End latest · Ctrl-Q quit" } else { "PgUp/PgDn or wheel scroll · Home oldest · Ctrl-Q quit" }).style(Style::default().fg(Color::DarkGray)), help);
-                }).context("draw terminal")?;
+                terminal.draw(|frame| draw(&mut view, connection, frame)).context("draw terminal")?;
             },
             input = input_events.next() => {
                 let Some(input) = input else { return Ok(()); };
@@ -230,18 +325,19 @@ async fn run_view(
                             else { view.input.clear(); }
                         }
                         KeyCode::Esc if view.busy => { commands.send(Command::Cancel).await.context("cancel session")?; }
+                        KeyCode::Char('o') if key.modifiers.contains(KeyModifiers::CONTROL) => { view.chat.toggle(); },
                         KeyCode::PageUp => view.scroll(-i64::from(view.chat_area.height.max(1))),
                         KeyCode::PageDown => view.scroll(i64::from(view.chat_area.height.max(1))),
                         KeyCode::Up => view.scroll(-1),
                         KeyCode::Down => view.scroll(1),
                         KeyCode::Home => {
-                            view.transcript.layout(view.chat_area.width);
-                            view.anchor = view.transcript.oldest();
+                            view.chat.layout(view.chat_area.width);
+                            view.anchor = view.chat.oldest();
                         }
                         KeyCode::End => view.anchor = None,
                         KeyCode::Enter if !view.input.trim().is_empty() => {
                             let prompt = std::mem::take(&mut view.input);
-                            view.append(&format!("\nYou: {prompt}\n\n"));
+                            view.note(Role::User, "You:", &prompt);
                             view.anchor = None;
                             view.status = if view.busy { "Queuing correction" } else { "Starting" }.into();
                             view.busy = true;
@@ -272,9 +368,193 @@ async fn run_view(
     }
 }
 
+fn draw(view: &mut View, connection: &str, frame: &mut ratatui::Frame<'_>) {
+    let mut area = frame.area();
+    // One scrollbar column, then two empty character cells at the right edge.
+    area.width = area
+        .width
+        .saturating_sub(if area.width >= 8 { 3 } else { 0 });
+    let [header, notice, body, editor, usage, help] = Layout::vertical([
+        Constraint::Length(1),
+        Constraint::Length(u16::from(view.chat.expired())),
+        Constraint::Min(1),
+        Constraint::Length(3),
+        Constraint::Length(u16::from(!view.usage.is_empty())),
+        Constraint::Length(1),
+    ])
+    .areas(area);
+    frame.render_widget(
+        Paragraph::new(format!(
+            "DemonCoder · {} · {}",
+            visible_text(connection),
+            view.status
+        ))
+        .style(Style::default().fg(Color::Cyan)),
+        header,
+    );
+    if view.chat.expired() {
+        frame.render_widget(
+            Paragraph::new("Older chat expired · display retention limit")
+                .style(Style::default().fg(Color::Yellow)),
+            notice,
+        );
+    }
+    view.chat_area = body;
+    view.chat.layout(body.width);
+    if view.chat.is_empty() {
+        frame.render_widget(
+            Paragraph::new("Conversation starts with your next prompt.")
+                .style(Style::default().fg(Color::DarkGray)),
+            body,
+        );
+    } else {
+        let window = view.chat.window(view.anchor, body.height);
+        frame.render_widget(Paragraph::new(window), body);
+    }
+    let width = editor.width.saturating_sub(2) as usize;
+    let mut start = view.input.len();
+    let mut columns = 0;
+    for (index, c) in view.input.char_indices().rev() {
+        let w = unicode_width::UnicodeWidthChar::width(c).unwrap_or(0);
+        if columns + w >= width {
+            break;
+        }
+        start = index;
+        columns += w;
+    }
+    let shown = &view.input[start..];
+    frame.render_widget(
+        Paragraph::new(shown).block(Block::default().borders(Borders::ALL).title(if view.busy {
+            "Correction · Enter sends · Esc cancels"
+        } else {
+            "Prompt · Enter sends"
+        })),
+        editor,
+    );
+    if width > 0 && editor.height > 1 {
+        frame.set_cursor_position((editor.x + 1 + shown.width() as u16, editor.y + 1));
+    }
+    frame.render_widget(
+        Paragraph::new(view.usage.as_str()).style(Style::default().fg(Color::DarkGray)),
+        usage,
+    );
+    frame.render_widget(
+        Paragraph::new(match (view.chat.expanded(), view.anchor.is_some()) {
+            (true, true) => "Full output · History · End latest · Ctrl-O collapse · Ctrl-Q quit",
+            (true, false) => "Full output · Ctrl-O collapse · PgUp/PgDn scroll · Ctrl-Q quit",
+            (false, true) => {
+                "History · PgUp/PgDn scroll · End latest · Ctrl-O full output · Ctrl-Q quit"
+            }
+            (false, false) => "PgUp/PgDn scroll · Ctrl-O full output · Ctrl-Q quit",
+        })
+        .style(Style::default().fg(Color::DarkGray)),
+        help,
+    );
+
+    let (length, position) = view.chat.scroll_metrics(view.anchor, body.height);
+    if frame.area().width >= 8 && length > usize::from(body.height) && body.height > 0 {
+        let rail = Rect {
+            x: area.right(),
+            y: body.y,
+            width: 1,
+            height: body.height,
+        };
+        // Ratatui counts possible viewport starts, including the final one.
+        let starts = length.saturating_sub(usize::from(body.height)) + 1;
+        let mut state = ScrollbarState::new(starts)
+            .position(position)
+            .viewport_content_length(usize::from(body.height));
+        frame.render_stateful_widget(
+            Scrollbar::new(ScrollbarOrientation::VerticalRight)
+                .begin_symbol(None)
+                .end_symbol(None)
+                .track_style(Style::default().fg(Color::DarkGray))
+                .thumb_style(Style::default().fg(Color::Cyan)),
+            rail,
+            &mut state,
+        );
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::View;
+    use super::*;
+    use ratatui::{Terminal, backend::TestBackend, buffer::Buffer};
+
+    fn render(view: &mut View, width: u16, height: u16) -> Buffer {
+        let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+        terminal.draw(|frame| draw(view, "fixture", frame)).unwrap();
+        terminal.backend().buffer().clone()
+    }
+
+    #[test]
+    fn scrollbar_tracks_full_history_and_leaves_two_empty_outer_columns() {
+        let mut view = View::default();
+        view.append(
+            &(0..200)
+                .map(|n| format!("row-{n:03} 界 👩‍💻\n"))
+                .collect::<String>(),
+        );
+        let compact = render(&mut view, 60, 25);
+        assert!((0..25).all(|y| compact[(57, y)].symbol() == " "));
+        view.chat.toggle();
+        view.anchor = view.chat.oldest();
+        let first = render(&mut view, 60, 25);
+        let body = view.chat_area;
+        let thumbs = |buffer: &Buffer| {
+            (body.y..body.bottom())
+                .filter(|y| buffer[(57, *y)].fg == Color::Cyan)
+                .collect::<Vec<_>>()
+        };
+        let top = thumbs(&first);
+        assert!(!top.is_empty(), "full history has no scrollbar thumb");
+        assert_eq!(top[0], body.y);
+        view.anchor = None;
+        let last = render(&mut view, 60, 25);
+        let bottom = thumbs(&last);
+        assert_eq!(bottom.last(), Some(&(body.bottom() - 1)));
+        assert!(bottom[0] > top[0]);
+        for buffer in [&first, &last] {
+            for y in 0..25 {
+                for x in [58, 59] {
+                    assert_eq!(buffer[(x, y)].symbol(), " ");
+                }
+            }
+        }
+        view.chat.toggle();
+        let compact = render(&mut view, 60, 25);
+        assert!((body.y..body.bottom()).all(|y| compact[(57, y)].symbol() == " "));
+        for (width, height) in [(1, 1), (4, 8), (8, 4), (20, 10)] {
+            render(&mut view, width, height);
+        }
+    }
+
+    #[test]
+    fn fenced_code_renders_styles_without_interpreting_control_sequences() {
+        let mut view = View::default();
+        view.append("```rust\nlet greeting = \"界\";\n```\n\x1b[2Jliteral");
+        let buffer = render(&mut view, 60, 25);
+        let text: String = buffer.content.iter().map(|cell| cell.symbol()).collect();
+        assert!(text.contains("let greeting = \"界 \";"));
+        assert!(text.contains("�[2Jliteral"));
+        assert!(
+            buffer
+                .content
+                .iter()
+                .any(|cell| matches!(cell.fg, Color::Rgb(..)))
+        );
+        let keyword = buffer
+            .content
+            .iter()
+            .find(|cell| cell.symbol() == "l" && matches!(cell.fg, Color::Rgb(..)))
+            .unwrap();
+        let string = buffer
+            .content
+            .iter()
+            .find(|cell| cell.symbol() == "界")
+            .unwrap();
+        assert_ne!(keyword.fg, string.fg);
+    }
 
     #[test]
     fn empty_output_deltas_do_not_accumulate_transcript_entries() {
@@ -283,7 +563,7 @@ mod tests {
             view.append("");
         }
         assert!(
-            view.transcript.is_empty(),
+            view.chat.is_empty(),
             "empty output accumulated transcript metadata"
         );
     }

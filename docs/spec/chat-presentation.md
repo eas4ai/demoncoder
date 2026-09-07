@@ -19,3 +19,7 @@ Mechanism: chat-presentation; deterministic layout/retention tests and current-s
 [CHAT-003] Supported fenced code and source-file read output MUST have syntax highlighting while preserving literal text and Unicode wrapping. Unknown languages or oversized highlighting inputs MUST remain readable as plain text. Untrusted output MUST NOT execute terminal control sequences. The terminal MUST reserve a two-column right gutter when space permits, without failing at tiny sizes.
 Falsifier: Known code has no syntax colors, styling changes the underlying text or wrapping, unknown-language output vanishes, an escape sequence controls the terminal, or normal content reaches the right edge despite adequate width.
 Mechanism: chat-presentation; rendered-cell/style assertions and actual terminal screens for code, Unicode, control characters, fallback and narrow layouts.
+
+[CHAT-004] The chat MUST show a scrollbar when the current compact or full view exceeds the viewport. Its position and thumb MUST follow the current view and scroll anchor, including after resize and expansion. Two empty columns MUST remain outside the scrollbar when space permits.
+Falsifier: A long view has no scrollbar, the thumb reports the wrong position, switching compact/full views leaves stale geometry, or the rail consumes the requested outer margin.
+Mechanism: chat-presentation; rendered-cell assertions and current-screen scrolling/resize cases.

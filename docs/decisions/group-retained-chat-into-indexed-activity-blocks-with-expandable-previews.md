@@ -12,3 +12,17 @@ Keep the existing per-line transcript index inside bounded activity blocks and a
 ## Realized by
 
 (none yet: recorded, not built)
+
+## Additional supplied references
+
+- [ratatui-interact](https://github.com/Brainwires/ratatui-interact): useful interaction widgets; its scrollable strings do not supply our retention or logical anchors.
+- [ratatui-kit](https://github.com/yexiyue/ratatui-kit): component framework; adopting it would change the UI architecture.
+- [ratkit](https://github.com/Alpha-Innovation-Labs/ratkit): broader widget set targeting Ratatui 0.29.
+- [ratatui-code-editor](https://github.com/vipmax/ratatui-code-editor): editor behaviors and Tree-sitter grammars exceed the current read-only code-display need.
+- [ratatui-cheese](https://github.com/shashanktomar/ratatui-cheese): reusable interactive controls, not the retained chat index.
+- [tui-syntax-highlight](https://github.com/aschey/tui-syntax-highlight): Syntect-to-Ratatui code blocks; this implementation uses Syntect directly to retain incremental parser state and bound work.
+- [Leaves](https://github.com/freepicheep/leaves): full Markdown renderer, including tables and diagrams. Its current manifest uses Ratatui 0.29 (this application uses 0.30), and its parser returns a complete vector of rendered lines. General Markdown rendering remains a separate extension; no source from these libraries was copied.
+
+- [ratatui-markdown](https://github.com/celestia-island/ratatui-markdown): optional Markdown, scroll, tree and per-language Tree-sitter features. Current manifest targets Ratatui 0.29 and declares SySL-1.0; its displayed LICENSE does not include application reuse terms. Not adopted.
+
+These are component evaluations, not runtime validation of those projects.

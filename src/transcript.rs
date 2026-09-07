@@ -1,10 +1,12 @@
 //! Bounded retained chat and an ordered index of cached visual rows.
+use crate::highlight::{ColorRange, Source, State};
+use ratatui::text::{Line, Span};
 use std::collections::BTreeMap;
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
 pub(crate) const MAX_TRANSCRIPT_BYTES: usize = 1024 * 1024;
-const MAX_TRANSCRIPT_LINES: usize = 16_384;
+pub(crate) const MAX_TRANSCRIPT_LINES: usize = 16_384;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct Position {
@@ -19,6 +21,7 @@ struct LogicalLine {
     starts: Vec<u32>,
     first_row: Option<u64>,
     width: u16,
+    colors: Vec<ColorRange>,
 }
 
 impl LogicalLine {
@@ -60,8 +63,12 @@ pub(crate) struct Transcript {
     width: u16,
     dirty_from: Option<u64>,
     expired: bool,
+    source: Source,
+    color_dirty: Option<u64>,
+    color_tail: Option<(u64, State, State)>,
 }
 
+#[cfg(test)]
 pub(crate) struct Window<'a> {
     pub(crate) rows: Vec<&'a str>,
     #[cfg(test)]
@@ -71,6 +78,21 @@ pub(crate) struct Window<'a> {
 }
 
 impl Transcript {
+    pub(crate) fn with_source(source: Source) -> Self {
+        Self {
+            source,
+            ..Self::default()
+        }
+    }
+
+    pub(crate) fn size(&self) -> usize {
+        self.bytes
+    }
+
+    pub(crate) fn line_count(&self) -> usize {
+        self.lines.len()
+    }
+
     pub(crate) fn append(&mut self, text: &str) {
         if text.is_empty() {
             return;
@@ -131,10 +153,17 @@ impl Transcript {
 
     fn dirty(&mut self, id: u64) {
         self.dirty_from = Some(self.dirty_from.map_or(id, |first| first.min(id)));
+        self.color_dirty = Some(self.color_dirty.map_or(id, |first| first.min(id)));
     }
 
     fn enforce_limits(&mut self) {
-        while self.bytes > MAX_TRANSCRIPT_BYTES || self.lines.len() > MAX_TRANSCRIPT_LINES {
+        self.trim_to_limits(MAX_TRANSCRIPT_BYTES, MAX_TRANSCRIPT_LINES);
+    }
+
+    pub(crate) fn trim_to_limits(&mut self, max_bytes: usize, max_lines: usize) {
+        let max_bytes = max_bytes.max(1);
+        let max_lines = max_lines.max(1);
+        while self.bytes > max_bytes || self.lines.len() > max_lines {
             self.expired = true;
             if self.lines.len() > 1 {
                 let (_, line) = self.lines.pop_first().expect("oldest line");
@@ -145,7 +174,7 @@ impl Transcript {
             } else {
                 let (id, line) = self.lines.first_key_value().expect("oversized line");
                 let id = *id;
-                let mut cut = self.bytes - MAX_TRANSCRIPT_BYTES;
+                let mut cut = self.bytes - max_bytes;
                 while !line.text.is_char_boundary(cut) {
                     cut += 1;
                 }
@@ -154,6 +183,7 @@ impl Transcript {
                 line.text = line.text[cut..].to_owned();
                 line.origin += cut as u64;
                 line.starts.clear();
+                line.colors.clear();
                 line.width = 0;
                 self.bytes -= cut;
                 self.dirty(id);
@@ -164,6 +194,7 @@ impl Transcript {
     /// Reflow changed text, or all retained text after a width change. The result
     /// is the number of text bytes examined, used by deterministic work checks.
     pub(crate) fn layout(&mut self, width: u16) -> usize {
+        self.highlight();
         let width = width.max(1);
         if width != self.width {
             self.rows.clear();
@@ -194,8 +225,80 @@ impl Transcript {
         examined
     }
 
-    pub(crate) fn is_empty(&self) -> bool {
-        self.lines.is_empty()
+    fn highlight(&mut self) {
+        let Some(first) = self.color_dirty.take() else {
+            return;
+        };
+        if matches!(self.source, Source::Plain) {
+            return;
+        }
+        let Some((&first, _)) = self.lines.range(first..).next() else {
+            return;
+        };
+        let mut state = match &self.color_tail {
+            Some((id, before, _)) if *id == first => before.clone(),
+            Some((id, _, after)) if *id < first => after.clone(),
+            _ => State::new(&self.source),
+        };
+        for (&id, line) in self.lines.range_mut(first..) {
+            let before = state.clone();
+            line.colors = state.line(&line.text);
+            self.color_tail = Some((id, before, state.clone()));
+        }
+    }
+
+    pub(crate) fn row_count(&self) -> u64 {
+        self.next_row.saturating_sub(self.first_row())
+    }
+
+    pub(crate) fn offset_of(&self, position: Position) -> u64 {
+        self.row_of(position).saturating_sub(self.first_row())
+    }
+
+    pub(crate) fn at_offset(&self, offset: u64) -> Option<Position> {
+        self.position_at(self.first_row().saturating_add(offset))
+    }
+
+    /// Borrow exactly the requested rows, without moving a short final slice up.
+    pub(crate) fn styled_rows(&self, offset: u64, height: u16) -> Vec<Line<'_>> {
+        let mut result = Vec::with_capacity(usize::from(height));
+        if height == 0 || self.rows.is_empty() || offset >= self.row_count() {
+            return result;
+        }
+        let top = self.first_row() + offset;
+        let (&first, _) = self.rows.range(..=top).next_back().expect("visible row");
+        for (&row, &id) in self.rows.range(first..) {
+            let line = &self.lines[&id];
+            for index in top.saturating_sub(row) as usize..line.starts.len() {
+                let start = line.starts[index] as usize;
+                let end = line
+                    .starts
+                    .get(index + 1)
+                    .map_or(line.text.len(), |v| *v as usize);
+                let mut spans = Vec::new();
+                let mut from = 0;
+                for range in &line.colors {
+                    if range.end > start && from < end {
+                        spans.push(Span::styled(
+                            &line.text[from.max(start)..range.end.min(end)],
+                            range.style,
+                        ));
+                    }
+                    from = range.end;
+                    if from >= end {
+                        break;
+                    }
+                }
+                if from < end {
+                    spans.push(Span::raw(&line.text[from.max(start)..end]));
+                }
+                result.push(Line::from(spans));
+                if result.len() == usize::from(height) {
+                    return result;
+                }
+            }
+        }
+        result
     }
 
     pub(crate) fn expired(&self) -> bool {
@@ -206,6 +309,7 @@ impl Transcript {
         self.rows.first_key_value().map_or(0, |(row, _)| *row)
     }
 
+    #[cfg(test)]
     fn tail_top(&self, height: u16) -> u64 {
         self.first_row()
             .max(self.next_row.saturating_sub(u64::from(height)))
@@ -238,10 +342,12 @@ impl Transcript {
         })
     }
 
+    #[cfg(test)]
     pub(crate) fn oldest(&self) -> Option<Position> {
         self.position_at(self.first_row())
     }
 
+    #[cfg(test)]
     pub(crate) fn scroll(
         &self,
         current: Option<Position>,
@@ -262,6 +368,7 @@ impl Transcript {
         }
     }
 
+    #[cfg(test)]
     pub(crate) fn window(&self, position: Option<Position>, height: u16) -> Window<'_> {
         let mut window = Window {
             rows: Vec::with_capacity(usize::from(height)),
@@ -308,6 +415,26 @@ impl Transcript {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn streamed_fences_and_unicode_keep_the_same_text_and_colors() {
+        let text =
+            "prose\n```rust\n/* comment\ncontinued */\nlet message = \"界 e\u{301} 👩‍💻\";\n```\nend";
+        let mut complete = Transcript::with_source(Source::Markdown);
+        complete.append(text);
+        complete.layout(14);
+        let expected = complete.styled_rows(0, 100);
+        let mut streaming = Transcript::with_source(Source::Markdown);
+        for character in text.chars() {
+            streaming.append(&character.to_string());
+            streaming.layout(14);
+        }
+        assert_eq!(streaming.styled_rows(0, 100), expected);
+        assert_eq!(streaming.layout(14), 0);
+        streaming.layout(50);
+        complete.layout(50);
+        assert_eq!(streaming.styled_rows(0, 100), complete.styled_rows(0, 100));
+    }
 
     #[test]
     fn empty_fragments_and_many_newlines_have_bounded_metadata() {

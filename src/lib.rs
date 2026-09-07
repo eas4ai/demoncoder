@@ -1,7 +1,9 @@
 pub mod adapters;
+mod chat;
 pub mod config;
 mod developer_access;
 pub mod events;
+mod highlight;
 pub mod native;
 pub mod oracle;
 pub mod session;

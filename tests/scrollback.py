@@ -134,7 +134,7 @@ class Scrollback(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="demoncoder-scrollback-") as directory:
             app = App(Path(directory))
             try:
-                app.send(b"scroll-check\r")
+                app.send(b"\x0fscroll-check\r")
                 app.wait(lambda screen: "ROW-00399" in screen, "initial live tail")
                 app.send(b"\x1b[5~")
                 older = app.wait(lambda screen: bool(row_numbers(screen)) and max(row_numbers(screen)) < 399, "Page Up showing earlier output")
@@ -174,7 +174,7 @@ class Scrollback(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="demoncoder-expiry-") as directory:
             app = App(Path(directory))
             try:
-                app.send(b"large-scrollback\r")
+                app.send(b"\x0flarge-scrollback\r")
                 app.wait(lambda screen: "EXPIRED-END" in screen and "Older chat expired" in screen, "bounded-history notice and live tail")
                 app.send(b"\x1b[H")
                 oldest = app.wait(lambda screen: bool(row_numbers(screen)) and max(row_numbers(screen)) < 17999, "oldest retained history")

@@ -1,7 +1,7 @@
 # Readable chat activity and expandable output
 
 Status: Agreed 2026-09-07
-Requirements: CHAT-001, CHAT-002, CHAT-003
+Requirements: CHAT-001, CHAT-002, CHAT-003, CHAT-004
 
 ## Deliverable
 

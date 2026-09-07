@@ -126,6 +126,7 @@ coding task as correct.
 | Ctrl-C while working | Cancel the active turn. |
 | Ctrl-C while idle | Clear the input editor. |
 | Ctrl-Q | Quit the application and close the session runtime. |
+| Ctrl-O | Toggle all retained assistant/tool output between compact and full views. |
 | Page Up / Page Down | Scroll backward or forward one page. |
 | Up / Down | Scroll one visual row. |
 | Mouse wheel over the chat | Scroll three visual rows. |
@@ -142,6 +143,15 @@ zero; starting a new turn clears it. New output does not
 move a viewport that you have scrolled back; End resumes following live output.
 Submitting a new prompt also returns to the latest output. Resizing preserves the
 reading position. Hold Shift for terminal-emulator text selection where supported.
+
+Chat uses labeled markers for prompts, assistant responses, and tool activity.
+Tool headings show the operation and target, then update to the actual result or
+interruption. Long assistant/tool blocks show six wrapped rows from the start,
+a hidden-row count, and two rows from the end. Ctrl-O exposes the retained middle
+without resubmitting anything. Source reads and supported fenced code use syntax
+colors. Unknown languages and oversized highlighting inputs remain plain text;
+Markdown prose and links retain their literal notation. A scrollbar follows the
+current compact/full view, with two empty terminal columns outside it.
 
 The editor currently appends and backspaces at the end. Cursor navigation,
 command history, multiline composition, transcript search, and a connection picker
@@ -875,6 +885,7 @@ cargo clippy --locked --all-targets -- -D warnings
 cargo test --locked --all-targets
 bash scripts/check-startup.sh
 bash scripts/check-developer-usability.sh
+bash scripts/check-chat-presentation.sh
 bash scripts/check-coding-session.sh
 bash scripts/check-connections.sh
 ```
@@ -938,6 +949,8 @@ specified by [AGENTS.md](AGENTS.md).
 | [oracle.rs](src/oracle.rs) | Separate no-tools outside-access review. |
 | [events.rs](src/events.rs) | Attributed events and optional JSONL publication. |
 | [terminal.rs](src/terminal.rs) | Responsive editor, scrolling, tool results, usage display. |
+| [chat.rs](src/chat.rs) | Activity grouping, compact previews, full-view anchors and scrollbar metrics. |
+| [highlight.rs](src/highlight.rs) | Cached, bounded Syntect colors for code. |
 | [transcript.rs](src/transcript.rs) | Bounded chat storage, cached wrapping, and visible-row lookup. |
 | [developer_access.rs](src/developer_access.rs) | Default read/network access, credential protection, and confined writes. |
 

@@ -1,6 +1,6 @@
 [package]
 name = "demoncoder"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2024"
 rust-version = "1.95"
 description = "A small Rust terminal coding assistant"
@@ -22,6 +22,7 @@ toml = "0.8"
 tempfile = "3"
 unicode-width = "0.2"
 unicode-segmentation = "1.13.3"
+syntect = { version = "5.3", default-features = false, features = ["default-fancy"] }
 
 [lints.rust]
 unsafe_code = "forbid"
