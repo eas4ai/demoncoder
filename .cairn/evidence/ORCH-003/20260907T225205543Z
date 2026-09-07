@@ -1,0 +1,21 @@
+requirement: ORCH-003
+requirement_digest: sha256:9af0eeab530a107817b2a69f287eb6998503129efd10c39f7543da2655f69662
+sequence: 3
+history_digest: sha256:793480605715ba53a52f8007624446650645a9d14830a03662815affd2558e9a
+mechanism: advanced-orchestration
+commit: d9c6cb2
+inputs_digest: sha256:dbb56a3ac5af8b21e62e5ecb4e20cdb4bfe8c721e120a7ecbc3d0587c1068c69
+mechanism_digest: sha256:63d960eba7661438c1e5bdb14995a504dcf6005e14415066944e4821f482a8a0
+inputs_detail: .cairn/evidence/ORCH-001/20260907T224841066Z-440682.inputs.json
+command: bash scripts/check-advanced-orchestration.sh
+cwd: .
+exit: 0
+output_digest: sha256:298400cdf759e32054671500f1efb4a79f605373f4b0c8e27b9bc486bb7108b6
+output: .cairn/evidence/ORCH-001/20260907T224841066Z-440682.out
+stderr_output: .cairn/evidence/ORCH-001/20260907T224841066Z-440682.err
+stderr_digest: sha256:23bf7faf1f4dad5fb861d4710b4b91f9847ed49435885b4cf015e03cac84d805
+signal: none
+execution_error: null
+result: pass
+source: line
+recorded: 2026-09-07T22:52:05.543Z
