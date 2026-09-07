@@ -27,3 +27,25 @@ verdict. `python3 tests/verification_workflow.py --requirement VERIFY-004` passe
 against the committed implementation during this review. The successful
 fail/correct/pass/review/explicit-accept path is exercised by VERIFY-001 in the
 same driver. No mechanism mismatch found.
+
+## VERIFY-005 mechanism review
+
+The requirement changed only by splitting the admission/phase-change sentence.
+Reviewed its full allocation contract, the shared driver, allocation/runtime
+admission code and production allocation fixtures. One-call and one-tool limits
+stop the next effect. The host fixture allows a guarded mutation only when a
+second model admission is available for the Oracle. Reported usage is compared
+with actual worker/Oracle events, while missing cost remains unknown. A restart
+with a larger requested limit still retains the original one-call allocation and
+deadline. A one-second task stops a heartbeat command; review delay is exercised
+by the same driver's VERIFY-004 cases. Hard token and monetary requests fail
+before provider execution. These are failing-behavior canaries paired with the
+allowed case, not checks of completion prose.
+
+`python3 tests/verification_workflow.py --requirement VERIFY-005` passed during
+this review. `cargo test --locked --lib workflow` passed seven tests, including
+serialized consumption, rollback and a rollback detected between admission and
+its durable checkpoint. That last case withholds execution while retaining the
+spent admission and a completed result. The admission and completion paths are
+intentionally distinct. All determining runtime/fixture dependencies are declared.
+No mechanism mismatch found.
