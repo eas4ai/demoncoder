@@ -220,3 +220,17 @@ overbroad error handler during editing; it passes again after the handler was
 corrected. Independent specification re-review remains in progress. Separately,
 the parent completed all seven ORCH, seven SUB and six VERIFY production cases
 on exact cc702ba binary 54139d61; those passes did not detect the batch defect.
+
+Specification review approved clean 669b6338663e9c47408bcd7767e954f8586ab491,
+independently passing both cancellation regressions and all 57 library tests.
+The parent copied its exact debug binary with SHA-256
+f3c383120dc7f8ec03132939fd8bd692754644e78b906e9199def9841dd31579.
+ORCH-001/006/007 and SUB-004/006/007 passed again on that candidate. Explicit
+inherited-descriptor, registry, queue, output-limit, terminal-screen, steering and
+cancellation drivers passed. The worker reports final formatting, Clippy and
+189 Rust tests passed, with six opt-in cases ignored. Quality review is in progress.
+
+The retained live-Oracle validator was run and failed because its historical input
+digest is stale. No live provider call was made. This commitment uses controlled
+production transports and does not refresh the earlier live-provider evidence;
+that limitation is not represented as a passing live check.
