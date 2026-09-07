@@ -1,7 +1,7 @@
 # Output limit implementation review
 
 commitment: output-limits
-commit: 930a27f951b17eb70868f1e470e4c7ad27dc04b0
+commit: 4554457a51761a40e1184b0897d774ec216be811
 findings:
   - none: no open findings within this commitment
 Reviewer: Codex
@@ -81,5 +81,10 @@ The release installed with cargo install --path . --locked --force. All three
 output-limit terminal tests passed against /home/shawn/.cargo/bin/demoncoder.
 Installed help exposes the new option and the CLI rejects a zero limit.
 
-The developer subsequently requested a version increment. That packaging change
-will be recorded and checked separately before final delivery.
+The developer requested version 0.1.1. The only declared input changes since
+the initial review are the package version in Cargo.toml and the matching
+Cargo.lock package entry; no dependencies or runtime code changed. Locked build,
+six startup tests, and the installed version check pass. Cairn refreshed all three
+OUTPUT receipts at 20260907T010706124Z. The 0.1.1 release was reinstalled and all
+three output-limit terminal tests pass against the installed executable.
+The packaging review found no new issue.
