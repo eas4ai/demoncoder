@@ -1,6 +1,9 @@
 # Status and decision remediation review
 
 commitment: status-decision-remediation
+commit: d5c498158454960cc2dc2f2ef4ac098180baf5c5
+findings:
+  - REM-002: Historical agent checks remain inside role-input JSON rather than readable sections.
 Status: in progress
 
 ## Baseline failure demonstration
@@ -102,3 +105,15 @@ prerequisite success; the runtime and stored evidence were unchanged. The
 unmodified complete ORCH-007 driver then passed recovery, authority/integration
 and retained-limit cases. This is a bounded assertion demonstration, not a claim
 that a deliberately corrupted runtime was deployed.
+
+## Final candidate finding
+
+Read the complete formatter, terminal/poller handoff, command wrappers and
+production cases against REM-001..005. The runtime replaces agent.checks for
+each correction generation and retains earlier check receipts inside each role
+receipt evidence. agent_report renders current checks and all role conclusions,
+but its historical role inputs remain JSON-only. Earlier command output therefore
+requires decoding JSON, which does not meet REM-002 for readable original checks.
+Record this before a separate repair. Render those retained check generations
+with the existing labeled check formatter and add a multi-round regression that
+requires real newlines in historical output. Do not change stored evidence.
