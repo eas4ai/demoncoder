@@ -117,3 +117,14 @@ including CHAT-002's two obligations in one sentence. They are recorded in
 Agreed wording or claim a passing lint. Existing source-review and Markdown
 backlog findings remain open outside the four CHAT behaviors. No new behavioral
 finding was found within the current commitment.
+
+### Handoff input declaration
+
+The developer explicitly selected `handoff.md` for this adoption. Its reconciliation
+update records completion and fresh CHAT evidence, and this review reads it to
+separate completed presentation work from later usability scope. Declare it as a
+review input in the chat-presentation mechanism so edits to that completion record
+invalidate evidence. This is documentation for the current review, not a new
+runtime requirement or authorization for the later usability implementation.
+The terminal checks do not validate every historical claim in the handoff; this
+record and `docs/recon.md` retain that manual review and its limits.
