@@ -11,4 +11,4 @@ Use lazy, cancellable model metadata discovery for the required Anthropic max_to
 
 ## Realized by
 
-74b2fd4fe51698d000a34456c0df95f4f7093ffc
+74b2fd4fe51698d000a34456c0df95f4f7093ffc Resolve native model output limits and reject truncated responses
