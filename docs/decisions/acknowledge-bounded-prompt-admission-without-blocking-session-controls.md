@@ -13,4 +13,4 @@ Subscription correction permits remain held after the channel is drained and are
 
 ## Realized by
 
-(none yet: recorded, not built)
+- e1fdacf7971bac2de5a9a750801ba71ad33bc657 Keep prompt admission and cancellation responsive under queue pressure
