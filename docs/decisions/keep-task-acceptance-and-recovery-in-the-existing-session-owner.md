@@ -11,4 +11,4 @@ Extend the existing host session boundary with an explicit task workflow. Develo
 
 ## Realized by
 
-(none yet: recorded, not built)
+d94e156fa76f467fd82e1c9977cb431ba225592b Add explicit task verification and durable recovery
