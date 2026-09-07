@@ -169,3 +169,12 @@ detects the unavailable advisor process launch; recovery detects a new assignmen
 releasing retained work without /agents-resume. The Python fixture parses. Runtime
 repairs and deterministic concurrency regressions are in progress; these failures
 are editing-time demonstrations, not new passing or formal Cairn evidence.
+
+### Incremental regression review before repair
+
+Fixture review found that the new stale-response retention cases replaced the
+earlier stale clear-advisor case. Keep both: findings retention alone does not
+prove stale approval cannot make work ready. The recovery case also submitted a
+new assignment without proving it was accepted; a rejected command could satisfy
+the queue assertion. Require a new retained assignment before testing the pause.
+The backend launch assertion and targeted cleanup passed this review.
