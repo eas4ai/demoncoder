@@ -2,7 +2,7 @@
 
 Status: Agreed 2026-09-08
 Prefix: SET
-Host paths: ~/.demoncoder/ /settings
+Host paths: ~/.demoncoder/, /settings
 
 The developer confirmed provider checkboxes with authentication checks, model
 selection after provider selection, a list of defined agent types inheriting the

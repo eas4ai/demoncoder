@@ -5,7 +5,7 @@ commit: a864e430b5ead03df6649aff9bdfeef6c220d40d
 examined:
   - START-003 startup mechanism against the current requirement and falsifier.
 findings:
-  - open: SET-008: The new specification Host paths declaration needs a comma between its two paths before specification lint can pass.
+  - resolved: SET-008: Corrected the comma-separated Host paths declaration; specification lint passes.
 Status: incomplete
 
 ## START-003 mechanism review
@@ -30,3 +30,16 @@ current Cairn execution-order and output-digest metadata. The UI tests currently
 expect the old setup prompts and must be updated when SET changes that flow,
 while retaining these filesystem and session assertions. The SET specification
 has a separate formatting defect recorded above; this review changes no code.
+
+## Connection baseline runner repair
+
+The first baseline stopped on stale CONN-001 live records before executing the
+selected authentication and ownership checks. Moved that independent historical
+validator to the end of the runner. It still fails on stale evidence, and its
+acceptance rules and records are unchanged. Earlier checks can now emit their
+own results. No live provider requests are made by the historical validator.
+
+The development run now reaches and passes CONN-002 through CONN-006, including
+the selected authentication, ownership and capability checks. It exits one at
+the unchanged historical live-record validator, which also requires committed
+specification inputs. The subsequent Cairn run records the committed result.
