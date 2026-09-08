@@ -1,0 +1,59 @@
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.32s
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.14s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.09s
+     Running unittests src/lib.rs (target/debug/deps/demoncoder-0911b3f9cf4c6c88)
+
+running 10 tests
+test learning::tests::learning_cancel_does_not_wait_for_a_blocked_storage_worker ... ok
+test learning::tests::learning_instructions_preserve_the_file_tools_hard_link_boundary ... ok
+test learning::tests::learning_instruction_subtrees_limits_and_external_links ... ok
+test learning::tests::learning_observation_refresh_annotation_and_source_integrity ... ok
+test learning::tests::learning_reservation_survives_reopen_and_never_creates_or_replays_task ... ok
+test learning::tests::learning_unrelated_accepted_check_does_not_prove_original_failure_fixed ... ok
+test learning::tests::learning_failed_abandoned_and_supported_outcomes_keep_history ... ok
+test learning::tests::learning_finite_selection_and_missing_authorization_are_not_supported ... ok
+test learning::tests::learning_approval_matching_disable_and_original_source_are_enforced ... ok
+test learning::tests::learning_report_refusal_does_not_commit_catalog_mutations ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 87 filtered out; finished in 16.22s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s
+     Running tests/workflow_store.rs (target/debug/deps/workflow_store-122ba78f04bb105f)
+
+running 16 tests
+test crash_lock_child ... ok
+test private_parent_rejects_links_without_changing_target_permissions ... ok
+test refuses_missing_record_and_unsafe_paths ... ok
+test changing_lock_name_does_not_allow_two_owners ... ok
+test pinned_directory_survives_path_replacement_and_ignores_uncommitted_temps ... ok
+test published_snapshot_is_readable_during_live_writer_and_rejects_damage ... ok
+test rejects_state_links_and_preserves_outside_file ... ok
+test rejects_nonregular_and_oversized_records ... ok
+test refuses_broken_records_without_echoing_contents ... ok
+test rejects_independently_mutated_valid_envelopes ... ok
+test roundtrip_private_and_exclusive ... ok
+test store::durability_tests::directory_sync_failure_reports_uncertainty_with_valid_replacement ... ok
+test rejects_unsafe_lock_files ... ok
+test rejects_unreadable_nesting_before_replacing_previous_record ... ok
+test process_death_releases_lock ... ok
+test failed_oversized_write_preserves_previous_record ... ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.03s
+
+spec lint: docs/spec clean
+LEARN-001: production evidence-based improvement passed
+cairn: LEARN-001: pass
+LEARN-002: production evidence-based improvement passed
+cairn: LEARN-002: pass
+LEARN-003: production evidence-based improvement passed
+cairn: LEARN-003: pass
+LEARN-004: production evidence-based improvement passed
+cairn: LEARN-004: pass
+LEARN-005: production evidence-based improvement passed
+cairn: LEARN-005: pass
+LEARN-006: production evidence-based improvement passed
+cairn: LEARN-006: pass
+LEARN-007: production evidence-based improvement passed
+cairn: LEARN-007: pass
+LEARN-008: production evidence-based improvement passed
+cairn: LEARN-008: pass
