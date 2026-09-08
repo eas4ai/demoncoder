@@ -11,7 +11,7 @@ Keep the existing nonblocking exclusive lock and revision conflict checks. Retur
 
 ## Realized by
 
-(none yet: recorded, not built)
+- 4397100306554a0fb6fe72f2395336529302f6ea Release settings transaction locks despite inherited descriptors
 ## Verification
 
 The deterministic duplicated-descriptor regression failed before the guard change and passes with explicit unlock. It also checks that a live writer excludes competitors and that dropping the inherited descriptor cannot unlock a later transaction. Existing competing-editor and active-revision assertions remain intact.
