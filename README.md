@@ -110,6 +110,8 @@ demoncoder --setup --workspace /absolute/path/to/project
 command. Existing named connections are retained. Use `/settings` or Ctrl-S to
 edit provider selections and role assignments during a session. To add a custom
 named endpoint or remove a saved trusted project, edit the private settings file.
+Settings supports up to 64 named connections. At capacity, remove an unused
+entry from the private file before adding a different provider.
 
 ### Live provider and role settings
 

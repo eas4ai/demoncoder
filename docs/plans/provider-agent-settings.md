@@ -28,13 +28,9 @@ Cairn commitment. No external reference code is copied.
    captured output. Complete the recorded adversarial review, resolve findings,
    install and demonstrate the full workflow against the installed binary.
 
-Todo:
-- Complete: checked provider discovery and onboarding selectors; nine probe tests,
-  thirteen production provider PTY cases, and existing onboarding/startup cases pass.
-- Complete: live assignment, persistence and admission integration (steps 2–4).
-  Four persistence tests, six live-terminal cases and six role/request/recovery
-  cases pass, including resize, scroll and slow-discovery cancellation.
-- In progress: documentation, committed Cairn evidence, final review and installed
-  demonstration (step 5).
+The current todo status and verification results are retained in
+[the commitment review](../../.cairn/reviews/provider-agent-settings.md). This
+plan describes the execution sequence; the review records completed work and
+any remaining findings.
 
 A step is complete only when its code and corresponding behavioral verification pass.

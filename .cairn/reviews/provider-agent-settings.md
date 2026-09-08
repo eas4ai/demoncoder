@@ -5,7 +5,7 @@ commit: caa6ca1cf03cf399de855b5283e6e5a91790fbb3
 examined:
   - START-003 startup mechanism against the current requirement and falsifier.
 findings:
-  - open: SET-007: Auto-added provider placeholders can exceed the editor connection limit and make the next Settings open fail.
+  - resolved: SET-007: Optional provider placeholders now respect the connection limit; boundary saves preserve every existing connection and reopen successfully.
   - resolved: SET-008: Corrected the comma-separated Host paths declaration; specification lint passes.
 Status: incomplete
 
@@ -117,3 +117,19 @@ found this by tracing new/apply/persistence together, beyond the ordinary PTY
 catalog sizes. Keep existing connections and enforce the same capacity while
 adding optional placeholders; verify reopen stability at the boundary. No code
 was changed during this review.
+
+The new boundary test reproduced the rejection after serialization and reload.
+The corrected editor adds optional choices only while capacity remains. The same
+test now passes for 61 through 64 saved entries and checks that every original
+connection is unchanged. The manual names this limit and how to add a provider
+when the configured list is full.
+
+## Todo
+
+- Complete: checked provider discovery and shared onboarding selectors, with
+  nine probe tests and 13 production provider cases passing.
+- Complete: live assignment, persistence and role admission, with four store
+  tests, six live-terminal cases and six role/request/recovery cases passing.
+- Complete: installed release demonstration and first inherited evidence sweep.
+- In progress: refresh committed evidence after the reviewed connection-limit
+  correction, then complete the final review.

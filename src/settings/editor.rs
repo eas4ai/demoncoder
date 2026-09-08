@@ -74,6 +74,10 @@ impl Editor {
         );
         let assignments = Assignments::from_config(&config);
         for adapter in ["codex", "claude", "openai-api", "anthropic-api"] {
+            // Optional choices must not make our own saved file impossible to reopen.
+            if config.connections.len() == 64 {
+                break;
+            }
             if !config.connections.values().any(|c| c.adapter == adapter) {
                 let mut name = adapter.to_owned();
                 while config.connections.contains_key(&name) {
@@ -571,6 +575,41 @@ pub(crate) async fn onboarding(config: &mut Config) -> Result<()> {
                 },
                 Event::Paste(text) => editor.paste(&text),
                 _ => {}
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn saving_near_capacity_keeps_existing_connections_and_can_reopen() {
+        for count in 61..=64 {
+            let connections: std::collections::BTreeMap<_, _> = (0..count)
+                .map(|index| {
+                    (
+                        format!("saved-{index}"),
+                        serde_json::json!({"adapter": "codex", "model": "existing-model"}),
+                    )
+                })
+                .collect();
+            let config: Config = serde_json::from_value(serde_json::json!({
+                "default_connection": "saved-0", "connections": connections
+            }))
+            .unwrap();
+            let mut editor = Editor::new(config.clone(), false).unwrap();
+            editor.apply().unwrap();
+            let persisted = toml::to_string(&editor.config).unwrap();
+            let restored: Config = toml::from_str(&persisted).unwrap();
+            let reopened = Editor::new(restored, false)
+                .expect("a Settings save must remain within its own reopening limit");
+            for (name, connection) in config.connections {
+                assert_eq!(
+                    serde_json::to_value(&reopened.config.connections[&name]).unwrap(),
+                    serde_json::to_value(&connection).unwrap()
+                );
             }
         }
     }
