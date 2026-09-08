@@ -11,6 +11,6 @@ Use one deterministic export policy for reserved runtime directories and credent
 
 ## Realized by
 
-76cc8c3b17e51488ef47309f91db31297efb5f9b Protect private source exports and restore installed Codex routing checks
+- 76cc8c3b17e51488ef47309f91db31297efb5f9b Protect private source exports and restore installed Codex routing checks
 
 `src/export_policy.rs` defines the shared exclusions and resolves declared credential aliases before workspace admission. Workspace capture and review use it before source export; delegated content validation refuses private paths. `tests/workflow_workspace.rs`, `tests/subagent_worktrees.rs` and `tests/audit_remediation.py` exercise synthetic private contents, historical snapshots, Git objects, and actual terminal/provider boundaries.
