@@ -106,3 +106,25 @@ This is a deterministic storage-reuse observation, not a wall-clock performance
 claim. Existing stream cancellation, UTF-8 transport and incomplete-tool-response
 checks remain in the mechanism. The small internal change preserves field and
 call contracts; no new public configuration or runtime owner is introduced.
+
+## Cumulative gate mechanism
+
+The committed AUD-006 baseline failed because no completed-product script existed.
+The new gate names all 21 existing completed-product drivers, runs Cargo's full
+all-target checks, and repeats installed backend tools/results plus audit and
+verification/recovery terminal cases against the installed release. The ordinary
+coding and connection drivers still validate paid live evidence by default. Their
+explicit local-only option reports CODE-010 and CONN-001 as unverified, never pass.
+
+Safe failure demonstrations used disposable copies of the shell drivers and
+substituted command peers, not real providers: injected installed tool failure and
+installed result failure each stopped the aggregate with exit 73 and no AUD-006
+pass. Injected final live-validation failure still stopped each default runner;
+local-only returned successfully with its explicit unverified marker. Unknown
+options returned usage errors. These probes establish runner selection and failure
+propagation only; the real gate remains responsible for product evidence.
+
+The real cumulative gate completed successfully: all 21 drivers, full Rust tests,
+formatting and Clippy, then installed-release tool/result cycles, private review,
+generated outputs, bounded parent/child review, and all six verification/recovery
+terminal cases. Paid live-provider and Oracle cases were explicitly unverified.

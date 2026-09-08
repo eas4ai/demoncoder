@@ -1403,6 +1403,24 @@ excluded. Cairn itself is separate development tooling and is not vendored here.
 
 ### Local checks
 
+Run the cumulative completed-product gate with:
+
+```bash
+bash scripts/check-completed-product.sh
+```
+
+It runs all completed product drivers and the full Rust checks, installs the
+release, then repeats security, workflow and provider regressions against that
+installed binary. The Codex cases use the real installed backend, its built-in
+route, synthetic credentials and a disposable local TLS proxy. Negative tests
+continue to reject custom subscription routes. No paid provider access is claimed.
+The gate uses `--local-only` on the coding-session and connections drivers, which
+report paid live cases as unverified. Without that option those drivers still
+require fresh live records. Set `TMPDIR` to an existing scratch directory to choose
+where disposable fixtures are created.
+
+Individual checks remain available:
+
 ```bash
 cargo fmt --check
 cargo clippy --locked --all-targets -- -D warnings
