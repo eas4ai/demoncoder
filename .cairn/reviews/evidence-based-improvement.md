@@ -1,7 +1,7 @@
 # Evidence-based improvement review
 
 commitment: evidence-based-improvement
-commit: 9eae183f2e603cd7dcad5bc03f4fc428dce2e3c7
+commit: 4a7b33853dcb92029499c9e4c7831ced4d1e6ad9
 examined:
   - Original receipt resolution, workspace identity, annotation and proposal attribution.
   - Durable authorization, ordinary task admission, correction outcome and lesson approval.
@@ -86,3 +86,12 @@ name makes the ordinary file readable. The production LEARN-006 driver verifies
 that the refusal starts no provider request, then passes the matching/unrelated,
 scoped instruction and integration-gate cases on all four connections. The README
 now states the same hard-link boundary. No outside or private data was accessed.
+
+## Review after instruction admission repair
+
+Compared the complete change since the initial review. The opened descriptor now
+requires one link before reading; the regression covers refusal and ordinary-file
+recovery, and the terminal case confirms no provider request on refusal. Refreshed
+LEARN, VERIFY, SUB, ORCH and REM receipts all pass. No new finding arose from this
+change. The catalog save/render ordering and installed-release findings remain
+open; source inspection confirms the ordering has not yet changed.
