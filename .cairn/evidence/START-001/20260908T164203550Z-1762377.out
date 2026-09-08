@@ -1,0 +1,39 @@
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.10s
+test_cancelled_key_input_restores_terminal_and_saves_nothing (__main__.Onboarding.test_cancelled_key_input_restores_terminal_and_saves_nothing) ... ok
+test_first_run_and_repeated_run_use_saved_choices (__main__.Onboarding.test_first_run_and_repeated_run_use_saved_choices) ... ok
+test_key_input_is_not_echoed_and_is_saved_privately (__main__.Onboarding.test_key_input_is_not_echoed_and_is_saved_privately) ... ok
+
+----------------------------------------------------------------------
+Ran 3 tests in 0.970s
+
+OK
+cairn: CODE-009: pass
+.
+----------------------------------------------------------------------
+Ran 1 test in 0.062s
+
+OK
+test_help_and_version_do_not_start_setup (__main__.Information.test_help_and_version_do_not_start_setup) ... ok
+
+----------------------------------------------------------------------
+Ran 1 test in 0.029s
+
+OK
+cairn: START-001: pass
+test_default_workspace_is_launch_directory_and_explicit_overrides (__main__.Workspace.test_default_workspace_is_launch_directory_and_explicit_overrides) ... ok
+
+----------------------------------------------------------------------
+Ran 1 test in 0.622s
+
+OK
+test_custom_shared_parent_is_rejected_without_chmod (__main__.Directory.test_custom_shared_parent_is_rejected_without_chmod) ... cairn: START-002: pass
+ok
+test_existing_default_directory_is_secured_without_losing_files (__main__.Directory.test_existing_default_directory_is_secured_without_losing_files) ... ok
+test_saved_connections_survive_directory_repair_and_new_project_trust (__main__.Directory.test_saved_connections_survive_directory_repair_and_new_project_trust) ... ok
+test_symlinked_default_directory_is_rejected_without_chmod (__main__.Directory.test_symlinked_default_directory_is_rejected_without_chmod) ... ok
+
+----------------------------------------------------------------------
+Ran 4 tests in 0.213s
+
+OK
+cairn: START-003: pass
