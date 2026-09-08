@@ -1,0 +1,137 @@
+   Compiling demoncoder v0.1.2 (/home/shawn/workspace2/demoncoder)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2.92s
+CODE-001 openai-api terminal prompt reached runtime and response was rendered
+CODE-001 anthropic-api terminal prompt reached runtime and response was rendered
+CODE-001 codex terminal prompt reached runtime and response was rendered
+CODE-001 claude terminal prompt reached runtime and response was rendered
+cairn: CODE-001: pass
+   Compiling demoncoder v0.1.2 (/home/shawn/workspace2/demoncoder)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.74s
+     Running tests/tools.rs (target/debug/deps/tools-146f4d767211ea29)
+
+running 3 tests
+test final_hook_arguments_and_links_are_denied_without_touching_canaries ... ok
+test denied_hooks_and_transformed_commands_cannot_bypass_final_admission ... ok
+test real_file_and_command_cycle_retains_failure_and_success ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.36s
+
+CODE-002 openai-api production tool cycle passed
+CODE-002 anthropic-api production tool cycle passed
+CODE-002 codex production tool cycle passed
+CODE-002 claude production tool cycle passed
+cairn: CODE-002: pass
+CODE-003 openai-api assistant, tool, and editor checkpoints passed
+CODE-003 anthropic-api assistant, tool, and editor checkpoints passed
+CODE-003 codex assistant, tool, and editor checkpoints passed
+CODE-003 claude assistant, tool, and editor checkpoints passed
+cairn: CODE-003: pass
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.09s
+     Running unittests src/lib.rs (target/debug/deps/demoncoder-0911b3f9cf4c6c88)
+
+running 1 test
+test adapters::process::tests::interrupted_receive_retains_partial_json ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 100 filtered out; finished in 1.01s
+
+CODE-004 openai-api correction acknowledged, old tools denied, corrected model input and effect passed
+CODE-004 anthropic-api correction acknowledged, old tools denied, corrected model input and effect passed
+CODE-004 codex correction acknowledged, old tools denied, corrected model input and effect passed
+CODE-004 claude correction acknowledged, old tools denied, corrected model input and effect passed
+cairn: CODE-004: pass
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.09s
+     Running unittests src/lib.rs (target/debug/deps/demoncoder-0911b3f9cf4c6c88)
+
+running 1 test
+test adapters::process::tests::group_cleanup_covers_drop_and_exited_leader ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 100 filtered out; finished in 0.05s
+
+CODE-005 openai-api provider stopped within two seconds; next prompt accepted
+CODE-005 openai-api tool stopped within two seconds; next prompt accepted
+CODE-005 anthropic-api provider stopped within two seconds; next prompt accepted
+CODE-005 anthropic-api tool stopped within two seconds; next prompt accepted
+CODE-005 codex provider stopped within two seconds; next prompt accepted
+CODE-005 codex tool stopped within two seconds; next prompt accepted
+CODE-005 claude provider stopped within two seconds; next prompt accepted
+CODE-005 claude tool stopped within two seconds; next prompt accepted
+cairn: CODE-005: pass
+CODE-006 openai-api completed preceding context, file extension, and verification passed
+CODE-006 openai-api cancelled preceding context, file extension, and verification passed
+CODE-006 anthropic-api completed preceding context, file extension, and verification passed
+CODE-006 anthropic-api cancelled preceding context, file extension, and verification passed
+CODE-006 codex completed preceding context, file extension, and verification passed
+CODE-006 codex cancelled preceding context, file extension, and verification passed
+CODE-006 claude completed preceding context, file extension, and verification passed
+CODE-006 claude cancelled preceding context, file extension, and verification passed
+cairn: CODE-006: pass
+CODE-007 openai-api ordinary reads, protected writes and credentials, Bash, and backend routing passed
+CODE-007 anthropic-api ordinary reads, protected writes and credentials, Bash, and backend routing passed
+CODE-007 codex ordinary reads, protected writes and credentials, Bash, and backend routing passed
+CODE-007 claude ordinary reads, protected writes and credentials, Bash, and backend routing passed
+cairn: CODE-007: pass
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.12s
+     Running unittests src/lib.rs (target/debug/deps/demoncoder-0911b3f9cf4c6c88)
+
+running 2 tests
+test native::tests::cancellation_during_result_publication_preserves_completed_receipt ... ok
+test native::tests::presentation_error_preserves_actual_failure_for_the_next_prompt ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 99 filtered out; finished in 0.32s
+
+CODE-008 openai-api failed check, correction, passing check, and original result identities passed
+CODE-008 anthropic-api failed check, correction, passing check, and original result identities passed
+CODE-008 codex failed check, correction, passing check, and original result identities passed
+CODE-008 claude failed check, correction, passing check, and original result identities passed
+cairn: CODE-008: pass
+...
+----------------------------------------------------------------------
+Ran 3 tests in 0.000s
+
+OK
+test_cancelled_key_input_restores_terminal_and_saves_nothing (__main__.Onboarding.test_cancelled_key_input_restores_terminal_and_saves_nothing) ... ok
+test_first_run_and_repeated_run_use_saved_choices (__main__.Onboarding.test_first_run_and_repeated_run_use_saved_choices) ... ok
+test_key_input_is_not_echoed_and_is_saved_privately (__main__.Onboarding.test_key_input_is_not_echoed_and_is_saved_privately) ... ok
+
+----------------------------------------------------------------------
+Ran 3 tests in 0.779s
+
+OK
+cairn: CODE-009: pass
+   Compiling demoncoder v0.1.2 (/home/shawn/workspace2/demoncoder)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.77s
+     Running tests/host_guard.rs (target/debug/deps/host_guard-e7f3dd0871ba416f)
+
+running 10 tests
+test host_supervisor_stops_detached_grandchildren_after_owner_is_killed ... ok
+test hooks_are_reviewed_and_owned_scratch_needs_no_review ... ok
+test reliability_explicit_host_mode_retains_unix_sockets ... ok
+test target_swaps_during_review_cannot_change_the_effect ... ok
+test cancelled_review_has_no_effect_and_stops_its_backend ... ok
+test subscription_oracles_have_no_tools_and_fail_closed ... ok
+test host_children_stop_on_exit_closed_stdio_and_cancellation ... ok
+test host_supervisor_stops_deep_fork_chain_within_two_seconds ... ok
+test host_supervisor_handshake_deadline_exits_with_pipe_still_open ... ok
+test oracle_deadline_fails_closed has been running for over 60 seconds
+test oracle_deadline_fails_closed ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 60.00s
+
+test_all_connections_execute_host_tools_through_the_oracle (__main__.HostAccess.test_all_connections_execute_host_tools_through_the_oracle) ... ok
+test_outside_paths_and_oracle_failures (__main__.HostAccess.test_outside_paths_and_oracle_failures) ... ok
+
+----------------------------------------------------------------------
+Ran 2 tests in 7.240s
+
+OK
+Traceback (most recent call last):
+  File "/home/shawn/workspace2/demoncoder/tests/live_oracle.py", line 56, in <module>
+    main()
+    ~~~~^^
+  File "/home/shawn/workspace2/demoncoder/tests/live_oracle.py", line 51, in main
+    validate(json.loads(paths[-1].read_text()), current)
+    ~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/shawn/workspace2/demoncoder/tests/live_oracle.py", line 24, in validate
+    assert record["result"] == "pass" and record["input_digest"] == current, "live Oracle evidence is stale or incomplete"
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: live Oracle evidence is stale or incomplete
