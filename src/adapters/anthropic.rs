@@ -311,10 +311,16 @@ impl Model for Anthropic {
 fn append(block: &mut Value, field: &str, delta: &str) -> Result<()> {
     let current = block[field].as_str().unwrap_or("");
     anyhow::ensure!(
-        current.len() + delta.len() <= 4 * 1024 * 1024,
+        current
+            .len()
+            .checked_add(delta.len())
+            .is_some_and(|bytes| bytes <= 4 * 1024 * 1024),
         "Anthropic block exceeds 4 MiB"
     );
-    block[field] = Value::String(format!("{current}{delta}"));
+    match &mut block[field] {
+        Value::String(text) => text.push_str(delta),
+        value => *value = Value::String(delta.to_owned()),
+    }
     Ok(())
 }
 
@@ -362,6 +368,8 @@ mod accumulation_tests {
     #[test]
     fn missing_fields_start_with_the_complete_fragment() {
         let mut block = json!({});
+        assert!(append(&mut block, "text", &"x".repeat(4 * 1024 * 1024 + 1)).is_err());
+        assert_eq!(block, json!({}));
         for field in ["text", "thinking", "signature"] {
             append(&mut block, field, "é界🦀").unwrap();
             assert_eq!(block[field], "é界🦀");

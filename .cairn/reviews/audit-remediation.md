@@ -90,3 +90,19 @@ four tool calls and exceeded its inherited 20-second test wait; a diagnostic run
 completed normally in 23.31 seconds. This bounded-review case now makes one write
 before validation and integration; four-tool coverage remains in the existing
 assignment suite. Production deadlines and review requirements are unchanged.
+
+## Anthropic append mechanism
+
+The committed baseline fails the real accumulator's allocation-reuse test on its
+first fragment despite 128 KiB of reserved capacity. The corrected helper appends
+to the existing String after a checked byte-limit calculation. The same test now
+keeps the pointer across 6,000 fragments for each text, thinking and signature
+field, including combining Unicode, multibyte text, empty fragments and newlines.
+It verifies exact complete contents after accumulation. Separate boundary tests
+accept exactly 4 MiB, refuse the next multibyte fragment without changing contents,
+and leave a missing field absent when its first fragment is oversized.
+
+This is a deterministic storage-reuse observation, not a wall-clock performance
+claim. Existing stream cancellation, UTF-8 transport and incomplete-tool-response
+checks remain in the mechanism. The small internal change preserves field and
+call contracts; no new public configuration or runtime owner is introduced.
