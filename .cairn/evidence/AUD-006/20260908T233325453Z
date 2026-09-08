@@ -1,0 +1,21 @@
+requirement: AUD-006
+requirement_digest: sha256:e0694c259c7287377de35c6de75ace4c3ccc1a910d851d2d78949e4e5c6513cc
+sequence: 1
+history_digest: sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+mechanism: audit-completed-product
+commit: bb36996
+inputs_digest: sha256:d5b06f2ccbd55ab7dd0cac810b41f2c1541658c5566bce789f3cca54bf144d13
+mechanism_digest: sha256:b93668fa2f0074588ef4b1113f89162a74ea6f57509df52e2a25a2b0a0831df4
+inputs_detail: .cairn/evidence/AUD-006/20260908T233325333Z-3692243.inputs.json
+command: bash scripts/check-completed-product.sh
+cwd: .
+exit: 127
+output_digest: sha256:4f4495ff730214226c4ee116813a22f05e3ee104b33ee3443617bd09025c059d
+output: .cairn/evidence/AUD-006/20260908T233325333Z-3692243.out
+stderr_output: .cairn/evidence/AUD-006/20260908T233325333Z-3692243.err
+stderr_digest: sha256:4f4495ff730214226c4ee116813a22f05e3ee104b33ee3443617bd09025c059d
+signal: none
+execution_error: null
+result: fail
+source: exit
+recorded: 2026-09-08T23:33:25.453Z
