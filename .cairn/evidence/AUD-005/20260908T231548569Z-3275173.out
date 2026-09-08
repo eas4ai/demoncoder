@@ -1,0 +1,25 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.43s
+     Running unittests src/lib.rs (target/debug/deps/demoncoder-0911b3f9cf4c6c88)
+
+running 3 tests
+test adapters::anthropic::accumulation_tests::missing_fields_start_with_the_complete_fragment ... ok
+test adapters::anthropic::accumulation_tests::fragments_reuse_available_storage_and_preserve_unicode ... FAILED
+test adapters::anthropic::accumulation_tests::exact_byte_limit_refuses_overflow_without_changing_the_block ... ok
+
+failures:
+
+---- adapters::anthropic::accumulation_tests::fragments_reuse_available_storage_and_preserve_unicode stdout ----
+
+thread 'adapters::anthropic::accumulation_tests::fragments_reuse_available_storage_and_preserve_unicode' (3275456) panicked at src/adapters/anthropic.rs:337:21:
+assertion `left == right` failed
+  left: 0x57491d4781d0
+ right: 0x7c693c000d30
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    adapters::anthropic::accumulation_tests::fragments_reuse_available_storage_and_preserve_unicode
+
+test result: FAILED. 2 passed; 1 failed; 0 ignored; 0 measured; 102 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `--lib`
