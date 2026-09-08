@@ -11,7 +11,9 @@ Use one settings editor for onboarding and the live terminal. Run bounded, cance
 
 ## Realized by
 
-638ab058b0ea208e8bb47344880db2d7d9edb21e Add checked provider setup and live agent model assignments
+- 638ab058b0ea208e8bb47344880db2d7d9edb21e Add checked provider setup and live agent model assignments
+
+## Implementation
 
 - `src/settings/` supplies shared provider checks, the keyboard editor and private
   persistence with revision checks. `src/terminal/settings_panel.rs` keeps live
