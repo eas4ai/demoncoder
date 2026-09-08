@@ -1,0 +1,10 @@
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.08s
+   Compiling demoncoder v0.1.2 (/home/shawn/workspace2/demoncoder)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.48s
+     Running unittests src/lib.rs (target/debug/deps/demoncoder-0911b3f9cf4c6c88)
+     Running tests/orchestration_schedule.rs (target/debug/deps/orchestration_schedule-768c5fe93821465a)
+     Running tests/orchestration_state.rs (target/debug/deps/orchestration_state-d840f4f696d75a01)
+     Running tests/subagent_state.rs (target/debug/deps/subagent_state-59e657384e1ed8e3)
+     Running tests/subagent_worktrees.rs (target/debug/deps/subagent_worktrees-f0d5d1e9e4ff70d6)
+     Running tests/tool_extensions.rs (target/debug/deps/tool_extensions-443732b44a154366)
+     Running tests/worktree_access.rs (target/debug/deps/worktree_access-c0cb51988bfe3430)
