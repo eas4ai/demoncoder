@@ -1,0 +1,9 @@
+command: cargo test --locked --lib adapters::anthropic::accumulation_tests && bash scripts/check-reliability-streams.sh && bash scripts/check-output-limits.sh
+inputs:
+  - Cargo.toml
+  - Cargo.lock
+  - src/
+  - tests/
+  - scripts/
+requirements:
+  - AUD-005

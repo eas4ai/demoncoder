@@ -317,3 +317,54 @@ fn append(block: &mut Value, field: &str, delta: &str) -> Result<()> {
     block[field] = Value::String(format!("{current}{delta}"));
     Ok(())
 }
+
+#[cfg(test)]
+mod accumulation_tests {
+    use super::*;
+
+    #[test]
+    fn fragments_reuse_available_storage_and_preserve_unicode() {
+        for field in ["text", "thinking", "signature"] {
+            let mut text = String::with_capacity(128 * 1024);
+            text.push_str("start:");
+            let pointer = text.as_ptr();
+            let mut block = json!({});
+            block[field] = Value::String(text);
+            let fragments = ["e", "\u{301}", "界", "🦀", "", "\n"];
+            for _ in 0..1000 {
+                for fragment in fragments {
+                    append(&mut block, field, fragment).unwrap();
+                    assert_eq!(block[field].as_str().unwrap().as_ptr(), pointer);
+                }
+            }
+            assert_eq!(
+                block[field].as_str().unwrap(),
+                format!("start:{}", fragments.concat().repeat(1000))
+            );
+        }
+    }
+
+    #[test]
+    fn exact_byte_limit_refuses_overflow_without_changing_the_block() {
+        for field in ["text", "thinking", "signature"] {
+            let mut block = json!({});
+            block[field] = Value::String("a".repeat(4 * 1024 * 1024 - 4));
+            append(&mut block, field, "🦀").unwrap();
+            assert_eq!(block[field].as_str().unwrap().len(), 4 * 1024 * 1024);
+            let before = block.clone();
+            assert!(append(&mut block, field, "é").is_err());
+            assert_eq!(block, before);
+            append(&mut block, field, "").unwrap();
+            assert_eq!(block, before);
+        }
+    }
+
+    #[test]
+    fn missing_fields_start_with_the_complete_fragment() {
+        let mut block = json!({});
+        for field in ["text", "thinking", "signature"] {
+            append(&mut block, field, "é界🦀").unwrap();
+            assert_eq!(block[field], "é界🦀");
+        }
+    }
+}
