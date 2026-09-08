@@ -11,4 +11,4 @@ Add one cumulative script that runs every completed product check, the full Rust
 
 ## Realized by
 
-(none yet: recorded, not built)
+- c7a3f33d36b3971e21c5122e4d6b2c80a51d4a03 Run cumulative product and installed release regressions
