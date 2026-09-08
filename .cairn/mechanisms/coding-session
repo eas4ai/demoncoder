@@ -1,5 +1,7 @@
 command: bash scripts/check-coding-session.sh
 results: per-requirement
+reviewed:
+  - CODE-007 sha256:05a3ec3c42d342318dea9a7c2f48d55bf46fbf5e9174a8c3913234ab896367de
 inputs:
   - docs/spec/
   - docs/commitments/first-coding-session.md
