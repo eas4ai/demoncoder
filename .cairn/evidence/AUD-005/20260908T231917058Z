@@ -1,0 +1,21 @@
+requirement: AUD-005
+requirement_digest: sha256:02b994048f9e82b525538b3535b350ee7942eb0a07608c38f50ca4e3689acc84
+sequence: 2
+history_digest: sha256:3deac196b56ac9bf851de9a1f1f08aa3e2891efbd0a0cc0a2f3a8b175a964606
+mechanism: audit-stream-append
+commit: 0af8497
+inputs_digest: sha256:b74f4886c2b80ee30e4f62212e5beabfe2de0005b4f669728311d98f39fe446e
+mechanism_digest: sha256:31ee365b99f01eb4a8f2bea7db2e444fa93556c6cfc441e04640bbcc5213b90f
+inputs_detail: .cairn/evidence/AUD-005/20260908T231900363Z-3368509.inputs.json
+command: cargo test --locked --lib adapters::anthropic::accumulation_tests && bash scripts/check-reliability-streams.sh && bash scripts/check-output-limits.sh
+cwd: .
+exit: 0
+output_digest: sha256:ab579b6068aa419561cf516b9ffbc9c9c9b06c86829b16a0d18c0044233b7f1b
+output: .cairn/evidence/AUD-005/20260908T231900363Z-3368509.out
+stderr_output: .cairn/evidence/AUD-005/20260908T231900363Z-3368509.err
+stderr_digest: sha256:41166dfe263ffa434047d0c61b865397d63a940765474a2e9620d73bea4b967a
+signal: none
+execution_error: null
+result: pass
+source: exit
+recorded: 2026-09-08T23:19:17.057Z
