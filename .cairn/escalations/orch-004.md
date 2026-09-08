@@ -12,3 +12,7 @@ Concerns: ORCH-004
 Status: open
 Raised: 2026-09-08T21:56:36.390Z
 Raised after: ORCH-004=13
+Answer: instead Use /home/shawn/workspace2/scratchpads/ instead of /tmp for temporary test storage.
+Answered: 2026-09-08T22:03:43.299Z
+Answered after: ORCH-004=13
+Answered order: 1
