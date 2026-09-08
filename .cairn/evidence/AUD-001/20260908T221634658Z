@@ -1,0 +1,21 @@
+requirement: AUD-001
+requirement_digest: sha256:db9ffe22e74afab511971280c90509482535aad92e8b19eb4ece42bf5a6fef22
+sequence: 2
+history_digest: sha256:89c09f8ed7fed437191e2a7f71fe28e1cfacb4d9452c59d9d9fc55c5a11b2fc4
+mechanism: audit-private-exports
+commit: da8a35f
+inputs_digest: sha256:765e9a120eb0a081fb916ec82a0a33164e80642770ef5ae18697adf7d3b0fdda
+mechanism_digest: sha256:4edd09121e9b8a62dba5ed9431acf79bdd92241897e6bcd8663aaa62bc7ae718
+inputs_detail: .cairn/evidence/AUD-001/20260908T221629901Z-2143757.inputs.json
+command: cargo test --locked --test workflow_workspace --test subagent_worktrees --test developer_access && cargo install --path . --locked --root "$HOME/.cargo" && DEMONCODER_TEST_BINARY="$HOME/.cargo/bin/demoncoder" python3 tests/audit_remediation.py --case privacy
+cwd: .
+exit: 0
+output_digest: sha256:acdc6fdf208ae8cbc0b32d7aacd8f3c96020f446710592547bb98a1cd6411954
+output: .cairn/evidence/AUD-001/20260908T221629901Z-2143757.out
+stderr_output: .cairn/evidence/AUD-001/20260908T221629901Z-2143757.err
+stderr_digest: sha256:9c3126bf811445d7d9f0416e7d2186e98e599d2bcb91c894540de4c93d6db4a5
+signal: none
+execution_error: null
+result: pass
+source: exit
+recorded: 2026-09-08T22:16:34.658Z
