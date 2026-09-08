@@ -86,6 +86,95 @@ fn generated_output_scope_is_explicit_bounded_and_cannot_name_the_root_or_privat
 }
 
 #[test]
+fn bounded_review_keeps_changed_source_selected_context_and_omitted_identities() {
+    let root = tempdir().unwrap();
+    fs::write(root.path().join("change.rs"), "COMPLETE_OLD_SOURCE").unwrap();
+    fs::write(root.path().join("support.rs"), "SELECTED_SUPPORT").unwrap();
+    fs::write(
+        root.path().join("large.rs"),
+        format!("OMITTED_CONTENT{}", "x".repeat(1_200_000)),
+    )
+    .unwrap();
+    let scope = CaptureScope::default()
+        .with_review_context(Some(vec!["support.rs".into()]))
+        .unwrap();
+    let before = capture_with_scope(root.path(), &scope).unwrap();
+    assert!(
+        serde_json::to_string(&before)
+            .unwrap()
+            .contains("OMITTED_CONTENT"),
+        "review scope must not omit verification inputs"
+    );
+    fs::write(root.path().join("change.rs"), "COMPLETE_NEW_SOURCE").unwrap();
+    let after = capture_with_scope(root.path(), &scope).unwrap();
+    let evidence = review_evidence(&before, &after).unwrap();
+    for text in [
+        "COMPLETE_OLD_SOURCE",
+        "COMPLETE_NEW_SOURCE",
+        "SELECTED_SUPPORT",
+        "large.rs",
+        "sha256",
+        "not reviewed",
+        "review_context",
+    ] {
+        assert!(evidence.contains(text), "missing {text}");
+    }
+    assert!(!evidence.contains("OMITTED_CONTENT"));
+    fs::write(root.path().join("large.rs"), "y".repeat(1_200_000)).unwrap();
+    let changed = capture_with_scope(root.path(), &scope).unwrap();
+    assert_ne!(changed.digest, after.digest);
+    assert!(
+        review_evidence(&before, &changed)
+            .unwrap_err()
+            .to_string()
+            .contains("1 MiB")
+    );
+}
+
+#[test]
+fn review_context_is_validated_and_changes_snapshot_identity() {
+    let root = tempdir().unwrap();
+    fs::write(root.path().join("source"), "source").unwrap();
+    let all = capture(root.path()).unwrap();
+    let scope = CaptureScope::default()
+        .with_review_context(Some(vec![]))
+        .unwrap();
+    let selected = capture_with_scope(root.path(), &scope).unwrap();
+    assert_ne!(all.digest, selected.digest);
+    assert!(review_evidence(&all, &selected).is_err());
+    assert!(
+        CaptureScope::new(vec!["build".into()])
+            .unwrap()
+            .with_review_context(Some(vec!["build/file".into()]))
+            .is_err()
+    );
+    assert!(
+        CaptureScope::default()
+            .with_review_context(Some(vec!["../outside".into()]))
+            .is_err()
+    );
+    let missing = CaptureScope::default()
+        .with_review_context(Some(vec!["missing".into()]))
+        .unwrap();
+    let snapshot = capture_with_scope(root.path(), &missing).unwrap();
+    assert!(
+        review_evidence(&snapshot, &snapshot)
+            .unwrap_err()
+            .to_string()
+            .contains("absent")
+    );
+    fs::write(root.path().join("binary"), [0, 1]).unwrap();
+    let before = capture_with_scope(root.path(), &scope).unwrap();
+    fs::write(root.path().join("binary"), [0, 2]).unwrap();
+    assert!(
+        review_evidence(&before, &capture_with_scope(root.path(), &scope).unwrap())
+            .unwrap_err()
+            .to_string()
+            .contains("binary")
+    );
+}
+
+#[test]
 fn private_source_never_enters_capture_or_review_even_from_older_snapshots() {
     let root = tempdir().unwrap();
     fs::create_dir(root.path().join(".demoncoder")).unwrap();

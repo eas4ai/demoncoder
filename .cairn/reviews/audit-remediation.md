@@ -67,3 +67,26 @@ An independent read-only call trace confirmed that parent resume, reconciliation
 verification, review and acceptance all use WorkflowSession::snapshot, and that
 child inspection, reconciliation and integration use the retained baseline scope.
 Learning instruction reads and tool permissions are intentionally unchanged.
+
+## Bounded review mechanism
+
+The initial AUD-004 mechanism failed when the application rejected --review-context.
+The corrected terminal cases retain a 1.2 MB public source baseline for verification,
+then inspect the actual reviewer request for complete old/new changed source,
+selected support, omitted-source identities and explicit not-reviewed labels.
+Both selected context and changes-only review pass. A subsequent task changes the
+large unselected file: review must refuse at the evidence limit before any request,
+and acceptance remains blocked. Changing the context selection also refuses resume.
+
+The formatter tests additionally require changed binary refusal, missing context
+refusal, scope identity changes, and refusal when omitted identities alone exceed
+the request budget. Generated-output and prior default-scope tests remain active.
+The child terminal case retains the large source in its actual worktree, reviews
+only complete changes and selected support, then validates and integrates source.
+This demonstrates scope propagation without weakening capture or tool access.
+
+The complete parent/child terminal fixture passed. The first child fixture used
+four tool calls and exceeded its inherited 20-second test wait; a diagnostic run
+completed normally in 23.31 seconds. This bounded-review case now makes one write
+before validation and integration; four-tool coverage remains in the existing
+assignment suite. Production deadlines and review requirements are unchanged.

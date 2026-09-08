@@ -250,6 +250,18 @@ by child capture and integration. It does not change tool permissions. Resume
 requires the same declarations; changing scope requires a new session and fresh
 checks and review.
 
+For a small change in a larger source tree, repeat `--review-context Cargo.toml`
+and `--review-context src/module.rs` to select unchanged supporting source, or use
+`--review-changes-only` to include no unchanged contents. These options are mutually
+exclusive. Without either option, review includes the whole captured baseline.
+Every changed source entry is included completely regardless of this selection.
+Other entries retain their path and content identity with an explicit “not reviewed”
+label. Selected context must exist in the baseline or current source and cannot be
+a generated output. The selection has the same 128-path and 32 KiB bounds, is
+retained in the actual review evidence, and follows children through validation.
+Changing it requires a new session and fresh evidence. Capture still includes
+every source input; review-context selection never weakens verification freshness.
+
 Capture uses repeated bounded scans, not an atomic filesystem
 snapshot; avoid concurrent edits during checks and review. Limits are 8 MiB per
 file, 64 MiB total content, 20,000 entries, depth 64 and ten seconds per capture.

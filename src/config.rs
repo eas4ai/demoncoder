@@ -56,6 +56,16 @@ pub struct Args {
     /// Generated file or directory subtree omitted from source snapshots; repeat for several paths.
     #[arg(long = "generated-output", value_name = "RELATIVE_PATH")]
     pub generated_outputs: Vec<String>,
+    /// Unchanged supporting source to include in review, in addition to every changed entry.
+    #[arg(
+        long = "review-context",
+        value_name = "RELATIVE_PATH",
+        conflicts_with = "review_changes_only"
+    )]
+    pub review_context: Vec<String>,
+    /// Review all changed source without including unchanged supporting contents.
+    #[arg(long, conflicts_with = "review_context")]
+    pub review_changes_only: bool,
     /// Configured connection that reviews the actual patch without tools.
     #[arg(long)]
     pub reviewer: Option<String>,
@@ -298,6 +308,10 @@ impl Args {
             checks: self.checks.clone(),
             capture_scope: crate::workflow::workspace::CaptureScope::new(
                 self.generated_outputs.clone(),
+            )?
+            .with_review_context(
+                (self.review_changes_only || !self.review_context.is_empty())
+                    .then(|| self.review_context.clone()),
             )?,
             reviewer_default: self.reviewer.as_deref() == Some("default")
                 && !config.connections.contains_key("default"),

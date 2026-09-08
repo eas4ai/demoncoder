@@ -324,7 +324,7 @@ impl SharedRuntime {
             record.capture_scope.validate()?;
             ensure!(
                 record.capture_scope == *capture_scope,
-                "resume requires the original generated-output scope; restore its --generated-output declarations or start a new session"
+                "resume requires the original source and review scope; restore its --generated-output, --review-context and --review-changes-only options, or start a new session"
             );
             ensure!(
                 record.workspace == workspace && record.identity.matches(connection),

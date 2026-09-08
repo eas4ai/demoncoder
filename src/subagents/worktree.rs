@@ -599,7 +599,7 @@ pub async fn inspect(identity: &WorktreeIdentity) -> Result<Snapshot> {
     identity.child_baseline.scope.validate()?;
     ensure!(
         identity.parent_baseline.scope == identity.child_baseline.scope,
-        "child generated-output scope differs from its parent baseline"
+        "child source or review scope differs from its parent baseline"
     );
     ensure!(
         valid_oid(&identity.baseline_commit) && valid_oid(&identity.repository_head),

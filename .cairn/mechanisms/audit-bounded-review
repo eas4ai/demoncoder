@@ -1,4 +1,4 @@
-command: cargo build --locked && cargo test --locked --test workflow_workspace && python3 tests/bounded_review.py
+command: cargo build --locked && cargo test --locked --lib workflow::workspace && cargo test --locked --test workflow_workspace && python3 tests/bounded_review.py
 inputs:
   - Cargo.toml
   - Cargo.lock

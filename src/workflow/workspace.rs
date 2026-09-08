@@ -352,13 +352,13 @@ fn capture_inner(
 fn append(output: &mut String, text: &str) -> Result<()> {
     ensure!(
         output.len().saturating_add(text.len()) <= MAX_EVIDENCE_BYTES,
-        "review evidence exceeds 1 MiB; review is blocked, narrow the task workspace before starting a new baseline"
+        "review evidence exceeds 1 MiB; reduce supporting context. All changed source and omitted identities must still fit"
     );
     output.push_str(text);
     Ok(())
 }
 
-fn describe(output: &mut String, side: &str, value: Option<&Entry>, changed: bool) -> Result<()> {
+fn describe_identity(output: &mut String, side: &str, value: Option<&Entry>) -> Result<()> {
     let Some(value) = value else {
         return append(output, &format!("{side}: absent\n"));
     };
@@ -368,7 +368,14 @@ fn describe(output: &mut String, side: &str, value: Option<&Entry>, changed: boo
             "{side}: {:?}, mode {:o}, {} bytes, sha256 {}\n",
             value.kind, value.mode, value.bytes, value.hash
         ),
-    )?;
+    )
+}
+
+fn describe(output: &mut String, side: &str, value: Option<&Entry>, changed: bool) -> Result<()> {
+    describe_identity(output, side, value)?;
+    let Some(value) = value else {
+        return Ok(());
+    };
     if value.kind != Kind::Directory {
         if let Some(text) = &value.text {
             // JSON escaping keeps arbitrary source text from forging evidence
@@ -394,7 +401,7 @@ fn describe(output: &mut String, side: &str, value: Option<&Entry>, changed: boo
     Ok(())
 }
 
-/// Complete old/new changed text plus retained baseline text as review context.
+/// Complete old/new changed text plus selected supporting baseline context.
 /// Baseline includes pre-existing developer edits and untracked/ignored files;
 /// no Git tracked/clean claim is made. Oversized or changed binary evidence fails.
 pub fn review_evidence(before: &Snapshot, after: &Snapshot) -> Result<String> {
@@ -402,7 +409,7 @@ pub fn review_evidence(before: &Snapshot, after: &Snapshot) -> Result<String> {
     after.scope.validate()?;
     ensure!(
         before.scope == after.scope,
-        "generated-output scope changed; start a new task baseline"
+        "source or review scope changed; start a new task baseline"
     );
     ensure!(
         before.root_device == after.root_device && before.root_inode == after.root_inode,
@@ -417,17 +424,37 @@ pub fn review_evidence(before: &Snapshot, after: &Snapshot) -> Result<String> {
         ),
     )?;
     append(&mut output, crate::export_policy::DESCRIPTION)?;
-    if !after.scope.is_empty() {
+    if !after.scope.generated_outputs().is_empty() {
         append(
             &mut output,
             &format!(
                 "Generated-output scope (excluded from source capture and review): {}\n",
-                serde_json::to_string(&after.scope)?
+                serde_json::to_string(after.scope.generated_outputs())?
             ),
         )?;
     }
     let names: std::collections::BTreeSet<_> =
         before.entries.keys().chain(after.entries.keys()).collect();
+    if let Some(context) = after.scope.review_context() {
+        append(
+            &mut output,
+            &format!(
+                "Review scope: {}. Every changed in-scope entry is complete. Other supporting contents are not reviewed; their identities remain below.\n",
+                serde_json::to_string(&after.scope)?
+            ),
+        )?;
+        for path in context {
+            ensure!(
+                names.iter().any(|name| {
+                    let name = Path::new(name);
+                    name.strip_prefix(".").unwrap_or(name).starts_with(path)
+                        && !crate::export_policy::private_path(name)
+                        && !after.scope.excludes(name)
+                }),
+                "selected review context {path:?} is absent from both snapshots"
+            );
+        }
+    }
     for name in names {
         // Older snapshots may contain private text. Never re-export that content.
         if crate::export_policy::private_path(Path::new(name))
@@ -438,6 +465,7 @@ pub fn review_evidence(before: &Snapshot, after: &Snapshot) -> Result<String> {
         let old = before.entries.get(name);
         let new = after.entries.get(name);
         let changed = old != new;
+        let include_context = after.scope.includes_review_context(Path::new(name));
         append(
             &mut output,
             &format!(
@@ -445,8 +473,10 @@ pub fn review_evidence(before: &Snapshot, after: &Snapshot) -> Result<String> {
                 serde_json::to_string(name)?,
                 if changed {
                     "changed since baseline"
-                } else {
+                } else if include_context {
                     "pre-existing baseline entry retained as context"
+                } else {
+                    "unchanged supporting contents omitted; not reviewed"
                 }
             ),
         )?;
@@ -458,8 +488,10 @@ pub fn review_evidence(before: &Snapshot, after: &Snapshot) -> Result<String> {
                 true,
             )?;
             describe(&mut output, "NEW", new, true)?;
-        } else {
+        } else if include_context {
             describe(&mut output, "RETAINED", new, false)?;
+        } else {
+            describe_identity(&mut output, "OMITTED", new)?;
         }
     }
     Ok(output)
@@ -468,6 +500,28 @@ pub fn review_evidence(before: &Snapshot, after: &Snapshot) -> Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn omitted_identities_must_also_fit_the_review_limit() {
+        let root = tempfile::tempdir().unwrap();
+        let scope = CaptureScope::default()
+            .with_review_context(Some(vec![]))
+            .unwrap();
+        let mut snapshot = capture_with_scope(root.path(), &scope).unwrap();
+        // Isolate the formatter with metadata from a permitted-size source tree.
+        for index in 0..4096 {
+            snapshot.entries.insert(
+                format!("./{index}-{}", "x".repeat(200)),
+                entry(Kind::File, 0o600, b""),
+            );
+        }
+        assert!(
+            review_evidence(&snapshot, &snapshot)
+                .unwrap_err()
+                .to_string()
+                .contains("1 MiB")
+        );
+    }
 
     #[test]
     fn cancelled_capture_stops_at_the_scanner_checkpoint() {

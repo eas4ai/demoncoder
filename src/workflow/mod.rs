@@ -89,7 +89,7 @@ impl WorkflowSession {
         settings.capture_scope.validate()?;
         ensure!(
             record.capture_scope == settings.capture_scope,
-            "workflow generated-output scope differs from the retained session scope"
+            "workflow source and review scope differs from the retained session scope"
         );
         if let Some(task) = &mut record.task
             && task.creator_identity.is_none()
