@@ -1,0 +1,32 @@
+   Compiling demoncoder v0.1.2 (/home/shawn/workspace2/demoncoder)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.70s
+     Running tests/reliability_streams.rs (target/debug/deps/reliability_streams-ec976d9032f0e21c)
+
+running 3 tests
+test anthropic_accepts_exact_byte_bound_after_completion ... ok
+test anthropic_rejects_excess_before_completion ... ok
+test anthropic_bounds_inline_input_before_admitting_any_response_calls ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.60s
+
+cairn: REL-003: pass
+   Compiling demoncoder v0.1.2 (/home/shawn/workspace2/demoncoder)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.62s
+     Running tests/reliability_utf8.rs (target/debug/deps/reliability_utf8-f23f356348d99172)
+
+running 3 tests
+test replacement_expansion_preserves_the_raw_byte_limit ... ok
+test bash_keeps_stream_decoders_separate_and_flushes_incomplete_eof ... ok
+test bash_preserves_every_multibyte_split_boundary ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.73s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.09s
+     Running unittests src/lib.rs (target/debug/deps/demoncoder-0911b3f9cf4c6c88)
+
+running 1 test
+test tools::utf8_tests::every_partition_matches_whole_stream_lossy_decoding ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 100 filtered out; finished in 0.00s
+
+cairn: REL-004: pass
