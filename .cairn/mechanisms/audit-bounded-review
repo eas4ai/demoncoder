@@ -1,0 +1,10 @@
+command: cargo build --locked && cargo test --locked --test workflow_workspace && python3 tests/bounded_review.py
+inputs:
+  - Cargo.toml
+  - Cargo.lock
+  - src/
+  - tests/
+  - README.md
+  - docs/spec/
+requirements:
+  - AUD-004

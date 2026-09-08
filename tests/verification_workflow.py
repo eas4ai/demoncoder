@@ -105,6 +105,8 @@ class App:
         env = {"PATH": "/usr/bin:/bin", "HOME": str(self.root),
                "TERM": "xterm-256color", "LANG": "C.UTF-8",
                "ANTHROPIC_API_KEY": "synthetic-anthropic-key", "OPENAI_API_KEY":"synthetic-openai-key"}
+        if "TMPDIR" in os.environ:
+            env["TMPDIR"] = os.environ["TMPDIR"]
         self.process = subprocess.Popen(
             [str(BINARY), "--trust-workspace", "--workspace", str(self.workspace),
              "--config", str(self.config), "--event-log", str(self.log), *extra],
