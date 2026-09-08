@@ -1,0 +1,6 @@
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.22s
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.12s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.09s
+     Running unittests src/lib.rs (target/debug/deps/demoncoder-0911b3f9cf4c6c88)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.09s
+     Running tests/workflow_store.rs (target/debug/deps/workflow_store-122ba78f04bb105f)
