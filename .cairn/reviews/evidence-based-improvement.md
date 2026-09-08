@@ -8,7 +8,7 @@ examined:
   - Actual parent and child request preparation, instruction scope and control routing.
   - Bounded storage, Unicode inspection, cancellation, restart and installed delivery.
 findings:
-  - open: LEARN-006: Instruction reads check regular-file type but do not reject hard links, unlike confined file tools. Context preparation should preserve that same read boundary.
+  - resolved: LEARN-006: Instruction reads now require a regular file with one hard link, matching confined file-tool admission. Focused and all-connection production tests pass.
   - open: LEARN-008: Request::run saves catalog mutations before rendering their bounded inspection. A later formatting refusal can therefore report an error after changing state. Prepare the bounded response before committing the mutation.
   - open: LEARN-008: The installed release is still the pre-feature binary. Install the reviewed candidate and run the complete production learning workflow against that exact executable.
 Status: incomplete
@@ -76,3 +76,13 @@ unmapped production-driver findings are assessed in the implementation plan.
 No metric was hidden by changing a baseline or treating a zero-match result as
 proof of coverage. Warning-free Clippy and executed Cargo/PTY mechanisms supply
 separate evidence; they do not eliminate the findings above.
+
+## Resolution: instruction read boundary
+
+The instruction reader now checks the opened descriptor's link count before
+reading text. A focused regression uses two harmless names inside one disposable
+workspace: the multiply linked instruction is refused, and removing the second
+name makes the ordinary file readable. The production LEARN-006 driver verifies
+that the refusal starts no provider request, then passes the matching/unrelated,
+scoped instruction and integration-gate cases on all four connections. The README
+now states the same hard-link boundary. No outside or private data was accessed.

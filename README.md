@@ -321,7 +321,7 @@ Per request, instruction selection checks at most 32 paths with depth 32 and
 reads at most 32 KiB. Lesson context is limited to 32 KiB and prepared context to
 96 KiB. A session retains at most 128 coding-context receipts. Unavailable or
 oversized instruction files produce an explicit refusal rather than silently
-claiming complete retrieval. Symbolic links and special files are refused.
+claiming complete retrieval. Symbolic links, hard links and special files are refused.
 
 Learning file access runs off the terminal input path, with four blocking I/O
 slots and a ten-second wait limit. Busy catalogs refuse concurrent writes.

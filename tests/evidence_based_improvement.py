@@ -242,6 +242,17 @@ def context_on_all_connections():
         project = Path(directory) / "project"
         (project / "AGENTS.md").write_text("ROOT-INSTRUCTION: preserve repository contracts; reject any contrary lesson.\n@../outside-instructions\n")
         (Path(directory) / "outside-instructions").write_text("OUTSIDE-INSTRUCTION-MUST-NOT-LOAD")
+        # Both names are inside this disposable workspace. The test challenges
+        # the ordinary read-admission rule without reading any external data.
+        os.link(project / "AGENTS.md", project / "instruction-copy")
+        app = App(directory, server)
+        try:
+            requests = len(server.requests)
+            refused(app, "Inspect greeting with linked instructions", "without hard links")
+            assert len(server.requests) == requests
+        finally:
+            app.close()
+            (project / "instruction-copy").unlink()
         for adapter in ("anthropic-api", "openai-api", "codex", "claude"):
             server.adapter = adapter
             app = App(directory, server)

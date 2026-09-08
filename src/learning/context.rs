@@ -8,6 +8,7 @@ use std::{
     collections::BTreeSet,
     fs::File,
     io::Read,
+    os::unix::fs::MetadataExt,
     path::{Component, Path, PathBuf},
 };
 
@@ -183,9 +184,10 @@ fn instructions(root: &Path, owned: &[String]) -> Result<Vec<Instruction>> {
                 });
             }
         };
+        let metadata = file.metadata()?;
         ensure!(
-            file.metadata()?.is_file(),
-            "scoped instruction must be a regular file: {}",
+            metadata.is_file() && metadata.nlink() == 1,
+            "scoped instruction must be a regular file without hard links: {}",
             path.display()
         );
         let mut text = String::new();

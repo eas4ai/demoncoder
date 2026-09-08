@@ -443,6 +443,39 @@ async fn learning_cancel_does_not_wait_for_a_blocked_storage_worker() {
 }
 
 #[test]
+fn learning_instructions_preserve_the_file_tools_hard_link_boundary() {
+    let fixture = Fixture::failed();
+    let instruction = fixture.project.join("AGENTS.md");
+    let copy = fixture.project.join("instruction-copy");
+    fs::write(&instruction, "A harmless repository instruction.").unwrap();
+    fs::hard_link(&instruction, &copy).unwrap();
+    assert!(
+        context::prepare(
+            &fixture.runtime,
+            &fixture.project,
+            &[],
+            "behavior",
+            "conversation".into()
+        )
+        .is_err()
+    );
+    fs::remove_file(copy).unwrap();
+    let corrected = context::prepare(
+        &fixture.runtime,
+        &fixture.project,
+        &[],
+        "behavior",
+        "conversation".into(),
+    )
+    .unwrap();
+    assert_eq!(corrected.instructions.len(), 1);
+    assert_eq!(
+        corrected.instructions[0].text,
+        "A harmless repository instruction."
+    );
+}
+
+#[test]
 fn learning_finite_selection_and_missing_authorization_are_not_supported() {
     let fixture = Fixture::failed();
     fixture.supported_lesson();
