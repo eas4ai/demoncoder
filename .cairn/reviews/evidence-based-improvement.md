@@ -1,7 +1,7 @@
 # Evidence-based improvement review
 
 commitment: evidence-based-improvement
-commit: 0ca22b6b7889064067dfb9146f9fba091cb6318b
+commit: 4bc2d94c657c43636ca36279cf8256fd8b5f55af
 examined:
   - Original receipt resolution, workspace identity, annotation and proposal attribution.
   - Durable authorization, ordinary task admission, correction outcome and lesson approval.
@@ -10,8 +10,8 @@ examined:
 findings:
   - resolved: LEARN-006: Instruction reads now require a regular file with one hard link, matching confined file-tool admission. Focused and all-connection production tests pass.
   - resolved: LEARN-008: Request::run prepares the bounded response before saving catalog mutations. The regression demonstrates refusal leaves saved state unchanged and a valid annotation still persists.
-  - open: LEARN-008: The installed release is still the pre-feature binary. Install the reviewed candidate and run the complete production learning workflow against that exact executable.
-Status: incomplete
+  - resolved: LEARN-008: Installed the reviewed release and passed all eight production learning workflows against that exact executable.
+Status: complete
 
 ## What the review challenged
 
@@ -121,3 +121,27 @@ Read-only inspection retains its original behavior. The actual large-history
 regression failed before the repair and now passes alongside all LEARN, VERIFY,
 SUB, ORCH and REM checks. No further implementation finding arose. Installed
 release verification is the sole remaining delivery finding.
+
+## Resolution: installed release and final audit
+
+Installed with `cargo install --path . --locked --force`. Both
+`/home/shawn/.cargo/bin/demoncoder` and `target/release/demoncoder` have SHA-256
+`a16d5f7d17894df69c2ce8ea62764a18cf8ca178eeca1c1903fddce6ab1567fa`.
+Ran every LEARN-001 through LEARN-008 production PTY case with
+`DEMONCODER_TEST_BINARY=/home/shawn/.cargo/bin/demoncoder`; all eight passed.
+This covers actual failed observations, supported and ineffective corrections,
+explicit approval, cross-session lesson use on all four adapters, restart,
+finite inspection and refusal behavior through the installed executable.
+Provider responses use controlled fixtures; this is not a claim of live-provider
+availability or general improvement quality.
+
+Final self-audit against production rules 1–14: the implementation and repairs
+stay within the agreed workflow; state owners and existing task controls remain
+intact; file admission, errors, provenance, durable authorization, cancellation
+and finite retention have concrete checks. Documentation describes scope and
+limits. Meaningful negative cases fail before the corresponding repair and pass
+after it. Committed Cairn receipts cover all selected requirements. The installed
+release passes the complete learning workflow. The review findings above are
+resolved, with no known implementation defect left open. Static-analysis limits
+remain explicitly recorded, rather than represented as passing coverage. The
+reviewed result meets the agreed production standard and completion condition.
