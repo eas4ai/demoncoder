@@ -1,4 +1,4 @@
-command: cargo build --locked && cargo test --locked --test workflow_workspace --test subagent_worktrees --test workflow_recovery && python3 tests/generated_outputs.py
+command: cargo build --locked && cargo test --locked --test workflow_workspace --test subagent_worktrees --test workflow_store && python3 tests/generated_outputs.py
 inputs:
   - Cargo.toml
   - Cargo.lock
