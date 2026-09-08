@@ -1,0 +1,8 @@
+   Compiling demoncoder v0.1.2 (/home/shawn/workspace2/demoncoder)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.96s
+     Running tests/reliability_streams.rs (target/debug/deps/reliability_streams-ec976d9032f0e21c)
+   Compiling demoncoder v0.1.2 (/home/shawn/workspace2/demoncoder)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.83s
+     Running tests/reliability_utf8.rs (target/debug/deps/reliability_utf8-f23f356348d99172)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.10s
+     Running unittests src/lib.rs (target/debug/deps/demoncoder-0911b3f9cf4c6c88)
