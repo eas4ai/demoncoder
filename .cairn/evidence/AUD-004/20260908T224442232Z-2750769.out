@@ -1,0 +1,58 @@
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.09s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.09s
+     Running tests/workflow_workspace.rs (target/debug/deps/workflow_workspace-e6c91c68b90d3920)
+
+running 13 tests
+test hardlinks_and_symlink_roots_are_rejected ... ok
+test generated_output_scope_is_explicit_bounded_and_cannot_name_the_root_or_private_paths ... ok
+test private_source_never_enters_capture_or_review_even_from_older_snapshots ... ok
+test special_files_are_rejected_without_opening_or_waiting ... ok
+test evidence_contains_actual_old_new_preexisting_and_untracked_text ... ok
+test declared_outputs_skip_large_artifacts_but_scope_and_source_changes_invalidate_identity ... ok
+test changed_binary_blocks_review_but_unchanged_binary_is_identified ... ok
+test edits_additions_removals_modes_and_symlink_targets_change_identity ... ok
+test symlink_targets_are_never_read_and_only_root_git_is_excluded ... ok
+test concurrent_symlink_replacement_cannot_read_outside_content ... ok
+test unchanged_capture_and_serialization_are_deterministic ... ok
+test depth_is_bounded_and_replaced_roots_cannot_share_review ... ok
+test oversized_file_and_evidence_are_explicit_refusals ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.12s
+
+Traceback (most recent call last):
+  File "/home/shawn/workspace2/demoncoder/tests/terminal_session.py", line 109, in until
+    output.extend(os.read(master, 65536))
+                  ~~~~~~~^^^^^^^^^^^^^^^
+OSError: [Errno 5] Input/output error
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/home/shawn/workspace2/demoncoder/tests/verification_workflow.py", line 118, in __init__
+    until(self.master, self.process, self.output, b"Prompt")
+    ~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/shawn/workspace2/demoncoder/tests/terminal_session.py", line 111, in until
+    raise AssertionError("PTY closed before checkpoint") from error
+AssertionError: PTY closed before checkpoint
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/home/shawn/workspace2/demoncoder/tests/bounded_review.py", line 66, in <module>
+    main()
+    ~~~~^^
+  File "/home/shawn/workspace2/demoncoder/tests/bounded_review.py", line 57, in main
+    bounded_context(server, True)
+    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^
+  File "/home/shawn/workspace2/demoncoder/tests/bounded_review.py", line 14, in bounded_context
+    app = App(directory, server, [*scope, "--check", "test -s change.rs", "--reviewer", "worker"])
+  File "/home/shawn/workspace2/demoncoder/tests/verification_workflow.py", line 121, in __init__
+    raise AssertionError(f"fixture startup failed: {self.output.decode(errors='replace')}") from error
+AssertionError: fixture startup failed: [1m[31merror:[0m unexpected argument '[33m--review-context[0m' found
+
+  [32mtip:[0m a similar argument exists: '[32m--reviewer[0m'
+
+[1m[4mUsage:[0m [1mdemoncoder[0m [1m--trust-workspace[0m [1m--workspace[0m <WORKSPACE> [1m--config[0m <CONFIG> [1m--event-log[0m <EVENT_LOG> [1m--reviewer[0m <REVIEWER>
+
+For more information, try '[1m--help[0m'.
+
