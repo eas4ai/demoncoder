@@ -11,4 +11,4 @@ Add repeatable generated-output paths selected at launch, bounded to explicit re
 
 ## Realized by
 
-(none yet: recorded, not built)
+- 5c63612ad4350597ad7934cc8689fbf7c58bc3fb Retain explicit generated-output scope across verification and delegation
