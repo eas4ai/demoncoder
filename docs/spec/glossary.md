@@ -19,3 +19,14 @@ Status: Agreed 2026-09-06
 | Commitment | One developer-selected deliverable with named requirements and a completion condition. |
 | Falsifier | An observation that would show a requirement is not met. |
 | Mechanism | A declared command that observes whether requirements hold and records evidence through Cairn. |
+
+## Evidence-based improvement terms
+
+Confirmed 2026-09-07 with LEARN-001 through LEARN-008.
+
+| Term | Meaning |
+|---|---|
+| Observation | A cited record of what happened, including original evidence and any attributed developer annotation. |
+| Candidate | A bounded proposed correction with its supporting observations, expected benefit, behavioral check and risks. |
+| Outcome | What executed checks and review establish about a candidate's correction, including unresolved or insufficient evidence. |
+| Lesson | A scoped reusable statement supported by observation and outcome history, enabled only with developer approval. |

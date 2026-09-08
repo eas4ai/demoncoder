@@ -47,6 +47,7 @@ responsible for choosing sound requirements and meaningful checks.
 | [assignable-subagents.md](assignable-subagents.md) | SUB | Independently assigned, confined worktree agents and validated integration. |
 | [advanced-orchestration.md](advanced-orchestration.md) | ORCH | Bounded dependency scheduling and advisor/worker/judge supervision. |
 | [status-decision-remediation.md](status-decision-remediation.md) | REM | Truthful live status, bounded evidence inspection and clear existing actions. |
+| [evidence-based-improvement.md](evidence-based-improvement.md) | LEARN | Cited improvement candidates, authorized corrections and scoped reusable lessons. |
 | [roadmap.md](roadmap.md) | — | The selected commitment and intended delivery sequence. |
 
 The broader [design narrative](../spec.md) retains product direction,

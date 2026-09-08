@@ -1,0 +1,23 @@
+command: bash scripts/check-evidence-based-improvement.sh
+results: per-requirement
+inputs:
+  - Cargo.toml
+  - Cargo.lock
+  - src/
+  - tests/
+  - scripts/
+  - README.md
+  - docs/spec/
+  - docs/plans/
+  - docs/commitments/evidence-based-improvement.md
+  - docs/proposals/evidence-based-improvement.md
+  - docs/recon.md
+requirements:
+  - LEARN-001
+  - LEARN-002
+  - LEARN-003
+  - LEARN-004
+  - LEARN-005
+  - LEARN-006
+  - LEARN-007
+  - LEARN-008

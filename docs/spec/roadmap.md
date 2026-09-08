@@ -1,6 +1,6 @@
 # Roadmap
 
-Current: status-decision-remediation
+Current: evidence-based-improvement
 
 The developer selected the usable coding session as the first commitment
 and agreed to use Cairn on 2026-09-06. The developer confirmed its detailed
@@ -50,3 +50,7 @@ proposed behavior are in docs/recon.md and docs/proposals/status-and-decisions.m
 Prepare and verify that remediation first; evidence-based-improvement retains
 its place as the next product commitment. Detailed remediation requirements
 were confirmed in the follow-up and are now selected in status-decision-remediation.
+
+Status and decision remediation is complete and installed. The developer selected
+evidence-based-improvement and confirmed LEARN-001 through LEARN-008 with their
+falsifiers on 2026-09-07.

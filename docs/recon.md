@@ -1,5 +1,29 @@
 # Demoncoder reconnaissance
 
+## Evidence-based improvement preparation — 2026-09-07
+
+Status: Observed. Baseline: ec8f029 on main. The developer selected the next
+roadmap commitment after completion of status and decision remediation. This
+pass prepares detailed requirements; it does not implement them. All historical
+reconnaissance below remains unchanged.
+
+| Observation or disposition | Evidence |
+|---|---|
+| Durable task/agent records already retain the original results and identities needed for cited observations. | src/workflow/runtime.rs:91; src/workflow/runtime.rs:119; src/subagents/state.rs; src/subagents/manager.rs:773. |
+| Explicit correction tasks have an existing native-parent admission boundary, selected checks, allocation and acceptance gates. | src/workflow/mod.rs:215; docs/decisions/keep-task-acceptance-and-recovery-in-the-existing-session-owner.md. |
+| All four coding connections have existing adapter entry points; new lesson delivery needs proof at their real request boundaries. | src/adapters/mod.rs:14; tests/continuation.py; docs/spec.md, Self-improvement. |
+| The newly installed inspector supplies bounded read-only presentation, including original checks from earlier correction rounds. | src/inspection/report.rs:379; src/inspection/tests.rs:220; .cairn/reviews/status-decision-remediation.md, Installed release verification. |
+| DXP-1, DXP-2 and DXP-3 below were selected and resolved by the completed remediation commitment. | docs/spec/status-decision-remediation.md; .cairn/reviews/status-decision-remediation.md; commits 353907d, 7c41d14 and ec8f029; current REM and SWEEP evidence. |
+| Evidence-based improvement remains a product proposal awaiting agreement on detailed requirements and falsifiers. | docs/spec/roadmap.md:22; docs/spec.md:79; docs/proposals/evidence-based-improvement.md. |
+| No new runtime or live-provider verification is claimed by this preparation pass. | The new artifact is a draft; the installed runtime verification belongs to .cairn/reviews/status-decision-remediation.md. |
+
+The proposed blast radius is durable workflow records, task creation, adapter
+context delivery, terminal inspection, and their production fixtures. Existing
+permissions, confinement, review and recovery stay authoritative. The graph
+service was unavailable, so focused source inspection supplied the citations.
+Other historical findings and backlog entries below are retained, not closed
+by this preparation pass.
+
 ## Status and decision workflow — 2026-09-07
 
 Status: Observed. Baseline: `42b0c0c18f24966256ca4ad5c765934a91856a5a` on main.
