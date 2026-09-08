@@ -1,0 +1,9 @@
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.09s
+   Compiling demoncoder v0.1.2 (/home/shawn/workspace2/demoncoder)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.40s
+     Running tests/host_guard.rs (target/debug/deps/host_guard-e7f3dd0871ba416f)
+     Running tests/verification_workflow.rs (target/debug/deps/verification_workflow-c71caf6ee9a58ecd)
+     Running tests/workflow_store.rs (target/debug/deps/workflow_store-122ba78f04bb105f)
+     Running tests/workflow_workspace.rs (target/debug/deps/workflow_workspace-e6c91c68b90d3920)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.10s
+     Running unittests src/lib.rs (target/debug/deps/demoncoder-0911b3f9cf4c6c88)
