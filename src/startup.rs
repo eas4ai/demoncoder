@@ -115,7 +115,21 @@ fn line(label: &str, default: &str) -> Result<String> {
     })
 }
 
-pub(crate) fn settings_lock(path: &Path, private_home: bool) -> Result<File> {
+pub(crate) struct SettingsLock {
+    file: File,
+}
+
+impl Drop for SettingsLock {
+    fn drop(&mut self) {
+        // Closing only this descriptor leaves flock held by a concurrently
+        // forked child's copy until exec. The transaction belongs to this guard.
+        if let Err(error) = rustix::fs::flock(&self.file, rustix::fs::FlockOperation::Unlock) {
+            eprintln!("could not release settings transaction lock: {error}");
+        }
+    }
+}
+
+pub(crate) fn settings_lock(path: &Path, private_home: bool) -> Result<SettingsLock> {
     let parent = path
         .parent()
         .filter(|parent| !parent.as_os_str().is_empty())
@@ -169,7 +183,7 @@ pub(crate) fn settings_lock(path: &Path, private_home: bool) -> Result<File> {
     );
     rustix::fs::flock(&file, rustix::fs::FlockOperation::NonBlockingLockExclusive)
         .context("another setup is updating these settings; finish it before retrying")?;
-    Ok(file)
+    Ok(SettingsLock { file })
 }
 
 #[derive(Debug)]
@@ -204,4 +218,32 @@ pub(crate) fn save(path: &Path, config: &Config) -> Result<()> {
         .and_then(|directory| directory.sync_all())
         .map_err(|_| PublicationUncertain)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn settings_lock_ends_with_its_owner_even_if_a_child_inherits_the_descriptor() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::set_permissions(root.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+        let path = root.path().join("settings.toml");
+        let lock = settings_lock(&path, false).unwrap();
+        assert!(
+            settings_lock(&path, false).is_err(),
+            "a live writer must exclude another writer"
+        );
+        // dup and fork both retain the same open file description. Keep that
+        // description alive as an unrelated child can do until it reaches exec.
+        let inherited = lock.file.try_clone().unwrap();
+        drop(lock);
+        let next = settings_lock(&path, false).expect("the completed writer must release its lock");
+        drop(inherited);
+        assert!(
+            settings_lock(&path, false).is_err(),
+            "the next writer must retain exclusion"
+        );
+        drop(next);
+    }
 }

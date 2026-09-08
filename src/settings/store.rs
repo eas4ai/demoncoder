@@ -224,13 +224,8 @@ mod tests {
         configure(&mut second, "b", "second-model");
         handle.save(&mut first).unwrap();
         let saved = std::fs::read(&path).unwrap();
-        assert!(
-            handle
-                .save(&mut second)
-                .unwrap_err()
-                .to_string()
-                .contains("another editor")
-        );
+        let error = handle.save(&mut second).unwrap_err();
+        assert!(error.to_string().contains("another editor"), "{error:#}");
         assert_eq!(std::fs::read(&path).unwrap(), saved);
         assert_eq!(
             handle.role(Role::Creator, None).unwrap().model.as_deref(),
