@@ -134,7 +134,19 @@ impl Store {
     }
 
     pub fn read(&self) -> Result<Value> {
-        let file = open_file(&self.dir, STATE, OFlags::RDONLY)?;
+        Self::read_directory(&self.dir)
+    }
+
+    /// Read one atomic published snapshot without taking the live writer's lock.
+    /// This grants no write authority and never repairs a damaged record.
+    pub fn read_snapshot(directory: &Path) -> Result<Value> {
+        let dir = open_directory(directory)?;
+        validate_directory(&dir)?;
+        Self::read_directory(&dir)
+    }
+
+    fn read_directory(dir: &File) -> Result<Value> {
+        let file = open_file(dir, STATE, OFlags::RDONLY)?;
         ensure!(
             file.metadata()?.len() <= MAX_RECORD as u64,
             "session record exceeds size limit"

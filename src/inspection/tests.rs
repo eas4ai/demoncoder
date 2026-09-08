@@ -106,7 +106,8 @@ fn authoritative_counts_cover_every_state_without_completing_tasks() {
     let task = summary.task.unwrap();
     assert!(task.contains("Checks unverified"));
     assert!(task.contains("Accepted no"));
-    assert_eq!(summary.targets.len(), 13);
+    assert_eq!(summary.targets.len(), 14);
+    assert_eq!(summary.targets.last(), Some(&Target::Learning));
 }
 
 #[test]

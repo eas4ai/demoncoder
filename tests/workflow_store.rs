@@ -8,6 +8,26 @@ use std::{
 use store::Store;
 
 #[test]
+fn published_snapshot_is_readable_during_live_writer_and_rejects_damage() {
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("session");
+    let mut writer = Store::create(&path).unwrap();
+    writer.write(&json!({"generation":1})).unwrap();
+    assert!(Store::open(&path).is_err());
+    assert_eq!(
+        Store::read_snapshot(&path).unwrap(),
+        json!({"generation":1})
+    );
+    writer.write(&json!({"generation":2})).unwrap();
+    assert_eq!(
+        Store::read_snapshot(&path).unwrap(),
+        json!({"generation":2})
+    );
+    fs::write(path.join("state.json"), "damaged private evidence").unwrap();
+    assert!(Store::read_snapshot(&path).is_err());
+}
+
+#[test]
 fn private_parent_rejects_links_without_changing_target_permissions() {
     let root = tempfile::tempdir().unwrap();
     let outside = root.path().join("outside");

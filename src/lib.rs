@@ -6,6 +6,7 @@ mod developer_access;
 pub mod events;
 mod highlight;
 mod inspection;
+mod learning;
 pub mod native;
 pub mod oracle;
 mod selection;

@@ -1,5 +1,6 @@
 //! Explicit developer acceptance around the existing coding session.
 pub mod allocation;
+mod improvements;
 pub mod review;
 pub mod runtime;
 pub mod state;
@@ -10,27 +11,29 @@ pub(crate) const BUSY_CONTROL: &str =
     "Task controls require stopped work; draft retained. Cancel or wait for the current operation.";
 
 pub(crate) fn is_control(text: &str) -> bool {
-    matches!(
-        text.split_whitespace().next(),
-        Some(
-            "/task"
-                | "/task-status"
-                | "/verify"
-                | "/review"
-                | "/correct"
-                | "/accept"
-                | "/abandon"
-                | "/workflow-help"
-                | "/reconcile"
-                | "/delegate"
-                | "/agents"
-                | "/agent"
-                | "/agent-cancel"
-                | "/agent-validate"
-                | "/agent-integrate"
-                | "/agent-reconcile"
+    crate::learning::is_control(text)
+        || matches!(
+            text.split_whitespace().next(),
+            Some(
+                "/task"
+                    | "/task-status"
+                    | "/verify"
+                    | "/review"
+                    | "/correct"
+                    | "/accept"
+                    | "/abandon"
+                    | "/workflow-help"
+                    | "/reconcile"
+                    | "/delegate"
+                    | "/delegate-after"
+                    | "/agents"
+                    | "/agent"
+                    | "/agent-cancel"
+                    | "/agent-validate"
+                    | "/agent-integrate"
+                    | "/agent-reconcile"
+            )
         )
-    )
 }
 
 use std::path::PathBuf;
@@ -212,7 +215,15 @@ impl WorkflowSession {
                 .await?;
             return Ok(TurnEnd::Complete);
         }
-        if let Some(objective) = prompt.strip_prefix("/task ") {
+        let improvement = if prompt.split_whitespace().next() == Some("/improve") {
+            Some(crate::learning::control::improvement_id(&prompt)?)
+        } else {
+            None
+        };
+        if crate::learning::is_control(&prompt) && improvement.is_none() {
+            return self.learning_control(prompt, commands, events).await;
+        }
+        if prompt.strip_prefix("/task ").is_some() || improvement.is_some() {
             ensure!(
                 !self.runtime.record()?.recovery_pending,
                 "inspect and reconcile interrupted work before starting a new task"
@@ -241,13 +252,31 @@ impl WorkflowSession {
                 "current task is not accepted; continue it or use /abandon before starting another"
             );
             let snapshot = self.snapshot().await?;
-            let task = Task::new(
+            let (objective, linkage) = if let Some(candidate) = improvement {
+                match self
+                    .reserve_improvement(candidate, commands, events)
+                    .await?
+                {
+                    Ok(value) => value,
+                    Err(end) => return Ok(end),
+                }
+            } else {
+                (
+                    prompt
+                        .strip_prefix("/task ")
+                        .expect("task command")
+                        .to_owned(),
+                    None,
+                )
+            };
+            let mut task = Task::new(
                 self.next_id,
-                objective.into(),
+                objective.clone(),
                 self.settings.checks.clone(),
                 snapshot,
                 self.settings.correction_limit,
             )?;
+            task.improvement = linkage;
             self.runtime.archive()?;
             self.task = Some(task);
             self.next_id += 1;
@@ -257,7 +286,7 @@ impl WorkflowSession {
             )?;
             self.runtime.save_task(&self.task, self.next_id, None)?;
             self.publish(events).await?;
-            return self.work(objective.into(), false, commands, events).await;
+            return self.work(objective, false, commands, events).await;
         }
         match prompt.trim() {
             "/task-status" => self.show_inspection(events).await,
@@ -348,11 +377,41 @@ impl WorkflowSession {
         commands: &mut mpsc::Receiver<Command>,
         events: &EventSink,
     ) -> Result<TurnEnd> {
+        let runtime = self.runtime.clone();
+        let root = self.workspace.clone();
+        let objective = self
+            .task
+            .as_ref()
+            .map_or_else(|| prompt.clone(), |task| task.objective.clone());
+        let target = self.task.as_ref().map_or_else(
+            || "conversation".to_owned(),
+            |task| format!("task:{}", task.id),
+        );
+        let prepare = crate::learning::control::blocking(move || {
+            crate::learning::context::prepare(&runtime, &root, &[], &objective, target)
+        });
+        // The inner session parses these controls. Evidence must not change their
+        // arguments or become part of a developer-authored child objective.
+        let context = if is_control(&prompt) {
+            None
+        } else {
+            match crate::learning::control::cancellable(prepare, commands, events).await? {
+                Ok(context) => Some(context),
+                Err(end) => return Ok(end),
+            }
+        };
+        let prompt = match &context {
+            Some(context) => crate::learning::context::with_prompt(context, prompt),
+            None => prompt,
+        };
         if let Some(task) = &mut self.task {
             task.start_work(correction)?;
         }
         self.runtime.save_task(&self.task, self.next_id, None)?;
         self.runtime.begin_phase("worker", Some(&prompt))?;
+        if let Some(context) = context {
+            self.runtime.retain_learning_context(context)?;
+        }
         let result = if self.task.is_some() || self.runtime.record()?.delegation.is_some() {
             tokio::time::timeout(
                 self.runtime.remaining()?,
@@ -570,9 +629,28 @@ impl Session for WorkflowSession {
         let record = self.runtime.record()?;
         self.task = record.task;
         self.next_id = record.next_task;
+        let outcome_candidate = if matches!(
+            prompt.trim(),
+            "/verify" | "/review" | "/correct" | "/accept" | "/abandon"
+        ) {
+            self.task
+                .as_ref()
+                .and_then(|task| task.improvement.as_ref())
+                .map(|link| link.candidate)
+        } else {
+            None
+        };
         let result = self.dispatch(prompt, commands, events).await;
         self.runtime.save_task(&self.task, self.next_id, None)?;
         self.runtime.finish_phase()?;
+        if let Some(candidate) = outcome_candidate
+            && !matches!(&result, Ok(TurnEnd::Cancelled | TurnEnd::Shutdown))
+            && let Some(end) = self
+                .retain_improvement_outcome(candidate, commands, events)
+                .await?
+        {
+            return Ok(end);
+        }
         if self.runtime.record()?.recovery_pending {
             events.emit_advisory(Event::Error {message:"An interrupted operation may have partial effects. Inspect the workspace and use /reconcile EXPLANATION before continuing; nothing will be replayed automatically.".into()})?;
         }

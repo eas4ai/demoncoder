@@ -138,12 +138,15 @@ pub struct Record {
     pub backend_invocations: u64,
     #[serde(default)]
     pub delegation: Option<crate::subagents::state::DelegationIdentity>,
+    #[serde(default)]
+    pub learning_context: Vec<crate::learning::context::ContextReceipt>,
 }
 
 struct Runtime {
     store: Store,
     record: Record,
     failed: bool,
+    learning_view: Option<Arc<crate::learning::control::View>>,
 }
 
 #[derive(Clone)]
@@ -165,7 +168,45 @@ impl SharedRuntime {
             !runtime.failed,
             "session persistence failed; state uncertain until recovery"
         );
-        Ok(Some(crate::inspection::project(&runtime.record, request)))
+        let mut snapshot = crate::inspection::project(&runtime.record, request);
+        if let Some(request) = request.filter(|r| r.target == crate::inspection::Target::Learning)
+            && let Some(view) = &runtime.learning_view
+        {
+            snapshot.page = Some(crate::inspection::learning_page(view, request));
+        }
+        Ok(Some(snapshot))
+    }
+
+    pub(crate) fn learning_view(&self, view: crate::learning::control::View) -> Result<()> {
+        let mut runtime = self
+            .0
+            .lock()
+            .map_err(|_| anyhow::anyhow!("session record lock failed"))?;
+        runtime.learning_view = Some(Arc::new(view));
+        Ok(())
+    }
+
+    pub(crate) fn clear_learning_view(&self) -> Result<()> {
+        let mut runtime = self
+            .0
+            .lock()
+            .map_err(|_| anyhow::anyhow!("session record lock failed"))?;
+        runtime.learning_view = None;
+        Ok(())
+    }
+
+    pub(crate) fn retain_learning_context(
+        &self,
+        receipt: crate::learning::context::ContextReceipt,
+    ) -> Result<()> {
+        self.update(|record| {
+            ensure!(
+                record.learning_context.len() < 128,
+                "coding context history is full (128); preserve this session before new work"
+            );
+            record.learning_context.push(receipt);
+            Ok(())
+        })
     }
 
     #[cfg(test)]
@@ -176,6 +217,7 @@ impl SharedRuntime {
             store,
             record,
             failed: false,
+            learning_view: None,
         }))))
     }
 
@@ -233,6 +275,7 @@ impl SharedRuntime {
                 agents: Vec::new(),
                 backend_invocations: 0,
                 delegation: None,
+                learning_context: Vec::new(),
             };
             (store, record, false)
         };
@@ -270,6 +313,7 @@ impl SharedRuntime {
                 store,
                 record,
                 failed: false,
+                learning_view: None,
             }))),
             resumed,
         ))
@@ -737,6 +781,7 @@ mod tests {
             store: Store::create(&directory).unwrap(),
             record,
             failed: false,
+            learning_view: None,
         })));
         let result = runtime.admission(|record| {
             let allocation = record.allocation.as_mut().unwrap();

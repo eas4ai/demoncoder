@@ -16,6 +16,7 @@ pub(crate) enum Target {
     Overview,
     Task(u64),
     Agent(u64),
+    Learning,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -54,6 +55,7 @@ impl Target {
             Self::Overview => "Overview".into(),
             Self::Task(id) => format!("Task {id}"),
             Self::Agent(id) => format!("Agent {id}"),
+            Self::Learning => "Learning evidence".into(),
         }
     }
 }
@@ -99,6 +101,7 @@ impl Summary {
         for archived in record.archived.iter().rev() {
             summary.targets.push(Target::Task(archived.task.id));
         }
+        summary.targets.push(Target::Learning);
         summary
     }
 
@@ -168,5 +171,16 @@ pub(crate) fn project(record: &Record, request: Option<Request>) -> Snapshot {
     Snapshot {
         summary: Summary::from_record(record),
         page: request.map(|request| report::page(record, request)),
+    }
+}
+
+pub(crate) fn learning_page(view: &crate::learning::control::View, request: Request) -> Page {
+    use std::fmt::Write;
+    let mut out = pager::Pager::new(request.page);
+    let _ = write!(out, "{}\n{}", view.title, view.text);
+    Page {
+        request,
+        text: out.text,
+        more: out.more,
     }
 }

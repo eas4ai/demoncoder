@@ -30,6 +30,7 @@ retains its separate review role.
 - [Task verification and recovery](#task-verification-and-recovery)
 - [Assignable subagents](#assignable-subagents)
 - [Advanced orchestration](#advanced-orchestration)
+- [Evidence-based improvement](#evidence-based-improvement)
 - [Extending DemonCoder](#extending-demoncoder)
 - [Limits and troubleshooting](#limits-and-troubleshooting)
 - [Development and verification](#development-and-verification)
@@ -201,6 +202,132 @@ Retention is finite: 32 archived tasks, 128 evidence generations, 4,096 operatio
 128 recorded decisions and an 8 MiB conversation within a 64 MiB session record.
 Reaching a retention limit stops further affected work; preserve the record and
 start a new session. No automatic checkout, cleanup, commit or deletion occurs.
+
+## Evidence-based improvement
+
+A failed verification can become a cited correction candidate. Inspect its
+original result, add your explanation, authorize an ordinary task, and use its
+executed checks and review to assess the outcome. A supported correction can
+become a workspace lesson after your explicit approval. Discovery and inspection
+never invoke a model or execute coding tools.
+
+Start a native task session with the behavioral command you intend to preserve,
+for example `--check 'test -s greeting' --reviewer review-model`. After a failed
+`/verify`, use:
+
+```text
+/improvements
+/improvement 1
+/improvement-note 1 The greeting was empty; investigate its producer.
+/abandon
+/improve 1
+/verify
+/correct
+/improvement-outcome 1
+/accept
+/lesson-propose 1 {"claim":"Verify nonempty greeting output before accepting a change.","keywords":["greeting"]}
+/lesson-enable 1
+```
+
+The numbers are the identifiers printed by `/improvements`; do not assume they
+are always `1`. `/abandon` preserves the original task and files. `/improve`
+requires the current task to be accepted or abandoned and the candidate's
+behavioral command to be among the session's selected `--check` commands. It
+reserves one authorization before creating the correction task. If interrupted,
+that reservation cannot create another task; inspect it and create a new proposal
+only if you intend to authorize new work. Resuming an existing correction keeps
+its original connection authority and consumed allocation.
+
+| Command | Behavior |
+|---|---|
+| `/learning-context [PAGE]` | Inspect prepared coding contexts and restore their F2 view. |
+| `/improvements` | Detect failed checks in the current session and show the saved workspace catalog. Repeat detection does not duplicate original receipts. |
+| `/observation ID [PAGE]` | Inspect an observation, attributed annotations and its original receipt. |
+| `/improvement ID [PAGE]` | Inspect a candidate, source evidence, authorization and outcome history. |
+| `/improvement-note OBS TEXT` | Add a developer explanation without changing the original result. |
+| `/improvement-propose OBS JSON` | Propose `objective`, `scope`, `benefit`, `behavioral_check` and `risks` as nonempty string fields. Explanations remain proposals. |
+| `/improve ID` | Explicitly authorize one ordinary native correction task with cited evidence in its actual worker context. |
+| `/improvement-outcome ID` | Compare the correction's retained checks and review with the original behavioral command and a current workspace capture. |
+| `/lesson-propose CANDIDATE JSON` | Propose `claim` and an array of `keywords` from a supported outcome. The new lesson starts disabled. |
+| `/lesson ID [PAGE]` | Inspect a lesson and its source history. |
+| `/lesson-enable ID` | Approve future use after validating supporting source receipts. |
+| `/lesson-disable ID` | Stop future selection, even if its original source is unavailable. |
+| `/lesson-supersede OLD NEW` | Disable the old lesson in favor of an already enabled replacement while preserving history. |
+
+Annotations can also cite a current session's retained evidence directly:
+`task-check:ID:ROUND:INDEX`, `task-review:ID`,
+`agent-check:ID:GENERATION:INDEX`, `agent-review:ID`, or
+`agent-role:ID:INDEX`. For example, `/improvement-note task-review:2 TEXT`
+creates an observation of task 2's current retained review. Receipt indexes and
+task check-history rounds start at zero. Inspect the new observation with
+`/observation`; original task and agent inspectors still expose their receipts.
+
+A correction outcome is **supported**, **unresolved**, or **insufficient**.
+Support requires the exact originally failing command to pass, all selected
+checks to pass, and clear review on the same current files. Accepting an unrelated
+passing task does not establish improvement. Verification, review, acceptance and
+abandonment retain outcomes automatically; `/improvement-outcome` can refresh the
+assessment explicitly. Earlier failed and abandoned outcomes remain beside later
+success. A supported outcome establishes the specified behavior, not every
+proposed benefit or the truth of every explanation. Review must still challenge
+weakened checks and unsupported claims.
+
+### Lesson delivery and repository instructions
+
+Enabled lessons apply only to their canonical workspace directory identity,
+including later sessions there. Matching is deterministic: at least one of the
+lesson's 1–8 keywords must match a whole Unicode alphanumeric word in the coding
+objective, ignoring case. Unrelated, disabled and superseded lessons are excluded.
+Up to four matching lessons enter each actual parent or child coding request on
+all four connections. A receipt retains their identities, workspace, sources,
+selection reasons and exact prepared context. Additional matches are reported as
+omitted. This adds no model-based proposal generation or hidden model calls.
+
+Context preparation loads the selected coding workspace's root `AGENTS.md`.
+For child work it also checks `AGENTS.md` along the ancestors of declared owned
+paths, inside that child's worktree. Nested files apply only to their own subtree.
+It does not scan unrelated directories, follow imports, or load ancestors outside
+the workspace. Runtime invariants come first, then developer directions, applicable
+repository instructions, and quoted lesson evidence. Neither files nor lessons
+grant tool permissions or child integration authority.
+
+F2's Learning target shows the last explicitly requested catalog view. Use
+`/learning-context [PAGE]` to inspect prepared coding-context receipts; those
+receipts also appear in their task or agent inspection. Before requesting a
+catalog view, F2 shows the context receipts by default. Context is
+retained before an adapter call; delivery and effects are established by the
+corresponding provider/tool receipts. Inspection and F5 show saved evidence and do
+not recheck files. Disabling a lesson stops new selection; it cannot erase text
+already supplied to an opaque backend conversation.
+
+### Learning storage and limits
+
+Private catalogs live under `~/.demoncoder/learning/`, keyed by the canonical
+workspace path and directory identity. They use the session Store's checksummed
+atomic replacement and private permissions. Original receipts under
+`~/.demoncoder/sessions/` remain authoritative. Missing, damaged, changed or
+other-workspace sources block dependent claims and lesson delivery with an
+explanation; a copied summary is never substituted for proof.
+
+Limits are explicit: 8 MiB per catalog, 128 observations, 64 candidates, 64 lessons,
+128 total annotations, and 128 outcomes per candidate or history entries per
+lesson. Text fields are at most 4 KiB; a behavioral command is at most 8 KiB.
+Discovery examines one session and at most 4,096 retained checks. Other source
+retrieval reads at most eight sessions and 64 MiB of aggregate evidence per
+operation. Inspection retains at most 8 MiB and displays pages of about 8 KiB.
+Full storage refuses additional work without evicting earlier evidence.
+
+Per request, instruction selection checks at most 32 paths with depth 32 and
+reads at most 32 KiB. Lesson context is limited to 32 KiB and prepared context to
+96 KiB. A session retains at most 128 coding-context receipts. Unavailable or
+oversized instruction files produce an explicit refusal rather than silently
+claiming complete retrieval. Symbolic links and special files are refused.
+
+Learning file access runs off the terminal input path, with four blocking I/O
+slots and a ten-second wait limit. Busy catalogs refuse concurrent writes.
+Escape cancels the operation; an already running filesystem save may finish,
+but cancellation never starts a correction. Inspect the catalog before repeating
+an interrupted command. No automatic cleanup or effect replay occurs.
 
 ## Assignable subagents
 
@@ -1263,6 +1390,7 @@ specified by [AGENTS.md](AGENTS.md).
 | [oracle.rs](src/oracle.rs) | Separate no-tools outside-access review. |
 | [subagents/](src/subagents/) | Confined assignments, dependency scheduling, supervision and explicit integration. |
 | [workflow/](src/workflow/) | Task acceptance, workspace evidence, review, shared allocation and private recovery. |
+| [learning/](src/learning/) | Cited improvement records, authorized corrections, outcome evidence and scoped lesson context. |
 | [supervisor.rs](src/supervisor.rs) | Own host Bash descendants through cancellation and runtime crashes. |
 | [events.rs](src/events.rs) | Attributed events and optional JSONL publication. |
 | [terminal.rs](src/terminal.rs) | Responsive editor, scrolling, selection, activity and status. |
@@ -1285,7 +1413,8 @@ all future versions or models.
 
 Task verification, private native session recovery, assignable subagents and
 advanced orchestration are described above. The [roadmap](docs/spec/roadmap.md)
-retains evidence-based improvement as the next commitment. Other pending
+tracks the current evidence-based improvement commitment. The workflow is
+described above; Cairn records its verification and completion status. Other pending
 capabilities include a dynamic
 extension loader and hash-anchored edits. The current `edit` tool uses exact text
 matching, and the current session has one loop owner.

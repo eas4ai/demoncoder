@@ -1,6 +1,6 @@
 //! Child facts share the parent record and admission lock.
 use anyhow::{Context, Result, ensure};
-use serde_json::{Value, json};
+use serde_json::Value;
 
 use super::{Operation, Record, SharedRuntime};
 use crate::{
@@ -190,21 +190,12 @@ impl SharedRuntime {
                 !agent.commands.is_empty() && agent.reviewer.is_some(),
                 "select --check and --reviewer before assigning work"
             );
-            if !agent.checks.is_empty() || agent.review.is_some() {
-                agent.retain_activity(json!({
-                    "type":"previous_validation",
-                    "generation":agent.validation_generation,
-                    "checks":agent.checks,
-                    "review":agent.review,
-                }))?;
-            }
+            agent.retain_validation()?;
             agent.status = crate::subagents::state::AgentStatus::Validating;
             if agent.orchestration.is_none() {
                 agent.validation_generation += 1;
             }
             agent.validation_snapshot = None;
-            agent.checks.clear();
-            agent.review = None;
             Ok(())
         })
     }
@@ -291,6 +282,7 @@ mod tests {
             store: Store::create(&root.path().join("record")).unwrap(),
             record,
             failed: false,
+            learning_view: None,
         })));
         let mut judge = connection.clone();
         judge.model = Some("judge-a".into());
@@ -351,6 +343,7 @@ mod tests {
             store: Store::create(&root.path().join("record")).unwrap(),
             record,
             failed: false,
+            learning_view: None,
         })));
         let identity = DelegationIdentity {
             connections: Default::default(),
@@ -389,6 +382,7 @@ mod tests {
             store: Store::create(&root.path().join("record")).unwrap(),
             record,
             failed: false,
+            learning_view: None,
         })));
 
         let error = runtime.admit_agent_validation(1, 1).unwrap_err();

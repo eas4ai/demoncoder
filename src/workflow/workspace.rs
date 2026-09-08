@@ -41,6 +41,10 @@ pub struct Snapshot {
 }
 
 impl Snapshot {
+    pub(crate) fn root_identity(&self) -> (u64, u64) {
+        (self.root_device, self.root_inode)
+    }
+
     pub(crate) fn same_root(&self, other: &Self) -> bool {
         self.root_device == other.root_device && self.root_inode == other.root_inode
     }

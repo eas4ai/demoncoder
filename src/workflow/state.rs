@@ -39,6 +39,15 @@ pub struct Task {
     pub correction_limit: u32,
     pub stopped: bool,
     pub accepted: Option<String>,
+    #[serde(default)]
+    pub improvement: Option<ImprovementLink>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ImprovementLink {
+    pub catalog: std::path::PathBuf,
+    pub candidate: u64,
 }
 
 impl Task {
@@ -78,6 +87,7 @@ impl Task {
             correction_limit,
             stopped: false,
             accepted: None,
+            improvement: None,
         })
     }
 

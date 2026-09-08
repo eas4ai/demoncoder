@@ -154,6 +154,19 @@ pub enum AssignmentOrigin {
 }
 
 impl AgentRecord {
+    pub(crate) fn retain_validation(&mut self) -> Result<()> {
+        if self.checks.is_empty() && self.review.is_none() {
+            return Ok(());
+        }
+        self.retain_activity(serde_json::json!({
+            "type":"previous_validation", "generation":self.validation_generation,
+            "checks":self.checks, "review":self.review,
+        }))?;
+        self.checks.clear();
+        self.review = None;
+        Ok(())
+    }
+
     pub fn orchestration_allows_integration(&self) -> bool {
         self.orchestration
             .as_ref()

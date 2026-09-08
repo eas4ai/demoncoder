@@ -17,6 +17,7 @@ use crate::{
 pub(super) fn page(record: &Record, request: Request) -> Page {
     let mut out = Pager::new(request.page);
     let result = match request.target {
+        Target::Learning => learning_context(&mut out, record),
         Target::Overview => overview(&mut out, record),
         Target::Task(id) => {
             if let Some(task) = record.task.as_ref().filter(|task| task.id == id) {
@@ -56,6 +57,29 @@ pub(super) fn page(record: &Record, request: Request) -> Page {
         text: out.text,
         more: out.more,
     }
+}
+
+fn learning_context(out: &mut Pager, record: &Record) -> fmt::Result {
+    writeln!(
+        out,
+        "Saved coding context. Use /improvements to refresh the workspace catalog; inspection alone runs no checks."
+    )?;
+    for receipt in &record.learning_context {
+        writeln!(
+            out,
+            "Coding target: {} · Workspace: {} · Selected lessons: {} · Omitted matches: {}",
+            receipt.target,
+            receipt.coding_workspace.display(),
+            receipt.lessons.len(),
+            receipt.omitted_matches
+        )?;
+        quote(
+            out,
+            "Prepared coding context (provider receipts show whether delivery completed):",
+            &receipt.supplied_text,
+        )?;
+    }
+    Ok(())
 }
 
 fn quote(out: &mut Pager, heading: &str, value: &str) -> fmt::Result {
@@ -166,6 +190,25 @@ fn task_report(out: &mut Pager, record: &Record, task: &Task, archived: bool) ->
         "Freshness: recorded results only; files not rechecked. Actions recheck files."
     )?;
     task_actions(out, record, task, archived)?;
+    if let Some(link) = &task.improvement {
+        writeln!(
+            out,
+            "Improvement candidate: {} · catalog {}",
+            link.candidate,
+            link.catalog.display()
+        )?;
+    }
+    for receipt in record
+        .learning_context
+        .iter()
+        .filter(|r| r.target == format!("task:{}", task.id) && !r.supplied_text.is_empty())
+    {
+        quote(
+            out,
+            "Prepared coding context (delivery depends on recorded adapter execution):",
+            &receipt.supplied_text,
+        )?;
+    }
     checks(out, "Checks · latest recorded generation", &task.checks)?;
     if let Some(review) = &task.review {
         review_report(out, "Review · latest recorded result", review)?;
@@ -320,6 +363,17 @@ fn agent_report(out: &mut Pager, record: &Record, agent: &AgentRecord) -> fmt::R
         }
     }
     agent_actions(out, record, agent)?;
+    for receipt in record
+        .learning_context
+        .iter()
+        .filter(|r| r.target == format!("agent:{}", agent.id) && !r.supplied_text.is_empty())
+    {
+        quote(
+            out,
+            "Prepared child coding context (delivery depends on recorded adapter execution):",
+            &receipt.supplied_text,
+        )?;
+    }
     if let Some(worktree) = &agent.worktree {
         quote(out, "Worktree:", &worktree.root.display().to_string())?;
         writeln!(out, "Baseline snapshot: {}", worktree.child_baseline.digest)?;
