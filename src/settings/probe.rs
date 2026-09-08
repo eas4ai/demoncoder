@@ -313,6 +313,8 @@ async fn codex_catalog(process: &mut BackendProcess) -> Result<Catalog> {
 /// Both Settings discovery and coding connections must use the same managed
 /// subscription route. Login type alone does not constrain inherited routing.
 pub(crate) fn validate_codex_route(configuration: &Value) -> Result<()> {
+    const CHATGPT_BASE_URL: &str = "https://chatgpt.com/backend-api/";
+
     let config = configuration
         .as_object()
         .context("Codex did not return its effective configuration")?;
@@ -334,12 +336,16 @@ pub(crate) fn validate_codex_route(configuration: &Value) -> Result<()> {
             "Codex subscription does not accept a custom OpenAI provider definition; remove it from Codex configuration"
         );
     }
-    for key in ["openai_base_url", "chatgpt_base_url"] {
-        ensure!(
-            config.get(key).is_none_or(Value::is_null),
-            "Codex subscription does not accept a custom service URL; remove the base URL override from Codex configuration"
-        );
-    }
+    ensure!(
+        config.get("openai_base_url").is_none_or(Value::is_null),
+        "Codex subscription does not accept a custom service URL; remove the base URL override from Codex configuration"
+    );
+    ensure!(
+        config
+            .get("chatgpt_base_url")
+            .is_none_or(|value| value.is_null() || value == CHATGPT_BASE_URL),
+        "Codex subscription does not accept a custom service URL; remove the base URL override from Codex configuration"
+    );
     Ok(())
 }
 
@@ -649,6 +655,7 @@ print(json.dumps({'id':r['id'],'result':{'account':{'type':'apiKey'}}}),flush=Tr
         for config in [
             json!({}),
             json!({"model_provider":"openai","model_providers":{}}),
+            json!({"chatgpt_base_url":"https://chatgpt.com/backend-api/"}),
         ] {
             assert!(validate_codex_route(&config).is_ok());
         }
@@ -658,6 +665,8 @@ print(json.dumps({'id':r['id'],'result':{'account':{'type':'apiKey'}}}),flush=Tr
             json!({"model_providers":{"openai":{}}}),
             json!({"model_providers":[]}),
             json!({"chatgpt_base_url":"https://other.invalid"}),
+            json!({"chatgpt_base_url":"https://chatgpt.com/backend-api"}),
+            json!({"chatgpt_base_url":"https://chatgpt.com/backend-api/fixture"}),
             json!({"openai_base_url":"https://other.invalid"}),
         ] {
             assert!(validate_codex_route(&config).is_err());

@@ -228,8 +228,14 @@ while closed also requires inspection. Ordinary conversations have no acceptance
 snapshot and require workspace inspection on every resume. Their reconciliation
 records your explanation without capturing private files in a home workspace.
 
-Task capture includes untracked files and pre-existing changes, excluding only
-the root `.git` entry. It uses repeated bounded scans, not an atomic filesystem
+Task capture includes untracked files and pre-existing changes. It excludes the
+root `.git` entry and private runtime/credential paths before reading their contents:
+`.demoncoder`, `.codex`, `.claude`, `.ssh`, cloud credential directories, credential
+dotfiles, Git/GitHub/gcloud/OpenCode credentials under `.config`, Cargo credentials
+and `.env` variants. Public `.env.example`, `.env.sample` and `.env.template`
+files remain source. The same exclusions apply to review and delegated Git exports;
+excluded files are not reviewed or integrated. Older stored records and Git history
+are not rewritten. It uses repeated bounded scans, not an atomic filesystem
 snapshot; avoid concurrent edits during checks and review. Limits are 8 MiB per
 file, 64 MiB total content, 20,000 entries, depth 64 and ten seconds per capture.
 Special files, hard links, mounted subtrees and unsupported path names block

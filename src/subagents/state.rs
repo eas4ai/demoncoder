@@ -57,6 +57,7 @@ impl AssignmentRequest {
 
 pub fn valid_content_path(path: &str) -> bool {
     !path.is_empty()
+        && !crate::export_policy::private_path(Path::new(path))
         && path.len() <= 4096
         && !path.contains(['\0', '\n', '\r'])
         && Path::new(path)
@@ -67,7 +68,7 @@ pub fn valid_content_path(path: &str) -> bool {
 fn validate_owned_path(path: &str) -> Result<()> {
     ensure!(
         path == "." || valid_content_path(path),
-        "owned paths must stay inside the worktree and exclude .git"
+        "owned paths must stay inside the worktree and exclude .git and private runtime/credential paths"
     );
     Ok(())
 }

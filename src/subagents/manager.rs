@@ -87,11 +87,10 @@ impl Manager {
         );
         for connection in settings.connections.values_mut() {
             ensure!(
-                !connection
-                    .access
-                    .credential_paths
-                    .iter()
-                    .any(|path| path.starts_with(&workspace)),
+                !crate::export_policy::contains_declared_private(
+                    &workspace,
+                    &connection.access.credential_paths,
+                )?,
                 "agent workspace must exclude private connection settings"
             );
             connection.access = crate::tools::AccessPolicy::worktree_only(

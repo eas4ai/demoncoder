@@ -26,6 +26,7 @@ from provider_metadata import ModelMetadataHandler
 from terminal_session import BINARY, ROOT, until
 from boundary_fixture import requests, model_results, check_result
 import result_fixture
+from codex_https_fixture import create_server as create_codex_server
 
 
 def fake_codex_auth(home):
@@ -154,25 +155,23 @@ def case(adapter, server):
             fake_codex_auth(codex_home)
             marker_script = f"from pathlib import Path; Path({str(parent / 'inherited-mcp-started')!r}).write_text('unauthorized startup')"
             (codex_home / "config.toml").write_text(f'''model = "gpt-5.4"
-model_provider = "fixture"
-chatgpt_base_url = "{endpoint}"
 cli_auth_credentials_store = "file"
 [features]
 enable_request_compression = false
-[model_providers.fixture]
-name = "Fixture"
-base_url = "{endpoint}/v1"
-wire_api = "responses"
-requires_openai_auth = true
-supports_websockets = false
-request_max_retries = 0
-stream_max_retries = 0
 [mcp_servers.inherited]
 command = "/usr/bin/python3"
 args = ["-c", {json.dumps(marker_script)}]
 startup_timeout_sec = 1
 ''')
-        (workspace / "installed-backend.json").write_text(json.dumps({"adapter": adapter, "binary": binary, "endpoint": endpoint}))
+        launcher = ROOT / "tests/installed_backend_launcher.py"
+        launcher_config = {"adapter": adapter, "binary": binary, "endpoint": endpoint}
+        if adapter == "codex":
+            launcher = ROOT / "tests/codex_https_fixture.py"
+            launcher_config.update(
+                https_proxy=endpoint,
+                ca_certificate=str(server.ca_certificate),
+            )
+        (workspace / "installed-backend.json").write_text(json.dumps(launcher_config))
         config = workspace / "connection.toml"
         model = "gpt-5.4" if adapter == "codex" else "claude-sonnet-4-6"
         settings = f'default_connection = "selected"\n[connections.selected]\nadapter = "{adapter}"\nmodel = "{model}"\n'
@@ -180,7 +179,7 @@ startup_timeout_sec = 1
             route = "responses" if adapter == "openai-api" else "messages"
             settings += f'endpoint = "{endpoint}/v1/{route}"\n'
         else:
-            settings += f'binary = {json.dumps(str(ROOT / "tests/installed_backend_launcher.py"))}\n'
+            settings += f'binary = {json.dumps(str(launcher))}\n'
         config.write_text(settings)
         log = parent / "events.jsonl"
         master, slave = pty.openpty()
@@ -207,6 +206,9 @@ startup_timeout_sec = 1
                     break
                 assert time.monotonic() < deadline, "installed backend did not finish"
             assert server.requests, "installed backend never reached local model"
+            if adapter == "codex":
+                assert server.connect_targets, "installed Codex bypassed the HTTPS CONNECT proxy"
+                assert set(server.connect_targets) == {"chatgpt.com:443"}, server.connect_targets
             expected = {"mcp__demoncoder__" + name for name in ["read", "write", "edit", "bash"]} if adapter == "claude" else {"read", "write", "edit", "bash"}
             for request in server.requests:
                 names = {tool.get("name") for tool in request.get("tools", [])}
@@ -254,28 +256,33 @@ def main():
         parser.error("--fault-rewrite-result requires --results")
     failed = []
     for adapter in ["openai-api", "anthropic-api", "codex", "claude"]:
-        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Model)
-        server.adapter = adapter
-        server.requests = []
-        server.paths = []
-        server.errors = []
-        server.step = 0
-        server.results = []
-        server.result_cycle = args.results
-        server.fault_result = args.fault_rewrite_result
-        server.failure_ready = threading.Event()
-        server.failure_rendered = threading.Event()
-        thread = threading.Thread(target=server.serve_forever, daemon=True)
-        thread.start()
-        try:
-            case(adapter, server)
-        except (AssertionError, OSError, subprocess.SubprocessError) as error:
-            failed.append(adapter)
-            print(adapter, "FAILED", str(error), flush=True)
-        finally:
-            server.shutdown()
-            server.server_close()
-            thread.join(timeout=2)
+        with tempfile.TemporaryDirectory(prefix="demoncoder-installed-server-") as directory:
+            server = (
+                create_codex_server(Path(directory), Model)
+                if adapter == "codex"
+                else http.server.ThreadingHTTPServer(("127.0.0.1", 0), Model)
+            )
+            server.adapter = adapter
+            server.requests = []
+            server.paths = []
+            server.errors = []
+            server.step = 0
+            server.results = []
+            server.result_cycle = args.results
+            server.fault_result = args.fault_rewrite_result
+            server.failure_ready = threading.Event()
+            server.failure_rendered = threading.Event()
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                case(adapter, server)
+            except (AssertionError, OSError, subprocess.SubprocessError) as error:
+                failed.append(adapter)
+                print(adapter, "FAILED", str(error), flush=True)
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=2)
     requirement = "CODE-008" if args.results else "CODE-007"
     print("cairn: " + requirement + ": " + ("fail" if failed else "pass"), flush=True)
     return int(bool(failed))

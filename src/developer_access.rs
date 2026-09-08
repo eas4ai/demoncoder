@@ -17,6 +17,8 @@ use anyhow::{Context, Result, ensure};
 use rustix::fs::{Mode, OFlags, ResolveFlags, openat2};
 use tokio::process::Command;
 
+use crate::export_policy::PRIVATE_PATHS;
+
 const INSTRUCTION_FILES: &[&str] = &[
     "AGENTS.md",
     "CLAUDE.md",
@@ -24,25 +26,6 @@ const INSTRUCTION_FILES: &[&str] = &[
     "TILTH.md",
     "PARTNERSHIP.md",
     "BEST_PRACTICES.md",
-];
-const PRIVATE_PATHS: &[&str] = &[
-    ".demoncoder",
-    ".codex",
-    ".claude",
-    ".claude.json",
-    ".ssh",
-    ".aws",
-    ".azure",
-    ".kube",
-    ".netrc",
-    ".npmrc",
-    ".git-credentials",
-    ".config/git/credentials",
-    ".config/gh",
-    ".config/gcloud",
-    ".config/opencode/auth.json",
-    ".cargo/credentials",
-    ".cargo/credentials.toml",
 ];
 // Changes to these tool stores go to session-owned overlays. Existing downloads
 // remain readable; no cache hard link can carry a write back to an outside file.

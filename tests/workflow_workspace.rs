@@ -8,6 +8,33 @@ use demoncoder::workflow::workspace::{capture, review_evidence};
 use tempfile::tempdir;
 
 #[test]
+fn private_source_never_enters_capture_or_review_even_from_older_snapshots() {
+    let root = tempdir().unwrap();
+    fs::create_dir(root.path().join(".demoncoder")).unwrap();
+    fs::write(
+        root.path().join(".demoncoder/token"),
+        "PRIVATE_RUNTIME_CANARY",
+    )
+    .unwrap();
+    fs::write(root.path().join(".env"), "PRIVATE_ENV_CANARY").unwrap();
+    fs::write(root.path().join("source.rs"), "public source").unwrap();
+    let snapshot = capture(root.path()).unwrap();
+    let retained = serde_json::to_string(&snapshot).unwrap();
+    assert!(!retained.contains("PRIVATE_RUNTIME_CANARY"));
+    assert!(!retained.contains("PRIVATE_ENV_CANARY"));
+    let mut older = serde_json::to_value(&snapshot).unwrap();
+    older.as_object_mut().unwrap().remove("export_policy");
+    let mut private = older["entries"]["./source.rs"].clone();
+    private["text"] = "OLDER_PRIVATE_CANARY".into();
+    older["entries"]["./.demoncoder/token"] = private;
+    let older = serde_json::from_value(older).unwrap();
+    let evidence = review_evidence(&older, &snapshot).unwrap();
+    assert!(!evidence.contains("OLDER_PRIVATE_CANARY"));
+    assert!(evidence.contains("public source"));
+    assert!(evidence.contains(".demoncoder") && evidence.contains("excluded"));
+}
+
+#[test]
 fn unchanged_capture_and_serialization_are_deterministic() {
     let root = tempdir().unwrap();
     fs::write(root.path().join("existing.rs"), "let old = 1;\n").unwrap();

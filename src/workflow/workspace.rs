@@ -1,5 +1,5 @@
 //! Bounded, read-only Linux workspace capture. No Git commands, filters or hooks
-//! run. Only the root `.git` entry is excluded; Git administrative changes are
+//! run. Private source and the root `.git` entry are excluded; Git administrative changes are
 //! therefore outside the acceptance identity. Ignored and untracked files count.
 //!
 //! Two matching scans detect ordinary concurrent edits, not an atomic filesystem
@@ -35,6 +35,9 @@ const RESOLVE: ResolveFlags = ResolveFlags::BENEATH
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Snapshot {
     pub digest: String,
+    /// Zero identifies historical snapshots captured before private-source exclusions.
+    #[serde(default)]
+    export_policy: u8,
     root_device: u64,
     root_inode: u64,
     pub(crate) entries: BTreeMap<String, Entry>,
@@ -161,6 +164,9 @@ impl Scan<'_> {
                 let child = std::str::from_utf8(bytes).context(
                     "workspace contains a non-UTF-8 path; rename it before verification",
                 )?;
+                if crate::export_policy::private_path(&path.join(child)) {
+                    continue;
+                }
                 self.walk(&path.join(child), depth + 1)?;
             }
         } else if metadata.is_file() {
@@ -253,7 +259,7 @@ fn entry(kind: Kind, mode: u32, data: &[u8]) -> Entry {
     }
 }
 
-/// Capture all entries below a real directory, including ignored/untracked files.
+/// Capture public entries below a real directory, including ignored/untracked source.
 /// Refuses symlink roots, descendant mounts, hard-linked regular files, special
 /// files, non-UTF-8 names and oversized trees rather than silently skipping them.
 pub fn capture(root: &Path) -> Result<Snapshot> {
@@ -306,6 +312,7 @@ fn capture_inner(
     );
     let mut snapshot = Snapshot {
         digest: String::new(),
+        export_policy: crate::export_policy::VERSION,
         root_device: root_stamp.device,
         root_inode: root_stamp.inode,
         entries: second.entries,
@@ -377,9 +384,14 @@ pub fn review_evidence(before: &Snapshot, after: &Snapshot) -> Result<String> {
             before.digest, after.digest
         ),
     )?;
+    append(&mut output, crate::export_policy::DESCRIPTION)?;
     let names: std::collections::BTreeSet<_> =
         before.entries.keys().chain(after.entries.keys()).collect();
     for name in names {
+        // Older snapshots may contain private text. Never re-export that content.
+        if crate::export_policy::private_path(Path::new(name)) {
+            continue;
+        }
         let old = before.entries.get(name);
         let new = after.entries.get(name);
         let changed = old != new;

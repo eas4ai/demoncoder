@@ -187,12 +187,10 @@ impl WorkflowSession {
         let session_path = self.runtime.directory()?;
         ensure!(
             !session_path.starts_with(&self.workspace)
-                && !self
-                    .connection
-                    .access
-                    .credential_paths
-                    .iter()
-                    .any(|p| p.starts_with(&self.workspace)),
+                && !crate::export_policy::contains_declared_private(
+                    &self.workspace,
+                    &self.connection.access.credential_paths,
+                )?,
             "task workspace contains private session or connection settings; select the project directory that excludes those private files"
         );
         let root = self.workspace.clone();

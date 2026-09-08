@@ -46,6 +46,96 @@ fn request(owned: &[&str]) -> AssignmentRequest {
         owned_paths: owned.iter().map(|s| s.to_string()).collect(),
     }
 }
+
+#[tokio::test]
+async fn private_source_is_not_copied_or_committed_by_delegation() {
+    let (_temp, parent, child) = repository();
+    fs::create_dir(parent.join(".demoncoder")).unwrap();
+    fs::write(parent.join(".demoncoder/token"), "PRIVATE_GIT_CANARY").unwrap();
+    fs::write(parent.join(".env"), "PRIVATE_ENV_CANARY").unwrap();
+    fs::create_dir_all(parent.join(".config/gh")).unwrap();
+    fs::write(parent.join(".config/gh/hosts.yml"), "PRIVATE_GITHUB_CANARY").unwrap();
+    fs::create_dir(parent.join(".cargo")).unwrap();
+    fs::write(
+        parent.join(".cargo/credentials.toml"),
+        "PRIVATE_CARGO_CANARY",
+    )
+    .unwrap();
+    fs::write(parent.join(".gitignore"), ".demoncoder/\n.env\n").unwrap();
+    let identity = prepare(&parent, &child).await.unwrap();
+    assert!(!child.join(".demoncoder").exists());
+    assert!(!child.join(".env").exists());
+    assert!(!child.join(".config/gh").exists());
+    assert!(!child.join(".cargo/credentials.toml").exists());
+    let tree = String::from_utf8(git(
+        &parent,
+        &["ls-tree", "-r", "--name-only", &identity.baseline_commit],
+    ))
+    .unwrap();
+    assert!(!tree.contains(".demoncoder"));
+    assert!(!tree.lines().any(|path| path == ".env"));
+    let mut private_objects = Vec::new();
+    for value in [
+        "PRIVATE_GIT_CANARY",
+        "PRIVATE_ENV_CANARY",
+        "PRIVATE_GITHUB_CANARY",
+        "PRIVATE_CARGO_CANARY",
+    ] {
+        // Compute the canary's object ID without writing it into this repository.
+        use std::io::Write;
+        let mut hash = Command::new("git")
+            .current_dir(&parent)
+            .args(["hash-object", "--stdin"])
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        hash.stdin
+            .take()
+            .unwrap()
+            .write_all(value.as_bytes())
+            .unwrap();
+        let output = hash.wait_with_output().unwrap();
+        assert!(output.status.success());
+        let canary = String::from_utf8(output.stdout).unwrap();
+        private_objects.push(canary.trim().to_owned());
+        assert!(
+            !Command::new("git")
+                .current_dir(&parent)
+                .args(["cat-file", "-e", canary.trim()])
+                .stderr(std::process::Stdio::null())
+                .status()
+                .unwrap()
+                .success()
+        );
+    }
+    fs::write(child.join("owned"), "corrected public source").unwrap();
+    let snapshot = inspect(&identity).await.unwrap();
+    let delta = build_delta(&identity, &request(&["owned"]), &snapshot.digest)
+        .await
+        .unwrap();
+    integrate(&parent, &identity, &delta).await.unwrap();
+    for object in private_objects {
+        assert!(
+            !Command::new("git")
+                .current_dir(&parent)
+                .args(["cat-file", "-e", &object])
+                .stderr(std::process::Stdio::null())
+                .status()
+                .unwrap()
+                .success(),
+            "integration exported private source into Git"
+        );
+    }
+    assert_eq!(
+        fs::read_to_string(parent.join(".demoncoder/token")).unwrap(),
+        "PRIVATE_GIT_CANARY"
+    );
+    assert_eq!(
+        fs::read_to_string(parent.join("owned")).unwrap(),
+        "corrected public source"
+    );
+}
 #[tokio::test]
 async fn captures_dirty_binary_ignored_deleted_modes_and_symlinks_without_touching_parent_index() {
     let (_temp, parent, child) = repository();
