@@ -1,0 +1,51 @@
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.22s
+CODE-002 openai-api production tool cycle passed
+CODE-002 anthropic-api production tool cycle passed
+CODE-002 codex production tool cycle passed
+CODE-002 claude production tool cycle passed
+cairn: CODE-002: pass
+.
+----------------------------------------------------------------------
+Ran 1 test in 0.059s
+
+OK
+CODE-002 openai-api production tool cycle passed
+CODE-002 anthropic-api production tool cycle passed
+CODE-002 codex production tool cycle passed
+CODE-002 claude production tool cycle passed
+cairn: CODE-002: pass
+CODE-002 openai-api production tool cycle passed
+CODE-002 anthropic-api production tool cycle passed
+CODE-002 codex production tool cycle passed
+CODE-002 claude production tool cycle passed
+cairn: CODE-002: pass
+..
+----------------------------------------------------------------------
+Ran 2 tests in 0.001s
+
+OK
+   Compiling demoncoder v0.1.2 (/home/shawn/workspace2/demoncoder)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.63s
+CONN-002 independent registration, configured selection, native read, and terminal rendering passed
+cairn: CONN-002: pass
+test_native_api_sources_and_errors (__main__.Authentication.test_native_api_sources_and_errors) ... ok
+test_subscription_routes_and_errors (__main__.Authentication.test_subscription_routes_and_errors) ... 
+  test_subscription_routes_and_errors (__main__.Authentication.test_subscription_routes_and_errors) (adapter='codex', mode='valid') ... FAIL
+
+======================================================================
+FAIL: test_subscription_routes_and_errors (__main__.Authentication.test_subscription_routes_and_errors) (adapter='codex', mode='valid')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/shawn/workspace2/demoncoder/tests/authentication.py", line 155, in test_subscription_routes_and_errors
+    run_case(adapter, mode)
+    ~~~~~~~~^^^^^^^^^^^^^^^
+  File "/home/shawn/workspace2/demoncoder/tests/authentication.py", line 104, in run_case
+    assert endings[-1]["status"] == ("complete" if good else "failed"), (adapter, mode, events)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: ('codex', 'valid', [{'type': 'ready', 'owner': 'codex'}, {'type': 'session_record', 'path': '/tmp/demoncoder-auth-28xwdpx8/.demoncoder/sessions/1788885458133-1690088', 'resumed': False}, {'type': 'turn_started'}, {'type': 'error', 'message': 'Codex subscription connection requires a ChatGPT login; run codex login'}, {'type': 'turn_finished', 'status': 'failed'}])
+
+----------------------------------------------------------------------
+Ran 2 tests in 1.145s
+
+FAILED (failures=1)
+cairn: CONN-003: fail
