@@ -1,6 +1,6 @@
 # Roadmap
 
-Current: evidence-based-improvement
+Current: provider-agent-settings
 
 The developer selected the usable coding session as the first commitment
 and agreed to use Cairn on 2026-09-06. The developer confirmed its detailed
@@ -20,6 +20,7 @@ requirements and falsifiers together on 2026-09-06.
 | 4 | advanced-orchestration | Concurrent and dependent assignments with the agreed supervision and correction policies. |
 | 4a | status-decision-remediation | Prerequisite repair of live status, evidence inspection, available actions and documentation. |
 | 5 | evidence-based-improvement | Operational evidence leads to a cited improvement candidate, an authorized correction, and a useful lesson for later work. |
+| 6 | provider-agent-settings | Authenticated provider selection, Creator defaults, per-role model assignments and live Settings. |
 
 The first coding session and startup fixes are complete. The developer selected
 developer-usability after encountering blocked assessment tools and missing chat
@@ -54,3 +55,8 @@ were confirmed in the follow-up and are now selected in status-decision-remediat
 Status and decision remediation is complete and installed. The developer selected
 evidence-based-improvement and confirmed LEARN-001 through LEARN-008 with their
 falsifiers on 2026-09-07.
+
+Evidence-based improvement is complete, installed and pushed. On 2026-09-08 the
+developer confirmed provider-first onboarding, inherited Creator assignments,
+per-role model selectors and live Settings. Provider-agent-settings is selected
+with SET-001 through SET-008 and their behavioral falsifiers.
