@@ -1,0 +1,21 @@
+requirement: AUD-004
+requirement_digest: sha256:1190f89f37bd935ffcc1f7fd1834e519388859344749c315a1789daf997546df
+sequence: 4
+history_digest: sha256:5b27cca4fbad2782a873e53b94f87df1221993d96691e579c665a28afd4b24fe
+mechanism: audit-bounded-review
+commit: 55f2f1e
+inputs_digest: sha256:41d67389cad47c7278038f328f494efc2c2f824d156c7b694b21583a30edb1db
+mechanism_digest: sha256:ab54b384ef805ea533f3d3fa65d58c5769c2c2eb9d485efd2b5dc38a17de6923
+inputs_detail: .cairn/evidence/AUD-004/20260908T231801162Z-3347782.inputs.json
+command: cargo build --locked && cargo test --locked --lib workflow::workspace && cargo test --locked --test workflow_workspace && python3 tests/bounded_review.py
+cwd: .
+exit: 0
+output_digest: sha256:77746d4a9a68189f470d3be159bb45fb6eafba2f2f45a4168e77c2841d392ce4
+output: .cairn/evidence/AUD-004/20260908T231801162Z-3347782.out
+stderr_output: .cairn/evidence/AUD-004/20260908T231801162Z-3347782.err
+stderr_digest: sha256:66a59d55c3d209e162ff114f85d7d3a76258b7f12bb78cabaff7a23ba03f1fb3
+signal: none
+execution_error: null
+result: pass
+source: exit
+recorded: 2026-09-08T23:18:59.271Z
