@@ -1,7 +1,7 @@
 # Evidence-based improvement review
 
 commitment: evidence-based-improvement
-commit: 4a7b33853dcb92029499c9e4c7831ced4d1e6ad9
+commit: 0ca22b6b7889064067dfb9146f9fba091cb6318b
 examined:
   - Original receipt resolution, workspace identity, annotation and proposal attribution.
   - Durable authorization, ordinary task admission, correction outcome and lesson approval.
@@ -111,3 +111,13 @@ with one new dead-code finding naming the regression that Cargo just executed.
 Test mapping still exits four (126 impacted symbols, no mapped tests); it cannot
 replace the executed Cargo and production PTY checks. The initial feature-wide
 quality findings remain documented above and in the implementation plan.
+
+## Review after report publication repair
+
+Compared the full source delta since the preceding reviewed tree. Rendering uses
+the pending in-memory catalog under the existing operation lock, and publication
+occurs only after response preparation succeeds. Save errors still propagate.
+Read-only inspection retains its original behavior. The actual large-history
+regression failed before the repair and now passes alongside all LEARN, VERIFY,
+SUB, ORCH and REM checks. No further implementation finding arose. Installed
+release verification is the sole remaining delivery finding.
