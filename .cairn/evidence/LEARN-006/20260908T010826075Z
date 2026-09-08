@@ -1,0 +1,21 @@
+requirement: LEARN-006
+requirement_digest: sha256:76efc1850ea875fe99a8fc041f40926aa9711df471f80a7f1b697424a8a6d278
+sequence: 2
+history_digest: sha256:3f72bf08ec1c799184c970d24473076a7433c34dd81eca10a8a0a2156d64de5e
+mechanism: evidence-based-improvement
+commit: 730a95f
+inputs_digest: sha256:6616e54caa500ff35ee8912106566d929e6407b4f7154667397f06c1f10fcf9f
+mechanism_digest: sha256:010f9a27b4223a106ec0a45e93bcf42abb3000872a30d4ee03e6b4b7536d8dd2
+inputs_detail: .cairn/evidence/LEARN-001/20260908T010745106Z-2433376.inputs.json
+command: bash scripts/check-evidence-based-improvement.sh
+cwd: .
+exit: 0
+output_digest: sha256:2761461f9c121de152f5efc7d049b917f310044e3bfe8e66065bbd70ae834028
+output: .cairn/evidence/LEARN-001/20260908T010745106Z-2433376.out
+stderr_output: .cairn/evidence/LEARN-001/20260908T010745106Z-2433376.err
+stderr_digest: sha256:a4a0cc0a99f843795576d7618fa80416fe4e8b4e5bcf713cc546379d6b1a4086
+signal: none
+execution_error: null
+result: pass
+source: line
+recorded: 2026-09-08T01:08:26.074Z
