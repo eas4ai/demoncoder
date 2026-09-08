@@ -55,6 +55,7 @@ use state::{CheckReceipt, Task};
 pub struct Settings {
     pub checks: Vec<String>,
     pub reviewer: Option<Connection>,
+    pub reviewer_default: bool,
     pub correction_limit: u32,
     pub limits: allocation::Limits,
 }
@@ -69,6 +70,9 @@ pub struct WorkflowSession {
     runtime: runtime::SharedRuntime,
     resumed: bool,
     resume_inspected: bool,
+    live_settings: Option<crate::settings::Handle>,
+    connection_label: Option<String>,
+    admitted_creator: Option<crate::config::Selection>,
 }
 
 impl WorkflowSession {
@@ -81,9 +85,24 @@ impl WorkflowSession {
         resumed: bool,
     ) -> Result<Self> {
         let mut record = runtime.record()?;
+        if let Some(task) = &mut record.task
+            && task.creator_identity.is_none()
+        {
+            task.creator_identity = Some(record.identity.clone());
+        }
         if resumed && record.task.is_some() {
             ensure!(
-                record.reviewer_identity == settings.reviewer.as_ref().map(runtime::Identity::from),
+                (record
+                    .task
+                    .as_ref()
+                    .is_some_and(|task| task.reviewer_default)
+                    && settings.reviewer_default
+                    && settings.reviewer.is_some())
+                    || match (&record.reviewer_identity, &settings.reviewer) {
+                        (Some(identity), Some(connection)) => identity.matches(connection),
+                        (None, None) => true,
+                        _ => false,
+                    },
                 "resume requires the task's original reviewer connection and model"
             );
         }
@@ -100,6 +119,7 @@ impl WorkflowSession {
             task.stopped = true;
         }
         Ok(Self {
+            connection_label: None,
             inner,
             connection,
             workspace,
@@ -109,7 +129,58 @@ impl WorkflowSession {
             runtime,
             resumed,
             resume_inspected: !resumed,
+            live_settings: None,
+            admitted_creator: None,
         })
+    }
+
+    pub fn with_live_settings(mut self, settings: crate::settings::Handle) -> Self {
+        self.live_settings = Some(settings);
+        self
+    }
+
+    async fn refresh_creator(&mut self, events: &EventSink) -> Result<()> {
+        let Some(selection) = self.admitted_creator.take() else {
+            return Ok(());
+        };
+        let new_identity = runtime::Identity::from(&selection.connection);
+        if new_identity == runtime::Identity::from(&self.connection) {
+            self.connection_label = Some(selection.name);
+            return Ok(());
+        }
+        ensure!(
+            !self.runtime.record()?.recovery_pending,
+            "reconcile interrupted work before applying the new Creator assignment"
+        );
+        let mut replacement =
+            crate::adapters::builtins()?.open(&selection.connection, &self.workspace)?;
+        // Native checkpoints can continue within the same adapter and account.
+        // External backends own opaque contexts; changing them opens a new one.
+        let retain_native = self.connection.adapter == selection.connection.adapter
+            && self.connection.endpoint == selection.connection.endpoint
+            && self.connection.api_key == selection.connection.api_key
+            && self.inner.supports_workflow();
+        if retain_native && let Some(checkpoint) = self.inner.checkpoint() {
+            replacement.restore(&checkpoint, &[])?;
+        }
+        self.runtime
+            .bind_creator(&selection.connection, replacement.checkpoint())?;
+        if let Err(error) = self.inner.close().await {
+            self.runtime.hold()?;
+            return Err(error).context("old provider could not close; inspect before continuing");
+        }
+        self.inner = replacement;
+        self.connection = selection.connection;
+        self.connection_label = Some(selection.name);
+        events.emit(Event::ModelAssignment {
+            connection: format!("{} · {}", self.connection_label.as_deref().unwrap_or(&self.connection.adapter), self.connection.adapter),
+            model: self.connection.model.clone(),
+            explanation: if retain_native {
+                "New work uses the saved assignment. Native conversation retained; earlier identities, results and allocation remain recorded."
+            } else {
+                "New work uses the saved assignment in a new provider context. Earlier conversation and results remain visible; no opaque backend session was transferred."
+            }.into(),
+        }).await
     }
 
     async fn snapshot(&mut self) -> Result<workspace::Snapshot> {
@@ -277,6 +348,8 @@ impl WorkflowSession {
                 self.settings.correction_limit,
             )?;
             task.improvement = linkage;
+            task.reviewer_default = self.settings.reviewer_default;
+            task.creator_identity = Some(runtime::Identity::from(&self.connection));
             self.runtime.archive()?;
             self.task = Some(task);
             self.next_id += 1;
@@ -513,12 +586,24 @@ impl WorkflowSession {
         commands: &mut mpsc::Receiver<Command>,
         events: &EventSink,
     ) -> Result<TurnEnd> {
+        if self.settings.reviewer.is_some()
+            && let Some(settings) = &self.live_settings
+        {
+            self.settings.reviewer = Some(settings.role(
+                crate::settings::Role::Reviewer,
+                settings.args().reviewer.as_deref(),
+            )?);
+        }
         let config = self
             .settings
             .reviewer
             .as_ref()
             .context("select --reviewer with a configured connection before requesting review")?
             .clone();
+        ensure!(
+            matches!(config.adapter.as_str(), "openai-api" | "anthropic-api"),
+            "task reviewer must use a native API connection with enforceable call admission"
+        );
         let after = self.snapshot().await?;
         let task = self.task.as_mut().context("no task to review")?;
         task.start_review()?;
@@ -535,6 +620,10 @@ impl WorkflowSession {
             &json!({ "task_id":task.id, "objective":task.objective, "source_evidence":sources, "current_checks":task.checks, "previous_checks":task.check_history, "previous_reviews":task.review_history.iter().map(|r| json!({"reviewer":r.reviewer,"snapshot":r.snapshot,"clear":r.clear,"findings":r.findings,"explanation":r.explanation})).collect::<Vec<_>>() }),
         )?;
         self.runtime.save_task(&self.task, self.next_id, None)?;
+        self.runtime.update(|record| {
+            record.reviewer_identity = Some(runtime::Identity::from(&config));
+            Ok(())
+        })?;
         self.runtime.begin_phase("review", None)?;
         let decision = {
             let run = tokio::time::timeout(
@@ -591,6 +680,18 @@ impl WorkflowSession {
 
 #[async_trait]
 impl Session for WorkflowSession {
+    fn admit(&mut self, prompt: &str) -> Result<()> {
+        self.admitted_creator = None;
+        let task = self.runtime.record()?.task;
+        let starts_task = prompt.starts_with("/task ") || prompt.starts_with("/improve ");
+        if ((task.is_none() && !is_control(prompt))
+            || (starts_task && task.as_ref().is_none_or(|task| task.accepted.is_some())))
+            && let Some(settings) = &self.live_settings
+        {
+            self.admitted_creator = Some(settings.creator(&self.connection)?);
+        }
+        Ok(())
+    }
     fn owner(&self) -> &'static str {
         self.inner.owner()
     }
@@ -629,6 +730,21 @@ impl Session for WorkflowSession {
         let record = self.runtime.record()?;
         self.task = record.task;
         self.next_id = record.next_task;
+        let starts_task = prompt.starts_with("/task ") || prompt.starts_with("/improve ");
+        if (self.task.is_none() && !is_control(&prompt))
+            || (starts_task
+                && self
+                    .task
+                    .as_ref()
+                    .is_none_or(|task| task.accepted.is_some()))
+        {
+            self.refresh_creator(events).await?;
+        }
+        let events = match &self.connection_label {
+            Some(label) => events.for_connection(label),
+            None => events.clone(),
+        }
+        .with_identity(&self.connection);
         let outcome_candidate = if matches!(
             prompt.trim(),
             "/verify" | "/review" | "/correct" | "/accept" | "/abandon"
@@ -640,13 +756,13 @@ impl Session for WorkflowSession {
         } else {
             None
         };
-        let result = self.dispatch(prompt, commands, events).await;
+        let result = self.dispatch(prompt, commands, &events).await;
         self.runtime.save_task(&self.task, self.next_id, None)?;
         self.runtime.finish_phase()?;
         if let Some(candidate) = outcome_candidate
             && !matches!(&result, Ok(TurnEnd::Cancelled | TurnEnd::Shutdown))
             && let Some(end) = self
-                .retain_improvement_outcome(candidate, commands, events)
+                .retain_improvement_outcome(candidate, commands, &events)
                 .await?
         {
             return Ok(end);
@@ -654,7 +770,7 @@ impl Session for WorkflowSession {
         if self.runtime.record()?.recovery_pending {
             events.emit_advisory(Event::Error {message:"An interrupted operation may have partial effects. Inspect the workspace and use /reconcile EXPLANATION before continuing; nothing will be replayed automatically.".into()})?;
         }
-        self.publish(events).await?;
+        self.publish(&events).await?;
         result
     }
     async fn close(&mut self) -> Result<()> {

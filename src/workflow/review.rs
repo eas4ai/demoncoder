@@ -116,7 +116,7 @@ async fn run_prompt(
         .open(&config, workspace)
         .context("open tool-free review role")?;
     let (sender, mut receiver) = mpsc::channel(32);
-    let sink = events.child(phase, sender);
+    let sink = events.child(phase, sender).with_identity(&config);
     let (_sender, mut commands) = mpsc::channel(1);
     let mut text = String::new();
     let outcome = tokio::time::timeout(Duration::from_secs(120), async {

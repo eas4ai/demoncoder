@@ -139,7 +139,7 @@ def main():
             elif method == "config/read":
                 result = {"config": {"mcp_servers": {}}}
             elif method == "account/read":
-                result = {"account": {"type": "chatgpt", "email": "fixture@example.invalid", "planType": "plus"}}
+                result = {"requiresOpenaiAuth": True, "account": {"type": "chatgpt", "email": "fixture@example.invalid", "planType": "plus"}}
             elif method == "thread/start":
                 prompts_in_context = 0
                 assert message["params"]["sandbox"] == "workspace-write"

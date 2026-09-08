@@ -120,7 +120,7 @@ impl Codex {
         let account = self
             .rpc("account/read", json!({"refreshToken":false}))
             .await?;
-        if account["account"]["type"] != "chatgpt" {
+        if account["account"]["type"] != "chatgpt" || account["requiresOpenaiAuth"] != true {
             bail!("Codex subscription connection requires a ChatGPT login; run codex login");
         }
         // Empty TOML tables merge with inherited tables; mcp_servers={} does
@@ -129,6 +129,7 @@ impl Codex {
         let configuration = self
             .rpc("config/read", json!({"cwd":self.workspace}))
             .await?;
+        crate::settings::probe::validate_codex_route(&configuration["config"])?;
         let configuration = configuration["config"]
             .as_object()
             .context("Codex did not return its effective configuration")?;

@@ -38,6 +38,8 @@ pub struct Identity {
     tools_enabled: bool,
     credential_paths: Vec<PathBuf>,
     oracle: Option<Box<Identity>>,
+    #[serde(default)]
+    credential_revision: Option<String>,
 }
 
 impl From<&Connection> for Identity {
@@ -64,11 +66,50 @@ impl From<&Connection> for Identity {
                 .oracle
                 .as_ref()
                 .map(|oracle| Box::new(Self::from(oracle.as_ref()))),
+            credential_revision: match c.adapter.as_str() {
+                "openai-api" => c.api_key("OPENAI_API_KEY").ok(),
+                "anthropic-api" => c.api_key("ANTHROPIC_API_KEY").ok(),
+                _ => None,
+            }
+            .map(|key| format!("{:x}", Sha256::digest(key.as_bytes()))),
         }
     }
 }
 
 impl Identity {
+    pub(crate) fn restore_connection<'a>(
+        &self,
+        candidates: impl Iterator<Item = &'a Connection>,
+        access: &crate::tools::AccessPolicy,
+    ) -> Result<Connection> {
+        for candidate in candidates {
+            let mut connection = candidate.clone();
+            connection.model = self.model.clone();
+            connection.effort = self.effort.clone();
+            connection.max_output_tokens = self.max_output_tokens;
+            connection.access = access.clone();
+            if self.matches(&connection) {
+                return Ok(connection);
+            }
+        }
+        anyhow::bail!(
+            "original connection credentials or endpoint are unavailable; restore them before resuming this assignment"
+        )
+    }
+    pub(crate) fn matches(&self, connection: &Connection) -> bool {
+        let mut current = Self::from(connection);
+        // Older records did not retain a credential revision. Keep their previous
+        // recovery contract; newly captured identities compare it exactly.
+        if self.credential_revision.is_none() {
+            current.credential_revision = None;
+        }
+        if let (Some(old), Some(new)) = (&self.oracle, &mut current.oracle)
+            && old.credential_revision.is_none()
+        {
+            new.credential_revision = None;
+        }
+        *self == current
+    }
     pub(crate) fn display_model(&self) -> &str {
         self.model.as_deref().unwrap_or("backend-default")
     }
@@ -98,6 +139,8 @@ pub struct Operation {
     pub complete: bool,
     pub reconciled: bool,
     pub usage_reported: bool,
+    #[serde(default)]
+    pub identity: Option<Identity>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -112,6 +155,14 @@ pub struct Message {
 pub struct ArchivedTask {
     pub task: Task,
     pub allocation: Option<Allocation>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ContextBinding {
+    pub identity: Identity,
+    pub through_operation: u64,
+    pub checkpoint: Option<Value>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -140,6 +191,8 @@ pub struct Record {
     pub delegation: Option<crate::subagents::state::DelegationIdentity>,
     #[serde(default)]
     pub learning_context: Vec<crate::learning::context::ContextReceipt>,
+    #[serde(default)]
+    pub prior_contexts: Vec<ContextBinding>,
 }
 
 struct Runtime {
@@ -249,7 +302,7 @@ impl SharedRuntime {
             let record: Record = serde_json::from_value(store.read()?)
                 .map_err(|_| anyhow::anyhow!("invalid session recovery state"))?;
             ensure!(
-                record.workspace == workspace && record.identity == Identity::from(connection),
+                record.workspace == workspace && record.identity.matches(connection),
                 "resume requires the original workspace, connection, model and access mode"
             );
             (store, record, true)
@@ -276,6 +329,7 @@ impl SharedRuntime {
                 backend_invocations: 0,
                 delegation: None,
                 learning_context: Vec::new(),
+                prior_contexts: Vec::new(),
             };
             (store, record, false)
         };
@@ -347,6 +401,41 @@ impl SharedRuntime {
             .map_err(|_| anyhow::anyhow!("session record lock failed"))?
             .record
             .clone())
+    }
+
+    pub(crate) fn bind_creator(
+        &self,
+        connection: &Connection,
+        checkpoint: Option<Value>,
+    ) -> Result<()> {
+        self.update(|record| {
+            ensure!(
+                !record.recovery_pending && record.phase.is_none(),
+                "reconcile interrupted work before changing its model"
+            );
+            ensure!(
+                record.task.as_ref().is_none_or(|t| t.accepted.is_some()),
+                "an admitted task keeps its original model"
+            );
+            ensure!(
+                record.prior_contexts.len() < 64,
+                "model change history is full; start a new session"
+            );
+            record.prior_contexts.push(ContextBinding {
+                identity: record.identity.clone(),
+                through_operation: record.operations.len() as u64,
+                checkpoint: record.checkpoint.clone(),
+            });
+            if let Some(task) = &mut record.task
+                && task.creator_identity.is_none()
+            {
+                task.creator_identity = Some(record.identity.clone());
+            }
+            record.identity = Identity::from(connection);
+            record.checkpoint = checkpoint;
+            record.checkpoint_cursor = record.operations.len() as u64;
+            Ok(())
+        })
     }
 
     fn admission<T>(&self, f: impl FnOnce(&mut Record) -> Result<T>) -> Result<T> {
@@ -493,6 +582,10 @@ impl SharedRuntime {
     }
 
     pub fn begin_model(&self, phase: &str) -> Result<u64> {
+        self.begin_model_as(phase, None)
+    }
+
+    pub(crate) fn begin_model_as(&self, phase: &str, identity: Option<&Identity>) -> Result<u64> {
         self.admission(|r| {
             delegation::ensure_agent_active(r, phase)?;
             ensure!(
@@ -516,6 +609,7 @@ impl SharedRuntime {
                 complete: false,
                 reconciled: false,
                 usage_reported: false,
+                identity: identity.cloned().or_else(|| Some(r.identity.clone())),
             });
             Ok(id)
         })
@@ -571,6 +665,7 @@ impl SharedRuntime {
                     id,
                     phase: phase.into(),
                     verification: verification_attribution(r, phase)?,
+                    identity: None,
                     call: Some(call.clone()),
                     result: None,
                     complete: false,
@@ -598,6 +693,7 @@ impl SharedRuntime {
                     );
                     r.operations.push(Operation {
                         id: r.operations.len() as u64 + 1,
+                        identity: None,
                         phase: phase.into(),
                         verification: verification_attribution(r, phase)?,
                         call: Some(ToolCall {

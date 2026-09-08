@@ -139,6 +139,11 @@ pub(crate) fn relay_command(
 #[async_trait]
 pub trait Session: Send {
     fn owner(&self) -> &'static str;
+    /// Capture defaults before acknowledging the prompt. Implementations must not
+    /// start effects here; queued publication may still be cancelled.
+    fn admit(&mut self, _prompt: &str) -> Result<()> {
+        Ok(())
+    }
     fn supports_workflow(&self) -> bool {
         false
     }
@@ -337,8 +342,18 @@ pub async fn run(
         }
         while let Some(command) = commands.recv().await {
             let prompt = match command {
-                Command::Prompt(prompt) => Some(prompt),
-                Command::Submit { text, reply } => reply.send(Ok(())).ok().map(|()| text),
+                Command::Prompt(prompt) => match session.admit(&prompt) {
+                    Ok(()) => Some(prompt),
+                    Err(error) => { events.emit_advisory(Event::Error { message: error.to_string() })?; None }
+                },
+                Command::Submit { text, reply } => match session.admit(&text) {
+                    Ok(()) => reply.send(Ok(())).ok().map(|()| text),
+                    Err(error) => {
+                        let _ = reply.send(Err("Assignment unavailable; draft retained. Repair Settings or the explicit override."));
+                        events.emit_advisory(Event::Error { message: error.to_string() })?;
+                        None
+                    }
+                },
                 Command::Shutdown => break,
                 Command::Cancel => {
                     session.cancel_background().await?;

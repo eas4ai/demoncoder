@@ -25,6 +25,23 @@ def main():
     codex = "app-server" in sys.argv
     assert "OPENAI_API_KEY" not in os.environ
     assert "ANTHROPIC_API_KEY" not in os.environ
+    probe_path = Path(os.environ.get("HOME", ".")) / "backend-probe-fixture.json"
+    probe = json.loads(probe_path.read_text()) if probe_path.exists() else {}
+    profile = probe.get("codex" if codex else "claude", {})
+
+    def record_request(message):
+        if probe.get("requests"):
+            with open(probe["requests"], "a") as output:
+                output.write(json.dumps({"adapter": "codex" if codex else "claude", "pid": os.getpid(), "cwd": str(Path.cwd()), "args": sys.argv[1:], "message": message}) + "\n")
+
+    if not codex and sys.argv[1:] == ["auth", "status"]:
+        assert "CLAUDE_CONFIG_DIR" not in os.environ
+        assert "CLAUDE_CODE_OAUTH_TOKEN" not in os.environ
+        record_request({"method": "auth/status"})
+        time.sleep(profile.get("delay", 0))
+        logged_in = profile.get("logged_in", True)
+        send({"loggedIn": logged_in, "authMethod": profile.get("auth_method", "claude.ai")})
+        return sys.exit(profile.get("status_exit", 0 if logged_in else 1))
     if Path("continuation").exists():
         from continuation_fixture import run
         return run(codex)
@@ -93,6 +110,7 @@ def main():
 
     for raw in sys.stdin:
         message = json.loads(raw)
+        record_request(message)
         if Path("responsiveness").exists() and ((codex and "result" in message) or (not codex and message.get("type") == "control_response")):
             result = json.loads(message["result"]["contentItems"][0]["text"] if codex else message["response"]["response"]["mcp_response"]["result"]["content"][0]["text"])
             assert result["success"] and "TOOL-DONE" in result["output"]
@@ -112,9 +130,15 @@ def main():
             if method == "initialize":
                 result = {"userAgent": "test-fixture"}
             elif method == "config/read":
-                result = {"config": {"mcp_servers": {}}}
+                result = {"config": {"mcp_servers": {}, "model_provider": "openai", "model_providers": {}}}
             elif method == "account/read":
-                result = {"account": {"type": "chatgpt", "email": "fixture@example.invalid", "planType": "plus"}}
+                time.sleep(profile.get("delay", 0))
+                result = {"account": {"type": profile.get("account_type", "chatgpt"), "email": "fixture@example.invalid", "planType": "plus"} if profile.get("logged_in", True) else None, "requiresOpenaiAuth": profile.get("requires_openai_auth", True)}
+            elif method == "model/list":
+                if profile.get("catalog_error"):
+                    send({"id": message["id"], "error": {"code": -1, "message": "fixture model discovery unavailable"}})
+                    continue
+                result = {"data": [{"model": model} for model in profile.get("models", ["fixture-model", "changed-model"])], "nextCursor": None}
             elif method in ("thread/start", "thread/resume"):
                 if expected: assert message["params"]["model"] == expected["model"]
                 assert message["params"]["sandbox"] == ("danger-full-access" if Path("host-access").exists() else "workspace-write")
@@ -140,6 +164,13 @@ def main():
                 send({"method": "turn/started", "params": {"threadId": "fixture-thread", "turn": {"id": turn}}})
                 if Path("cancellation").exists(): start_cancellation(prompt)
                 elif Path("responsiveness").exists(): start_responsive(prompt)
+                elif profile.get("hold_prompt") == prompt:
+                    send({"method": "item/agentMessage/delta", "params": {"threadId": "fixture-thread", "turnId": turn, "delta": "WAITING-" + prompt + "\n"}})
+                    deadline = time.monotonic() + 30
+                    while not Path(profile["release"]).exists():
+                        assert time.monotonic() < deadline, "held settings prompt was not released"
+                        time.sleep(0.01)
+                    complete()
                 elif Path("tool-cycle").exists():
                     cycle = Cycle(prompt, Path("wrong-edit").exists())
                     request_call(cycle.next())

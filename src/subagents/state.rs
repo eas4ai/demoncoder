@@ -217,6 +217,9 @@ pub struct DelegationIdentity {
     pub backend_limit: u64,
     #[serde(default)]
     pub orchestration: Option<OrchestrationIdentity>,
+    /// Roles explicitly enabled with the Settings default, rather than a named override.
+    #[serde(default)]
+    pub default_roles: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]

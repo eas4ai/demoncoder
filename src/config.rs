@@ -8,7 +8,7 @@ use anyhow::{Context, Result, bail};
 use clap::Parser;
 use serde::{Deserialize, Serialize};
 
-#[derive(Parser)]
+#[derive(Clone, Parser)]
 #[command(version, about, disable_version_flag = true)]
 pub struct Args {
     /// Internal host-tool process lifetime protocol.
@@ -196,6 +196,8 @@ pub(crate) struct Config {
     #[serde(default)]
     pub trusted_workspaces: Vec<PathBuf>,
     pub oracle: Option<OracleAssignment>,
+    /// None preserves legacy connection selection.
+    pub settings: Option<crate::settings::Assignments>,
 }
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -206,7 +208,8 @@ pub(crate) struct OracleAssignment {
     pub effort: Option<String>,
 }
 
-pub(crate) fn read_config(path: &Path) -> Result<Config> {
+fn read_config_snapshot(path: &Path) -> Result<(Config, [u8; 32])> {
+    use sha2::Digest;
     let mut options = std::fs::OpenOptions::new();
     options.read(true);
     #[cfg(unix)]
@@ -257,7 +260,11 @@ pub(crate) fn read_config(path: &Path) -> Result<Config> {
             "private API-key file permissions cannot be verified on this platform; use environment credentials"
         );
     }
-    Ok(config)
+    if let Some(settings) = &config.settings {
+        settings.validate(&config)?;
+    }
+    let revision = sha2::Sha256::digest(&bytes).into();
+    Ok((config, revision))
 }
 
 pub struct Selection {
@@ -277,11 +284,8 @@ impl Args {
             .reviewer
             .as_ref()
             .map(|name| {
-                let mut connection = config
-                    .connections
-                    .get(name)
-                    .cloned()
-                    .context("reviewer connection is not configured")?;
+                let mut connection =
+                    Self::role_connection(&config, crate::settings::Role::Reviewer, name)?;
                 connection.validate()?;
                 connection.access = crate::tools::AccessPolicy::review_only();
                 Ok::<_, anyhow::Error>(connection)
@@ -289,6 +293,8 @@ impl Args {
             .transpose()?;
         Ok(crate::workflow::Settings {
             checks: self.checks.clone(),
+            reviewer_default: self.reviewer.as_deref() == Some("default")
+                && !config.connections.contains_key("default"),
             reviewer,
             correction_limit: self.correction_rounds,
             limits: crate::workflow::allocation::Limits {
@@ -348,6 +354,9 @@ impl Args {
         for name in &self.agent_connections {
             let mut connection = match config.connections.get(name) {
                 Some(connection) => connection.clone(),
+                None if name == "default" => {
+                    Self::role_connection(config, crate::settings::Role::Worker, name)?
+                }
                 None if ["openai-api", "anthropic-api", "codex", "claude"]
                     .contains(&name.as_str()) =>
                 {
@@ -370,11 +379,7 @@ impl Args {
         self.judge
             .as_ref()
             .map(|name| {
-                let mut judge = config
-                    .connections
-                    .get(name)
-                    .cloned()
-                    .context("judge connection is not configured")?;
+                let mut judge = Self::role_connection(config, crate::settings::Role::Judge, name)?;
                 judge.validate()?;
                 judge.access = crate::tools::AccessPolicy::review_only();
                 Ok(crate::subagents::OrchestrationSettings {
@@ -383,6 +388,18 @@ impl Args {
                 })
             })
             .transpose()
+    }
+
+    pub(crate) fn role_connection(
+        config: &Config,
+        role: crate::settings::Role,
+        name: &str,
+    ) -> Result<Connection> {
+        if let Some(connection) = config.connections.get(name) {
+            return Ok(connection.clone());
+        }
+        anyhow::ensure!(name == "default", "role connection is not configured");
+        crate::settings::Assignments::from_config(config).resolve(config, role)
     }
 
     pub(crate) fn config_path(&self) -> Option<PathBuf> {
@@ -394,23 +411,38 @@ impl Args {
     }
 
     pub(crate) fn load_config(&self) -> Result<Config> {
+        Ok(self.load_config_snapshot()?.0)
+    }
+
+    pub(crate) fn load_config_snapshot(&self) -> Result<(Config, Option<[u8; 32]>)> {
         match self.config_path() {
             Some(path)
                 if self.config.is_some()
                     || path.try_exists().context("inspect home settings")? =>
             {
-                read_config(&path)
+                let (config, revision) = read_config_snapshot(&path)?;
+                Ok((config, Some(revision)))
             }
-            _ => Ok(Config::default()),
+            _ => Ok((Config::default(), None)),
         }
     }
 
     pub fn selection(&self) -> Result<Selection> {
-        let config = self.load_config()?;
+        self.selection_from(&self.load_config()?)
+    }
+
+    pub(crate) fn selection_from(&self, config: &Config) -> Result<Selection> {
         let name = self
             .connection
             .clone()
-            .or(config.default_connection)
+            .or_else(|| {
+                config
+                    .settings
+                    .as_ref()
+                    .and_then(|s| s.creator.as_ref())
+                    .map(|a| a.connection.clone())
+            })
+            .or_else(|| config.default_connection.clone())
             .context("select --connection openai-api, anthropic-api, codex, or claude")?;
         let mut connection = match config.connections.get(&name) {
             Some(connection) => connection.clone(),
@@ -428,6 +460,11 @@ impl Args {
             }
             None => bail!("connection is not registered in the configuration"),
         };
+        if self.connection.is_none()
+            && let Some(settings) = &config.settings
+        {
+            connection = settings.resolve(config, crate::settings::Role::Creator)?;
+        }
         if let Some(model) = &self.model {
             connection.model = Some(model.clone());
         }
@@ -456,17 +493,12 @@ impl Args {
             connection.access.supervisor =
                 Some(std::env::current_exe().context("resolve host tool supervisor executable")?);
         }
-        if self.config.is_none()
-            || config
-                .connections
-                .values()
-                .any(|value| value.api_key.is_some())
-        {
-            connection.access.credential_paths = self.config_path().into_iter().collect();
-        }
-        if self.yolo {
+        // Live Settings may add a key later. Protect its authority from the first turn.
+        connection.access.credential_paths = self.config_path().into_iter().collect();
+        if self.yolo && config.settings.is_none() {
             let assignment = config
                 .oracle
+                .as_ref()
                 .context("--yolo requires an Oracle assignment; run --setup")?;
             let mut oracle = config
                 .connections
@@ -474,12 +506,19 @@ impl Args {
                 .cloned()
                 .context("Oracle connection is not configured")?;
             if assignment.model.is_some() {
-                oracle.model = assignment.model;
+                oracle.model = assignment.model.clone();
             }
             if assignment.effort.is_some() {
-                oracle.effort = assignment.effort;
+                oracle.effort = assignment.effort.clone();
             }
             oracle.validate()?;
+            oracle.access = crate::tools::AccessPolicy::review_only();
+            connection.access.oracle = Some(Box::new(oracle));
+        }
+        if self.yolo
+            && let Some(settings) = &config.settings
+        {
+            let mut oracle = settings.resolve(config, crate::settings::Role::Oracle)?;
             oracle.access = crate::tools::AccessPolicy::review_only();
             connection.access.oracle = Some(Box::new(oracle));
         }

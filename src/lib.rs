@@ -21,3 +21,5 @@ pub mod tools;
 mod transcript;
 pub mod workflow;
 mod worktree_access;
+
+pub mod settings;

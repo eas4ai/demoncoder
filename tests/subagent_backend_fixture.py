@@ -61,7 +61,7 @@ def main():
             elif method == "config/read":
                 result = {"config": {"mcp_servers": {}}}
             elif method == "account/read":
-                result = {"account": {"type": "chatgpt", "email": "fixture@example.invalid", "planType": "plus"}}
+                result = {"requiresOpenaiAuth": True, "account": {"type": "chatgpt", "email": "fixture@example.invalid", "planType": "plus"}}
             elif method == "thread/start":
                 assert message["params"]["sandbox"] == "workspace-write"
                 assert {tool["name"] for tool in message["params"]["dynamicTools"]} == {"read", "write", "edit", "bash"}

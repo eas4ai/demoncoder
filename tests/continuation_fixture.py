@@ -95,7 +95,7 @@ def run(codex):
             else:
                 send({"type": "control_response", "response": {"subtype": "success", "request_id": message["request_id"], "response": {}}})
         elif method == "account/read":
-            send({"id": message["id"], "result": {"account": {"type": "chatgpt"}}})
+            send({"id": message["id"], "result": {"requiresOpenaiAuth": True, "account": {"type": "chatgpt"}}})
         elif method == "config/read":
             send({"id": message["id"], "result": {"config": {"mcp_servers": {}}}})
         elif method in ("thread/start", "thread/resume"):

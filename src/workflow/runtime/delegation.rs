@@ -91,8 +91,23 @@ impl SharedRuntime {
                     record.allocation.is_some(),
                     "delegation allocation is missing; cannot restore spent allowances"
                 );
+                let mut comparison = identity.clone();
+                // Enabling a role remains a launch decision. Only its model default
+                // may change; each retained child restores its own captured identity.
+                if saved.default_roles == comparison.default_roles {
+                    for role in &saved.default_roles {
+                        match role.as_str() {
+                            "worker" => if let Some(original) = saved.connections.get("default") {
+                                comparison.connections.insert("default".into(), original.clone());
+                            },
+                            "reviewer" => comparison.reviewer = saved.reviewer.clone(),
+                            "judge" => if let (Some(old), Some(new)) = (&saved.orchestration, &mut comparison.orchestration) { new.judge = old.judge.clone(); },
+                            _ => anyhow::bail!("unknown Settings default in recovery state"),
+                        }
+                    }
+                }
                 ensure!(
-                    saved == &identity,
+                    saved == &comparison,
                     "resume requires the original agent connections, reviewer, judge, orchestration settings and limits"
                 );
             } else {
@@ -105,7 +120,16 @@ impl SharedRuntime {
         })
     }
 
+    #[cfg(test)]
     pub(crate) fn begin_backend(&self, phase: &str) -> Result<u64> {
+        self.begin_backend_as(phase, None)
+    }
+
+    pub(crate) fn begin_backend_as(
+        &self,
+        phase: &str,
+        identity: Option<&super::Identity>,
+    ) -> Result<u64> {
         self.admission(|record| {
             ensure!(
                 !record.recovery_pending,
@@ -136,6 +160,7 @@ impl SharedRuntime {
                 complete: false,
                 reconciled: false,
                 usage_reported: false,
+                identity: identity.cloned(),
             });
             Ok(id)
         })
@@ -288,6 +313,7 @@ mod tests {
         judge.model = Some("judge-a".into());
         judge.access = crate::tools::AccessPolicy::review_only();
         let identity = DelegationIdentity {
+            default_roles: Vec::new(),
             connections: Default::default(),
             reviewer: None,
             max_active: 2,
@@ -346,6 +372,7 @@ mod tests {
             learning_view: None,
         })));
         let identity = DelegationIdentity {
+            default_roles: Vec::new(),
             connections: Default::default(),
             reviewer: None,
             max_active: 2,

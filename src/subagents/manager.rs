@@ -62,13 +62,24 @@ pub struct Manager {
     active: Mutex<BTreeMap<u64, Active>>,
     stopping: AtomicBool,
     queue_paused: AtomicBool,
+    live_settings: Option<crate::settings::Handle>,
+    pinned: Mutex<BTreeMap<u64, crate::config::Connection>>,
 }
 
 impl Manager {
     pub fn new(
         workspace: PathBuf,
+        settings: Settings,
+        runtime: SharedRuntime,
+    ) -> Result<Arc<Self>> {
+        Self::new_with_settings(workspace, settings, runtime, None)
+    }
+
+    pub fn new_with_settings(
+        workspace: PathBuf,
         mut settings: Settings,
         runtime: SharedRuntime,
+        live_settings: Option<crate::settings::Handle>,
     ) -> Result<Arc<Self>> {
         ensure!(
             !runtime.directory()?.starts_with(&workspace),
@@ -89,6 +100,28 @@ impl Manager {
         }
         runtime.configure_delegation(
             DelegationIdentity {
+                default_roles: live_settings
+                    .as_ref()
+                    .map(|live| {
+                        let args = live.args();
+                        let mut roles = Vec::new();
+                        if live
+                            .current()
+                            .is_ok_and(|c| !c.connections.contains_key("default"))
+                        {
+                            if args.agent_connections.iter().any(|name| name == "default") {
+                                roles.push("worker".into());
+                            }
+                            if args.reviewer.as_deref() == Some("default") {
+                                roles.push("reviewer".into());
+                            }
+                            if args.judge.as_deref() == Some("default") {
+                                roles.push("judge".into());
+                            }
+                        }
+                        roles
+                    })
+                    .unwrap_or_default(),
                 connections: settings
                     .connections
                     .iter()
@@ -122,7 +155,59 @@ impl Manager {
             active: Mutex::new(BTreeMap::new()),
             stopping: AtomicBool::new(false),
             queue_paused: AtomicBool::new(queue_paused),
+            live_settings,
+            pinned: Mutex::new(BTreeMap::new()),
         }))
+    }
+
+    fn connection_for(&self, id: u64) -> Result<crate::config::Connection> {
+        let mut pinned = self
+            .pinned
+            .lock()
+            .map_err(|_| anyhow::anyhow!("assignment connection lock failed"))?;
+        if let Some(connection) = pinned.get(&id) {
+            return Ok(connection.clone());
+        }
+        let agent = self.record(id)?;
+        let original = self
+            .settings
+            .connections
+            .get(&agent.request.connection)
+            .context("agent connection no longer enabled")?;
+        let mut candidates: Vec<_> = self.settings.connections.values().cloned().collect();
+        if let Some(settings) = &self.live_settings {
+            candidates.extend(settings.current()?.connections.into_values());
+        }
+        let connection = agent
+            .identity
+            .restore_connection(candidates.iter(), &original.access)?;
+        pinned.insert(id, connection.clone());
+        Ok(connection)
+    }
+
+    fn role_connection(&self, role: crate::settings::Role) -> Result<crate::config::Connection> {
+        let fallback = if role == crate::settings::Role::Judge {
+            &self
+                .settings
+                .orchestration
+                .as_ref()
+                .context("judge unavailable")?
+                .judge
+        } else {
+            self.settings
+                .reviewer
+                .as_ref()
+                .context("reviewer unavailable")?
+        };
+        let Some(settings) = &self.live_settings else {
+            return Ok(fallback.clone());
+        };
+        let explicit = if role == crate::settings::Role::Judge {
+            settings.args().judge.as_deref()
+        } else {
+            settings.args().reviewer.as_deref()
+        };
+        settings.role(role, explicit)
     }
 
     pub fn extension(self: &Arc<Self>) -> Arc<dyn ToolExtension> {
@@ -205,11 +290,20 @@ impl Manager {
             self.settings.orchestration.is_some() || dependencies.is_empty(),
             "assignment dependencies require --orchestrate"
         );
-        let connection = self
+        let mut connection = self
             .settings
             .connections
             .get(&request.connection)
-            .context("connection was not enabled with --agent-connection")?;
+            .context("connection was not enabled with --agent-connection")?
+            .clone();
+        if request.connection == "default"
+            && let Some(settings) = &self.live_settings
+            && !settings.current()?.connections.contains_key("default")
+        {
+            let access = connection.access.clone();
+            connection = settings.role(crate::settings::Role::Worker, Some("default"))?;
+            connection.access = access;
+        }
         ensure!(
             !self.runtime.remaining()?.is_zero(),
             "shared deadline exhausted"
@@ -237,7 +331,7 @@ impl Manager {
                 origin,
                 completed: false,
                 request,
-                identity: Identity::from(connection),
+                identity: Identity::from(&connection),
                 worktree: None,
                 planned_root: Some(worktrees.join(id.to_string())),
                 status: if orchestrated {
@@ -281,6 +375,10 @@ impl Manager {
             record.agents.push(agent);
             Ok(id)
         })?;
+        self.pinned
+            .lock()
+            .map_err(|_| anyhow::anyhow!("assignment connection lock failed"))?
+            .insert(id, connection);
         if orchestrated {
             self.pump(events)?;
         } else {
@@ -693,22 +791,19 @@ impl Manager {
         let prompt = crate::learning::context::with_prompt(&context, prompt);
         self.runtime.retain_learning_context(context)?;
         if session.is_none() {
-            let connection = self
-                .settings
-                .connections
-                .get(&agent.request.connection)
-                .context("agent connection unavailable")?;
+            let connection = self.connection_for(id)?;
             if matches!(connection.adapter.as_str(), "codex" | "claude") {
                 // External adapters launch a process before their turn-level admission.
                 // Refuse that launch when no durable backend invocation remains.
                 self.runtime.ensure_backend_available()?;
             }
-            *session = Some(adapters::builtins()?.open(connection, &identity.root)?);
+            *session = Some(adapters::builtins()?.open(&connection, &identity.root)?);
         }
         let (_sender, mut commands) = mpsc::channel(1);
         let session = session.as_mut().expect("worker session opened");
+        let worker_events = events.with_identity(&self.connection_for(id)?);
         ensure!(
-            session.turn(prompt, &mut commands, events).await? == TurnEnd::Complete,
+            session.turn(prompt, &mut commands, &worker_events).await? == TurnEnd::Complete,
             "child did not complete"
         );
         session.settle_interruption()?;
@@ -740,11 +835,7 @@ impl Manager {
             Ok(())
         })?;
         self.publish(id, events)?;
-        let connection = self
-            .settings
-            .connections
-            .get(&agent.request.connection)
-            .context("agent connection unavailable")?;
+        let connection = self.connection_for(id)?;
         let executor = ToolExecutor::with_policy(&identity.root, &connection.access)?;
         executor.set_intent(&agent.request.objective);
         let check_events = events.for_phase(&format!("agent:{id}:checking"));
@@ -822,29 +913,14 @@ impl Manager {
         let evidence = serde_json::to_string(&value)?;
         let (config, stage) = match role {
             SupervisionRole::Advisor => (
-                self.settings
-                    .reviewer
-                    .as_ref()
-                    .context("advisor unavailable")?,
+                self.role_connection(crate::settings::Role::Advisor)?,
                 OrchestrationStage::Advisor,
             ),
             SupervisionRole::WorkerResponse => {
-                let agent = self.record(id)?;
-                (
-                    self.settings
-                        .connections
-                        .get(&agent.request.connection)
-                        .context("worker response connection unavailable")?,
-                    OrchestrationStage::WorkerResponse,
-                )
+                (self.connection_for(id)?, OrchestrationStage::WorkerResponse)
             }
             SupervisionRole::Judge => (
-                &self
-                    .settings
-                    .orchestration
-                    .as_ref()
-                    .context("judge unavailable")?
-                    .judge,
+                self.role_connection(crate::settings::Role::Judge)?,
                 OrchestrationStage::Judge,
             ),
         };
@@ -879,7 +955,7 @@ impl Manager {
             .count();
         let decision = match crate::workflow::review::run_role(
             role,
-            config,
+            &config,
             &self
                 .record(id)?
                 .worktree
@@ -1001,11 +1077,7 @@ impl Manager {
         })?;
         // Ownership is checked before executing any validation command.
         worktree::build_delta(identity, &agent.request, &before.digest).await?;
-        let connection = self
-            .settings
-            .connections
-            .get(&agent.request.connection)
-            .context("agent connection unavailable")?;
+        let connection = self.connection_for(id)?;
         let executor = ToolExecutor::with_policy(&identity.root, &connection.access)?;
         executor.set_intent(&agent.request.objective);
         for (index, command) in agent.commands.iter().enumerate() {
@@ -1046,13 +1118,13 @@ impl Manager {
         let evidence = serde_json::to_string(
             &json!({"assignment":agent.request, "assignment_origin":agent.origin, "source_evidence":source, "checks":checked.checks, "agent_activity":agent.activity}),
         )?;
-        let reviewer = self
-            .settings
-            .reviewer
-            .as_ref()
-            .context("reviewer unavailable")?;
+        let reviewer = self.role_connection(crate::settings::Role::Reviewer)?;
+        self.runtime.update_agent(id, |agent| {
+            agent.reviewer = Some(Identity::from(&reviewer));
+            Ok(())
+        })?;
         let decision =
-            crate::workflow::review::run(reviewer, &identity.root, evidence.clone(), events)
+            crate::workflow::review::run(&reviewer, &identity.root, evidence.clone(), events)
                 .await?;
         ensure!(
             worktree::inspect(identity).await?.digest == before.digest,
@@ -1642,6 +1714,7 @@ mod tests {
             backend_invocations: 0,
             delegation: None,
             learning_context: Vec::new(),
+            prior_contexts: Vec::new(),
         };
         let runtime = SharedRuntime::for_test(&record_root, record).unwrap();
         let settings = Settings {
@@ -1734,6 +1807,7 @@ mod tests {
             backend_invocations: 0,
             delegation: None,
             learning_context: Vec::new(),
+            prior_contexts: Vec::new(),
         };
         let runtime = SharedRuntime::for_test(&root.path().join("record"), record).unwrap();
         let settings = Settings {
@@ -1839,6 +1913,7 @@ mod tests {
             backend_invocations: 0,
             delegation: None,
             learning_context: Vec::new(),
+            prior_contexts: Vec::new(),
         };
         let runtime = SharedRuntime::for_test(&root.path().join("record"), record).unwrap();
         let settings = Settings {

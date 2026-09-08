@@ -139,6 +139,7 @@ fn role_receipts_retain_effective_identity_and_exact_evidence() {
     assert_eq!(receipt.findings, vec!["still broken"]);
 
     let delegation = DelegationIdentity {
+        default_roles: Vec::new(),
         connections: Default::default(),
         reviewer: None,
         max_active: 2,

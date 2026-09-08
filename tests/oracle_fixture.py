@@ -26,7 +26,7 @@ def main():
             if method == "config/read":
                 result = {"config": {"mcp_servers": {}}}
             if method == "account/read":
-                result = {"account": {"type": "chatgpt", "email": "oracle@example.invalid", "planType": "plus"}}
+                result = {"requiresOpenaiAuth": True, "account": {"type": "chatgpt", "email": "oracle@example.invalid", "planType": "plus"}}
             if method == "thread/start":
                 assert message["params"]["dynamicTools"] == []
                 assert message["params"]["environments"] == []

@@ -19,6 +19,11 @@ pub struct ContextUsage {
 #[derive(Clone, Debug, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Event {
+    ModelAssignment {
+        connection: String,
+        model: Option<String>,
+        explanation: String,
+    },
     AgentAllocation {
         active: usize,
         active_limit: u32,
@@ -140,6 +145,7 @@ pub struct EventSink {
     log: Option<Arc<Mutex<File>>>,
     runtime: Option<crate::workflow::runtime::SharedRuntime>,
     phase: String,
+    identity: Option<crate::workflow::runtime::Identity>,
 }
 
 impl EventSink {
@@ -169,12 +175,27 @@ impl EventSink {
             log,
             runtime: None,
             phase: "worker".into(),
+            identity: None,
         })
     }
 
     pub fn with_runtime(mut self, runtime: crate::workflow::runtime::SharedRuntime) -> Self {
         self.runtime = Some(runtime);
         self
+    }
+
+    pub(crate) fn for_connection(&self, connection: &str) -> Self {
+        Self {
+            connection: connection.into(),
+            ..self.clone()
+        }
+    }
+
+    pub(crate) fn with_identity(&self, connection: &crate::config::Connection) -> Self {
+        Self {
+            identity: Some(crate::workflow::runtime::Identity::from(connection)),
+            ..self.clone()
+        }
     }
 
     pub(crate) fn for_phase(&self, phase: &str) -> Self {
@@ -190,6 +211,7 @@ impl EventSink {
             sender,
             log: None,
             runtime: self.runtime.clone(),
+            identity: None,
             phase: if self.phase.starts_with("agent:") {
                 format!("{}:{phase}", self.phase)
             } else {
@@ -201,15 +223,15 @@ impl EventSink {
     pub(crate) fn begin_model(&self) -> Result<Option<u64>> {
         self.runtime
             .as_ref()
-            .map(|r| r.begin_model(&self.phase))
+            .map(|r| r.begin_model_as(&self.phase, self.identity.as_ref()))
             .transpose()
     }
 
     pub(crate) fn begin_backend(&self) -> Result<Option<u64>> {
         match &self.runtime {
-            Some(runtime) if runtime.record()?.delegation.is_some() => {
-                Ok(Some(runtime.begin_backend(&self.phase)?))
-            }
+            Some(runtime) if runtime.record()?.delegation.is_some() => Ok(Some(
+                runtime.begin_backend_as(&self.phase, self.identity.as_ref())?,
+            )),
             _ => Ok(None),
         }
     }

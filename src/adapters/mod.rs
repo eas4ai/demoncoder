@@ -1,9 +1,9 @@
 mod anthropic;
 mod claude;
 mod codex;
-mod http;
+pub(crate) mod http;
 mod openai;
-mod process;
+pub(crate) mod process;
 
 use crate::session::{ADAPTER_INTERFACE_VERSION, Registry, SessionCapabilities};
 use anyhow::Result;

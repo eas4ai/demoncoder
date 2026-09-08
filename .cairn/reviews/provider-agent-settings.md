@@ -43,3 +43,57 @@ The development run now reaches and passes CONN-002 through CONN-006, including
 the selected authentication, ownership and capability checks. It exits one at
 the unchanged historical live-record validator, which also requires committed
 specification inputs. The subsequent Cairn run records the committed result.
+
+## Initial behavioral failure demonstration
+
+`python3 tests/provider_agent_settings.py` against the unchanged debug binary
+failed its production PTY checkpoint after project trust: `Space toggles` never
+appeared. The process remained in the old numeric provider prompt. Exit 1,
+one test failed in 8.045s. This is the checkbox falsifier, distinct from the
+earlier missing-runner unverified receipt. Authentication and live assignment
+proofs remain pending; this test alone cannot establish SET-001.
+
+## Implementation verification before committed evidence
+
+The development binary now passes 13 provider PTY cases, six live Settings cases
+and six actual role/request/recovery cases. Nine probe and four persistence tests
+pass. The full `cargo test --locked` run passed 230 tests with six ignored;
+`cargo clippy --all-targets -- -D warnings` and formatting check pass. Existing
+onboarding, startup, configuration and four-adapter terminal cases pass. These
+development runs are not Cairn evidence receipts.
+
+The new mechanism runs these assertion-bearing cases before emitting requirement
+markers. It installs the release and repeats all three production-terminal suites
+before emitting SET-008. Authentication failures, missing logins, unavailable and
+malformed catalogs, timeout/cancellation, reflected synthetic secrets, raw-file
+conflicts and a held private-file lock are negative cases, paired with successful
+setup/save/request cases. No check invents a pass for a missing installed binary.
+
+A held `/correct` case reproduced the old Reviewer timing failure after the
+saved default changed. The current binary passes by resolving Reviewer when
+review begins. Queued workers still issue worker-old requests after the default
+becomes worker-new; newly admitted children issue worker-new. Restart retains
+queued identity and model/tool counts without replay. The same cases inspect
+original task Creator identity and distinct tool-free Reviewer/Advisor/Judge
+requests. The Oracle case performs one disposable outside-workspace write only
+after a tool-free request to its explicitly assigned model.
+
+Independent source review found three runtime issues during implementation:
+publication uncertainty was read before acquiring its state lock, correction
+resolved Reviewer too early, and recovery treated a not-yet-invoked default
+Reviewer like an immutable explicit assignment. All were corrected. Follow-up
+source review confirms those fixes and found no additional concrete regression
+in queued Worker restoration or operation attribution. A separate source review
+examined bounded probe/process cleanup and reported no concrete findings.
+
+Ripwire was run as requested. The unfiltered crawl included ignored reference
+checkouts, so the useful rerun excludes reference and target. Quality delta exits
+2 with 67 major entries across code and tests, including historical churn,
+expanded dispatch/constructor complexity and small clone matches. Its dead-code
+rows include dynamic/trait dispatch and retained public compatibility wrappers;
+its `prepare` complexity locator conflates same-named functions. Test-gate exits
+4 with 49 harness obligations and 111 symbols it cannot map to tests; Python PTY
+and script-to-binary execution are not fully modeled. This is not a passing static
+gate. The application paths are covered by the compiled Rust suite and selected
+production mechanisms; inherited mechanisms and the final assembled review remain
+pending. `bind_creator` edit-check reports one caller and no incompatible arity.

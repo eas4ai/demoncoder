@@ -153,6 +153,12 @@ async fn control(
 
 #[async_trait]
 impl Session for DelegatingSession {
+    fn admit(&mut self, prompt: &str) -> Result<()> {
+        if !is_agent_control(prompt) {
+            self.inner.admit(prompt)?;
+        }
+        Ok(())
+    }
     fn owner(&self) -> &'static str {
         self.inner.owner()
     }

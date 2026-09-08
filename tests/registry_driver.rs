@@ -77,7 +77,7 @@ async fn registered_provider_uses_normal_config_loop_and_terminal() -> Result<()
         "--event-log".into(),
         std::env::var("REGISTRY_EVENTS")?,
     ])?;
-    startup::prepare(&args)?;
+    startup::prepare(&args).await?;
     let selection = args.selection()?;
     let mut registry = adapters::builtins()?;
     if std::env::var_os("REGISTRY_OMIT_REGISTRATION").is_none() {

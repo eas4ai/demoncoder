@@ -80,12 +80,19 @@ When no explicit configuration is supplied and onboarding has not been completed
 DemonCoder guides you through setup:
 
 1. Authorize the selected project for coding tools.
-2. Select a provider and give the connection a name.
-3. Supply an API key, or use the backend's existing subscription login.
-4. Select a model and thinking/response effort.
-5. Optionally add more named connections.
-6. Choose the default connection and the Oracle connection/model/effort.
-7. Save private settings and start the terminal session.
+2. Use Space to select one or more provider/authentication checkboxes.
+3. Supply a masked API key, or check the backend's existing subscription login.
+4. Continue to the Creator model selector after the selected providers authenticate.
+5. Assign models to Worker, Oracle, Reviewer, Advisor and Judge, or leave them on
+   **Use Creator model**. Enter assigns a highlighted model; Escape keeps the prior choice.
+6. Continue with these assignments to save private settings and start the session.
+
+API choices check the selected key against the provider's model catalog. Codex
+checks its account and discovers models without starting a coding thread. Claude
+checks subscription login and labels its model aliases as supported choices.
+An authenticated account may still lack access to an advertised model. Failed
+discovery remains visible; use `r` to retry a selected provider. Escape cancels
+the current check or returns to the previous screen.
 
 API-key entry is masked. A nonempty environment key takes precedence over a saved
 key. Setup saves to `~/.demoncoder/settings.toml` by default. Saved settings files
@@ -100,9 +107,39 @@ demoncoder --setup --workspace /absolute/path/to/project
 ```
 
 `--setup` saves the choices and then starts a session. It is not a setup-only exit
-command. Existing named connections are retained; choosing an existing name lets
-you update that connection. To remove a connection or a saved trusted project,
-edit the settings file directly.
+command. Existing named connections are retained. Use `/settings` or Ctrl-S to
+edit provider selections and role assignments during a session. To add a custom
+named endpoint or remove a saved trusted project, edit the private settings file.
+
+### Live provider and role settings
+
+Settings uses the same provider checks and model selectors as onboarding. The
+role list shows whether each role inherits Creator or has an explicit override,
+along with its effective model, provider and authentication method. An inherited
+role follows later Creator changes; an override stays until changed or restored
+to **Use Creator model**. Oracle decides outside access, Reviewer examines task
+patches, and Advisor and Judge supervise delegated work.
+
+Choose **Save and return to conversation** to apply the edited assignments.
+Escape returns without saving. The screen preserves your prompt draft and chat
+position, including while work is running. Assignments do not enable delegation,
+review, orchestration or additional permissions. Enable the existing features
+with their launch flags; `default` selects the corresponding Settings role for
+`--agent-connection`, `--reviewer` and `--judge` when no connection is named `default`.
+An explicit named connection or command-line model keeps its applicable precedence.
+
+Saved changes apply when subsequent work is admitted. A running task, invocation
+or queued child keeps its captured model, account, permissions and allocation.
+An active `/task` keeps Creator until accepted or abandoned; a later Reviewer
+invocation resolves its then-current default. Switching an external backend
+starts a separate context and displays a notice; its opaque session is not transferred.
+Recovery retains original evidence and allocations and refuses an identity it
+cannot safely restore.
+
+Deselection keeps existing assignments visible as unresolved and blocks affected
+new work until repaired. It does not substitute another provider. Saves use the
+private settings lock and atomic replacement. A failed or conflicting save stays
+unapplied with an error; reopen Settings to load a competing update.
 
 ### A first coding task
 
@@ -494,6 +531,7 @@ allowances, missing evidence or a conflicting workspace.
 | Ctrl+Shift+V | Paste from the terminal clipboard into the prompt. |
 | Ctrl-Q | Quit the application and close the session runtime. |
 | Ctrl-O | Toggle all retained assistant/tool output between compact and full views. |
+| Ctrl-S or `/settings` | Open provider and role Settings; Ctrl-S preserves an unfinished prompt. |
 | Page Up / Page Down | Scroll backward or forward one page. |
 | Up / Down | Scroll one visual row. |
 | Drag the scrollbar | Move the compact or full chat viewport. |
@@ -763,8 +801,8 @@ is not read by this application.
 
 This example uses subscription logins for the default and Oracle, and environment
 credentials for the API entries. Replace the example trusted path before using it.
-The API model names shown are the current setup defaults in this source tree;
-model availability and accepted effort remain the selected service's decision.
+The API model names are examples; use provider discovery to choose an available
+model. Model availability and accepted effort remain the selected service's decision.
 
 ```toml
 onboarding_complete = true
@@ -806,6 +844,25 @@ connection = "claude"
 | `trusted_workspaces` | Saved trusted canonical project roots. Trust covers their descendants. Defaults to an empty list. |
 | `connections` | Map of names to connection settings. |
 | `oracle` | Assignment used by `--yolo` for outside-access reviews. |
+| `settings` | Selected providers, Creator assignment and explicit role overrides saved by the shared editor. Legacy connections and Oracle assignments remain readable. |
+
+The editor persists assignments separately from connections so inheritance stays
+live. For example:
+
+```toml
+[settings]
+providers = ["openai", "anthropic"]
+[settings.creator]
+connection = "openai"
+model = "YOUR_DISCOVERED_MODEL"
+[settings.overrides.reviewer]
+connection = "anthropic"
+model = "YOUR_REVIEW_MODEL"
+```
+
+Other roles inherit Creator unless their own override is present. Each assignment
+accepts `connection`, optional `model`, and optional `effort`. Existing explicit
+Oracle settings are preserved when migrating a configuration without this section.
 
 ### Connection settings
 
@@ -838,7 +895,7 @@ executable to make its selection independent of the launch directory.
 
 1. `--config` selects the entire configuration file; otherwise the home file is
    used when present.
-2. `--connection` overrides `default_connection`.
+2. `--connection` overrides the saved Creator assignment, or legacy `default_connection`.
 3. `--model`, `--effort`, and `--max-output-tokens` override the selected connection's saved fields.
 4. For API authentication, a nonempty provider environment key overrides the saved
    `api_key`. If the environment variable is absent, the saved key is used.
@@ -859,10 +916,9 @@ value; that rejection fails the request without a fallback. OpenAI receives
 `reasoning.effort`, Anthropic receives `output_config.effort`, Codex receives
 `turn/start.effort`, and Claude receives `--effort`.
 
-Choose `default` in guided setup, or omit `effort` in TOML, to leave the setting to
-the provider. `--effort default` is not supported. Similarly, `backend-default` is
-a guided-setup choice that omits a subscription model; it is not a special CLI
-model flag. Anthropic response effort does not itself enable an older model's
+Omit `effort` in TOML to leave the setting to the provider; `--effort default` is
+not supported. Model selectors show the checked catalog or labeled supported
+backend choices. Anthropic response effort does not itself enable an older model's
 extended-thinking mode.
 
 ### Model output limits

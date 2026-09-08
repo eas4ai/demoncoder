@@ -41,6 +41,10 @@ pub struct Task {
     pub accepted: Option<String>,
     #[serde(default)]
     pub improvement: Option<ImprovementLink>,
+    #[serde(default)]
+    pub creator_identity: Option<super::runtime::Identity>,
+    #[serde(default)]
+    pub reviewer_default: bool,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -88,6 +92,8 @@ impl Task {
             stopped: false,
             accepted: None,
             improvement: None,
+            creator_identity: None,
+            reviewer_default: false,
         })
     }
 

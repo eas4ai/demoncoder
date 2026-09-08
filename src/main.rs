@@ -16,7 +16,8 @@ async fn main() -> Result<()> {
     if let Some(script) = &args.supervise_bash {
         std::process::exit(demoncoder::supervisor::run(script).await?);
     }
-    startup::prepare(&args)?;
+    startup::prepare(&args).await?;
+    let live_settings = demoncoder::settings::Handle::open(&args)?;
     let mut selection = args.selection()?;
     let settings = args.workflow_settings()?;
     let (runtime, resumed) = demoncoder::workflow::runtime::SharedRuntime::open(
@@ -31,10 +32,11 @@ async fn main() -> Result<()> {
     );
     let manager = agent_settings
         .map(|settings| {
-            demoncoder::subagents::manager::Manager::new(
+            demoncoder::subagents::manager::Manager::new_with_settings(
                 selection.workspace.clone(),
                 settings,
                 runtime.clone(),
+                Some(live_settings.clone()),
             )
         })
         .transpose()?;
@@ -42,14 +44,17 @@ async fn main() -> Result<()> {
         selection.connection.access.extension = Some(manager.extension());
     }
     let session = adapters::builtins()?.open(&selection.connection, &selection.workspace)?;
-    let session = Box::new(demoncoder::workflow::WorkflowSession::new(
-        session,
-        selection.connection.clone(),
-        selection.workspace.clone(),
-        settings,
-        runtime.clone(),
-        resumed,
-    )?);
+    let session = Box::new(
+        demoncoder::workflow::WorkflowSession::new(
+            session,
+            selection.connection.clone(),
+            selection.workspace.clone(),
+            settings,
+            runtime.clone(),
+            resumed,
+        )?
+        .with_live_settings(live_settings.clone()),
+    );
     let session: Box<dyn session::Session> = match manager {
         Some(manager) => Box::new(demoncoder::subagents::session::DelegatingSession::new(
             session, manager,
@@ -70,7 +75,7 @@ async fn main() -> Result<()> {
             "Project writes · normal reads/network"
         }
     );
-    let ui_result = terminal::run_with_runtime(
+    let ui_result = terminal::run_with_settings(
         &label,
         command_tx.clone(),
         event_rx,
@@ -80,6 +85,7 @@ async fn main() -> Result<()> {
             context_window: args.context_window,
         },
         runtime,
+        live_settings,
     )
     .await;
     // Queue submission belongs inside the deadline too: a stopped consumer must

@@ -8,7 +8,7 @@ use anyhow::{Context, Result, bail};
 use rustix::process::{Pid, Signal, kill_process_group};
 use serde_json::Value;
 use tokio::{
-    io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
+    io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
     process::{Child, ChildStdin, ChildStdout},
 };
 
@@ -17,6 +17,7 @@ pub struct BackendProcess {
     stdin: ChildStdin,
     stdout: BufReader<ChildStdout>,
     partial: Vec<u8>,
+    last_response_bytes: usize,
 }
 
 pub fn executable(configured: Option<&Path>, default: &str) -> Result<PathBuf> {
@@ -72,6 +73,7 @@ impl BackendProcess {
             stdin,
             stdout,
             partial: Vec::new(),
+            last_response_bytes: 0,
         })
     }
 
@@ -85,6 +87,44 @@ impl BackendProcess {
     }
 
     pub async fn receive(&mut self) -> Result<Value> {
+        self.receive_limited(4 * 1024 * 1024).await
+    }
+
+    pub async fn finite_json(&mut self, limit: usize) -> Result<Value> {
+        let mut bytes = Vec::new();
+        (&mut self.stdout)
+            .take(limit as u64 + 1)
+            .read_to_end(&mut bytes)
+            .await
+            .context("read backend status")?;
+        anyhow::ensure!(bytes.len() <= limit, "backend status exceeds size limit");
+        // Do not reap here: stop/Drop must still own the process-group identity.
+        // EOF plus a valid status is not sufficient if the command failed.
+        let pid = self
+            .child
+            .id()
+            .and_then(|id| Pid::from_raw(id as i32))
+            .context("backend process unavailable")?;
+        loop {
+            use rustix::process::{WaitId, WaitIdOptions, waitid};
+            if let Some(status) = waitid(
+                WaitId::Pid(pid),
+                WaitIdOptions::EXITED | WaitIdOptions::NOWAIT | WaitIdOptions::NOHANG,
+            )
+            .context("inspect backend status")?
+            {
+                anyhow::ensure!(
+                    status.exit_status() == Some(0),
+                    "backend login check failed; sign in with the backend CLI"
+                );
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        serde_json::from_slice(&bytes).map_err(|_| anyhow::anyhow!("invalid backend status JSON"))
+    }
+
+    pub async fn receive_limited(&mut self, limit: usize) -> Result<Value> {
         // Steering can cancel this future between reads. Keep consumed bytes
         // on the connection so its next receive resumes the same JSON frame.
         loop {
@@ -100,17 +140,22 @@ impl BackendProcess {
                 .iter()
                 .position(|b| *b == b'\n')
                 .map_or(bytes.len(), |end| end + 1);
-            if self.partial.len() + count > 4 * 1024 * 1024 {
-                bail!("backend response exceeds 4 MiB");
+            if self.partial.len() + count > limit {
+                bail!("backend response exceeds size limit");
             }
             let complete = bytes[count - 1] == b'\n';
             self.partial.extend_from_slice(&bytes[..count]);
             self.stdout.consume(count);
             if complete {
+                self.last_response_bytes = self.partial.len();
                 return serde_json::from_slice(&std::mem::take(&mut self.partial))
                     .map_err(|_| anyhow::anyhow!("invalid backend JSON response"));
             }
         }
+    }
+
+    pub fn last_response_bytes(&self) -> usize {
+        self.last_response_bytes
     }
 
     pub async fn stop(&mut self) -> Result<()> {
@@ -146,6 +191,40 @@ impl Drop for BackendProcess {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn finite_status_preserves_group_cleanup_and_rejects_failed_exit() -> Result<()> {
+        for success in [true, false] {
+            let workspace = tempfile::tempdir()?;
+            let script = format!(
+                "import json,subprocess; child=subprocess.Popen(['/usr/bin/sleep','60'],stdout=subprocess.DEVNULL); print(json.dumps({{'helper':child.pid}},indent=2),flush=True); raise SystemExit({})",
+                if success { 0 } else { 1 }
+            );
+            let mut process = BackendProcess::spawn(
+                Path::new("/usr/bin/python3"),
+                &["-u".into(), "-c".into(), script],
+                workspace.path(),
+                &[],
+            )?;
+            let status =
+                tokio::time::timeout(Duration::from_secs(3), process.finite_json(1024)).await?;
+            assert_eq!(status.is_ok(), success);
+            let helper = status
+                .ok()
+                .map(|value| value["helper"].as_u64().unwrap() as u32);
+            process.stop().await?;
+            if let Some(helper) = helper {
+                tokio::time::timeout(Duration::from_secs(2), async {
+                    while running(helper) {
+                        tokio::time::sleep(Duration::from_millis(5)).await;
+                    }
+                })
+                .await
+                .context("status helper survived cleanup")?;
+            }
+        }
+        Ok(())
+    }
 
     fn running(pid: u32) -> bool {
         std::fs::read_to_string(format!("/proc/{pid}/stat"))

@@ -177,8 +177,14 @@ fn task_report(out: &mut Pager, record: &Record, task: &Task, archived: bool) ->
     writeln!(
         out,
         "Connection: {} · model {}",
-        record.identity.display_adapter(),
-        record.identity.display_model()
+        task.creator_identity
+            .as_ref()
+            .unwrap_or(&record.identity)
+            .display_adapter(),
+        task.creator_identity
+            .as_ref()
+            .unwrap_or(&record.identity)
+            .display_model()
     )?;
     writeln!(
         out,

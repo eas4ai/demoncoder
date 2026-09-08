@@ -32,7 +32,7 @@ def run():
         message = json.loads(raw)
         method = message.get("method")
         if codex and method in ("initialize", "account/read", "config/read", "thread/start"):
-            result = {"initialize":{"userAgent":"usage-fixture"}, "account/read":{"account":{"type":"chatgpt"}}, "config/read":{"config":{"mcp_servers":{}}}, "thread/start":{"thread":{"id":identity}}}[method]
+            result = {"initialize":{"userAgent":"usage-fixture"}, "account/read":{"requiresOpenaiAuth":True,"account":{"type":"chatgpt"}}, "config/read":{"config":{"mcp_servers":{}}}, "thread/start":{"thread":{"id":identity}}}[method]
             send({"id":message["id"], "result":result})
         elif not codex and message.get("type") == "control_request":
             send({"type":"control_response", "response":{"subtype":"success", "request_id":message["request_id"], "response":{}}})

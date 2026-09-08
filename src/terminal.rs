@@ -1,4 +1,5 @@
 mod inspection_panel;
+mod settings_panel;
 
 use crate::{
     chat::{Anchor, Chat, Role},
@@ -42,6 +43,7 @@ struct View {
     status: String,
     usage: String,
     options: DisplayOptions,
+    active_connection: Option<String>,
     context: ContextUsage,
     git: Option<Result<GitStatus, String>>,
     busy: bool,
@@ -338,6 +340,19 @@ impl View {
 
     fn event(&mut self, envelope: Envelope) {
         match envelope.event {
+            Event::ModelAssignment {
+                connection,
+                model,
+                explanation,
+            } => {
+                self.options.model = model;
+                self.active_connection = Some(connection.clone());
+                self.note(
+                    Role::Notice,
+                    &format!("Creator · {connection}"),
+                    &explanation,
+                );
+            }
             Event::AgentAllocation {
                 active,
                 active_limit,
@@ -630,7 +645,7 @@ pub async fn run_with_status(
     events: mpsc::Receiver<Envelope>,
     options: DisplayOptions,
 ) -> Result<()> {
-    run_terminal(connection, commands, events, options, None).await
+    run_terminal(connection, commands, events, options, None, None).await
 }
 
 pub async fn run_with_runtime(
@@ -640,7 +655,26 @@ pub async fn run_with_runtime(
     options: DisplayOptions,
     runtime: crate::workflow::runtime::SharedRuntime,
 ) -> Result<()> {
-    run_terminal(connection, commands, events, options, Some(runtime)).await
+    run_terminal(connection, commands, events, options, Some(runtime), None).await
+}
+
+pub async fn run_with_settings(
+    connection: &str,
+    commands: mpsc::Sender<Command>,
+    events: mpsc::Receiver<Envelope>,
+    options: DisplayOptions,
+    runtime: crate::workflow::runtime::SharedRuntime,
+    settings: crate::settings::Handle,
+) -> Result<()> {
+    run_terminal(
+        connection,
+        commands,
+        events,
+        options,
+        Some(runtime),
+        Some(settings),
+    )
+    .await
 }
 
 async fn run_terminal(
@@ -649,6 +683,7 @@ async fn run_terminal(
     mut events: mpsc::Receiver<Envelope>,
     options: DisplayOptions,
     runtime: Option<crate::workflow::runtime::SharedRuntime>,
+    settings: Option<crate::settings::Handle>,
 ) -> Result<()> {
     if !std::io::stdin().is_terminal() || !std::io::stdout().is_terminal() {
         bail!("DemonCoder requires an interactive terminal");
@@ -663,6 +698,7 @@ async fn run_terminal(
             &mut terminal,
             options,
             runtime,
+            settings,
         )
         .await
     }
@@ -705,6 +741,7 @@ async fn run_view(
     terminal: &mut ratatui::DefaultTerminal,
     options: DisplayOptions,
     runtime: Option<crate::workflow::runtime::SharedRuntime>,
+    settings: Option<crate::settings::Handle>,
 ) -> Result<()> {
     let (git_tx, mut git_rx) = mpsc::channel(1);
     let _git = GitPoller::start(options.workspace.clone(), git_tx);
@@ -715,11 +752,15 @@ async fn run_view(
     };
     view.inspection.enabled = runtime.is_some();
     let mut inspector = runtime.map(crate::inspection::poller::Poller::start);
+    let mut panel: Option<settings_panel::Panel> = None;
     let mut input_events = EventStream::new();
     let mut refresh = tokio::time::interval(Duration::from_millis(33));
     loop {
         view.poll_commands(commands);
         view.inspection.poll(&mut inspector);
+        if panel.as_mut().is_some_and(|p| p.poll()) {
+            panel = None;
+        }
         tokio::select! {
             Some(status) = git_rx.recv() => view.git = Some(status),
             event = events.recv() => match event {
@@ -733,14 +774,29 @@ async fn run_view(
             },
             _ = refresh.tick() => {
                 if view.busy { view.activity_tick = view.activity_tick.wrapping_add(1); }
-                terminal.draw(|frame| draw(&mut view, connection, frame)).context("draw terminal")?;
+                terminal.draw(|frame| {
+                    if let Some(panel) = &panel { panel.draw(frame); }
+                    else { draw(&mut view, connection, frame); }
+                }).context("draw terminal")?;
             },
             input = input_events.next() => {
                 let Some(input) = input else { return Ok(()); };
                 match input.context("read terminal input")? {
+                    InputEvent::Key(key) if key.kind == KeyEventKind::Press && key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('q') => return Ok(()),
+                    InputEvent::Key(key) if key.kind == KeyEventKind::Press && panel.is_some() => {
+                        if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') && view.busy { view.request_cancellation(false); }
+                        if panel.as_mut().expect("open panel").key(key)? { panel = None; }
+                    },
                     InputEvent::Key(key) if key.kind == KeyEventKind::Press && view.inspection.key(key) => {},
                     InputEvent::Key(key) if key.kind == KeyEventKind::Press => match key.code {
-                        KeyCode::Char('q') if key.modifiers.contains(KeyModifiers::CONTROL) => return Ok(()),
+                        KeyCode::Char('s') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                            if let Some(handle) = &settings {
+                                match settings_panel::Panel::open(handle.clone()) {
+                                    Ok(opened) => panel = Some(opened),
+                                    Err(error) => view.note(Role::Notice, "Settings unavailable", &error.to_string()),
+                                }
+                            }
+                        },
                         KeyCode::Char('c' | 'C') if key.modifiers.contains(KeyModifiers::CONTROL | KeyModifiers::SHIFT) && !view.input.is_empty() => {
                                 execute!(std::io::stdout(), CopyToClipboard::to_clipboard_from(view.input.as_str())).context("copy prompt text")?;
                                 view.copy_notice = Some("Prompt copy requested · terminal must allow OSC 52");
@@ -771,13 +827,20 @@ async fn run_view(
                         }
                         KeyCode::End => { view.selection = None; view.copy_notice = None; view.anchor = None; },
                         KeyCode::Enter if !view.input.trim().is_empty() => {
-                            view.submit(commands);
+                            if view.input.trim() == "/settings" && let Some(handle) = &settings {
+                                match settings_panel::Panel::open(handle.clone()) {
+                                    Ok(opened) => { panel = Some(opened); view.input.clear(); }
+                                    Err(error) => view.note(Role::Notice, "Settings unavailable", &error.to_string()),
+                                }
+                            } else { view.submit(commands); }
                         }
                         KeyCode::Backspace => { view.input.pop(); }
                         KeyCode::Char(c) if !key.modifiers.intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) && !c.is_control()
                             && view.input.len() + c.len_utf8() <= MAX_INPUT_BYTES => { view.input.push(c); }
                         _ => {}
                     },
+                    InputEvent::Paste(text) if panel.is_some() => { panel.as_mut().expect("open panel").paste(&text); },
+                    InputEvent::Mouse(_) if panel.is_some() => {},
                     InputEvent::Paste(text) => {
                         for c in text.chars().filter(|c| !c.is_control()) {
                             if view.input.len() + c.len_utf8() > MAX_INPUT_BYTES { break; }
@@ -858,7 +921,19 @@ fn draw(view: &mut View, connection: &str, frame: &mut ratatui::Frame<'_>) {
                 .next()
                 .map(|t| format!(" · {} {}", t.name, visible_text(&t.target)))
                 .unwrap_or_default(),
-            visible_text(connection)
+            visible_text(
+                &view
+                    .active_connection
+                    .as_ref()
+                    .map(|active| format!(
+                        "{active} · {}",
+                        connection
+                            .split_once(" · ")
+                            .map(|(_, access)| access)
+                            .unwrap_or("")
+                    ))
+                    .unwrap_or_else(|| connection.into())
+            )
         ))
         .style(Style::default().fg(Color::Cyan)),
         header,
