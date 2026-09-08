@@ -31,8 +31,8 @@ trees, child contents, and parent tool reads using synthetic private canaries.
 [AUD-003] Developers MUST be able to declare generated-output paths before
 starting work so normal builds can complete verification without capturing
 their outputs. The declaration MUST remain explicit, bounded and retained with
-the snapshot; changing it MUST invalidate affected evidence and cannot silently
-change recovery authority. All other source/input changes MUST still invalidate
+the snapshot. Changing it MUST invalidate affected evidence.
+Changing it MUST NOT silently change recovery authority. All other source/input changes MUST still invalidate
 verification. Excluded outputs MUST NOT be exported as delegated source changes.
 Falsifier: A declared 9 MiB build artifact prevents task verification; a check
 that only rewrites declared outputs cannot pass; undeclared source changes pass;
@@ -42,7 +42,7 @@ real inputs, resume sessions, and integrate child results under explicit scopes.
 
 [AUD-004] Review MUST support a small task in a repository whose total source
 exceeds one request's evidence limit. Every changed in-scope source MUST remain
-complete, and selected supporting context and omitted-source identities MUST be
+complete. Selected supporting context and omitted-source identities MUST be
 explicit. Material that cannot fit MUST block before a misleading clear review.
 The configured review scope MUST be retained in the actual review evidence.
 Falsifier: An unrelated 1.2 MB source baseline blocks a bounded task despite a
