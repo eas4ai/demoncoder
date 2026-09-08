@@ -1,7 +1,7 @@
 # Provider and agent Settings review
 
 commitment: provider-agent-settings
-commit: a864e430b5ead03df6649aff9bdfeef6c220d40d
+commit: caa6ca1cf03cf399de855b5283e6e5a91790fbb3
 examined:
   - START-003 startup mechanism against the current requirement and falsifier.
 findings:
