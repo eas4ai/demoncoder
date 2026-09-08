@@ -11,4 +11,4 @@ Reuse the existing pinned, checksummed Store for a bounded private learning reco
 
 ## Realized by
 
-(none yet: recorded, not built)
+- 987f57a1b60fd09878250c48dadfe09298a92be2 Add cited improvement tasks and approved workspace lessons
