@@ -1,6 +1,6 @@
 # Roadmap
 
-Current: provider-agent-settings
+Current: audit-remediation
 
 The developer selected the usable coding session as the first commitment
 and agreed to use Cairn on 2026-09-06. The developer confirmed its detailed
@@ -21,6 +21,7 @@ requirements and falsifiers together on 2026-09-06.
 | 4a | status-decision-remediation | Prerequisite repair of live status, evidence inspection, available actions and documentation. |
 | 5 | evidence-based-improvement | Operational evidence leads to a cited improvement candidate, an authorized correction, and a useful lesson for later work. |
 | 6 | provider-agent-settings | Authenticated provider selection, Creator defaults, per-role model assignments and live Settings. |
+| 6a | audit-remediation | Close protected-source exports, support explicit build/review scopes, fix stream copying and restore cumulative installed coverage. |
 
 The first coding session and startup fixes are complete. The developer selected
 developer-usability after encountering blocked assessment tools and missing chat
@@ -60,3 +61,7 @@ Evidence-based improvement is complete, installed and pushed. On 2026-09-08 the
 developer confirmed provider-first onboarding, inherited Creator assignments,
 per-role model selectors and live Settings. Provider-agent-settings is selected
 with SET-001 through SET-008 and their behavioral falsifiers.
+
+Provider-agent-settings is complete. On 2026-09-08 the developer selected
+remediation of the six findings from the end-to-end code audit. AUD-001 through
+AUD-006 and their falsifiers are the current commitment.

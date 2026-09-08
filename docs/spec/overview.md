@@ -49,6 +49,7 @@ responsible for choosing sound requirements and meaningful checks.
 | [status-decision-remediation.md](status-decision-remediation.md) | REM | Truthful live status, bounded evidence inspection and clear existing actions. |
 | [evidence-based-improvement.md](evidence-based-improvement.md) | LEARN | Cited improvement candidates, authorized corrections and scoped reusable lessons. |
 | [provider-agent-settings.md](provider-agent-settings.md) | SET | Provider authentication, model assignment and live Settings. |
+| [audit-remediation.md](audit-remediation.md) | AUD | Protected source exports, practical verification/review scope, efficient streaming and complete regression coverage. |
 | [roadmap.md](roadmap.md) | — | The selected commitment and intended delivery sequence. |
 
 The broader [design narrative](../spec.md) retains product direction,
