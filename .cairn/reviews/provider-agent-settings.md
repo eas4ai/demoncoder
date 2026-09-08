@@ -97,3 +97,12 @@ and script-to-binary execution are not fully modeled. This is not a passing stat
 gate. The application paths are covered by the compiled Rust suite and selected
 production mechanisms; inherited mechanisms and the final assembled review remain
 pending. `bind_creator` edit-check reports one caller and no incompatible arity.
+
+## CONN-003 fixture repair
+
+The first inherited connection run correctly refused the old authentication
+fixture's incomplete Codex account response. Added the required
+`requiresOpenaiAuth` observation to that fixture; the runtime check is unchanged.
+The full development connection runner now reports passes for CONN-002 through
+CONN-006, including rejected/missing/expired credentials and wrong billing routes.
+It still refuses stale historical live-provider evidence for unselected CONN-001.

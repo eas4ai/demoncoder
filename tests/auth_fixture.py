@@ -35,7 +35,7 @@ def main():
                     send({"id":message["id"], "error":{"code":401,"message":"subscription login expired"}})
                 else:
                     account = None if mode == "missing" else {"type":"apiKey" if mode == "wrong-route" else "chatgpt"}
-                    send({"id":message["id"], "result":{"account":account}})
+                    send({"id":message["id"], "result":{"account":account, "requiresOpenaiAuth":True}})
             elif method == "config/read":
                 send({"id":message["id"], "result":{"config":{"mcp_servers":{}}}})
             elif method == "thread/start":
