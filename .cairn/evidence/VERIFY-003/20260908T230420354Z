@@ -1,0 +1,21 @@
+requirement: VERIFY-003
+requirement_digest: sha256:aab0bc85fd5e3bc25033d375f0e86e849ce44d25f658c1896faaba3239487b14
+sequence: 14
+history_digest: sha256:afad62059e862281c1014f6c6005c3142c0186ba9353cf9f51ae74e9dc83a04e
+mechanism: verification-review-recovery
+commit: 3eaa056
+inputs_digest: sha256:7aac396bff491182280e753ef2dbab18330650cab4d38055239cc5a64769d4bb
+mechanism_digest: sha256:3f606171d349b5594d0db179bacd05080c8807a1e07fca7d0ab0e8ee95ff8e99
+inputs_detail: .cairn/evidence/VERIFY-001/20260908T230300298Z-3048752.inputs.json
+command: bash scripts/check-verification-review-recovery.sh
+cwd: .
+exit: 0
+output_digest: sha256:4e245096e8257cdd10c65df21c2a0ea7c0b5f73ae276f12aa884d41456ab40b6
+output: .cairn/evidence/VERIFY-001/20260908T230300298Z-3048752.out
+stderr_output: .cairn/evidence/VERIFY-001/20260908T230300298Z-3048752.err
+stderr_digest: sha256:8041ea82204c590abac448ba1dbee939d30b8c6b78a67995a9b17e0ccf8a6721
+signal: none
+execution_error: null
+result: pass
+source: line
+recorded: 2026-09-08T23:04:20.354Z
