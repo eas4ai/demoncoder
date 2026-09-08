@@ -1,13 +1,16 @@
 # Provider and agent Settings review
 
 commitment: provider-agent-settings
-commit: caa6ca1cf03cf399de855b5283e6e5a91790fbb3
+commit: 8168683dca1b996460e810dfa8a82e96b17b06d5
 examined:
-  - START-003 startup mechanism against the current requirement and falsifier.
+  - SET-001 through SET-008: shared editor, provider checks, private store, live terminal, role admission, recovery, documentation and installed release.
+  - CONN-003, CONN-004, CONN-005 and START-003: authentication, loop ownership, refusal and private startup.
+  - VERIFY-003, VERIFY-005, VERIFY-006, SUB-005, SUB-007, ORCH-006 and ORCH-007: verification, integration, allocation, cancellation and recovery.
+  - REM-002, REM-004, LEARN-006 and LEARN-007: truthful identity/evidence display and unchanged lesson authority.
 findings:
   - resolved: SET-007: Optional provider placeholders now respect the connection limit; boundary saves preserve every existing connection and reopen successfully.
   - resolved: SET-008: Corrected the comma-separated Host paths declaration; specification lint passes.
-Status: incomplete
+Status: complete
 
 ## START-003 mechanism review
 
@@ -131,5 +134,76 @@ when the configured list is full.
 - Complete: live assignment, persistence and role admission, with four store
   tests, six live-terminal cases and six role/request/recovery cases passing.
 - Complete: installed release demonstration and first inherited evidence sweep.
-- In progress: refresh committed evidence after the reviewed connection-limit
-  correction, then complete the final review.
+- Complete: refreshed committed evidence after the reviewed connection-limit
+  correction and completed the final review with no open in-scope finding.
+
+## Final assembled review
+
+The current candidate has fresh passing evidence for every selected requirement.
+The last Settings mechanism ran 14 settings unit tests, 13 provider PTY cases,
+six live Settings cases and six role/recovery cases. It repeated all 25 PTY cases
+after installing the release. The installed executable and target/release binary
+have identical SHA-256:
+`dfb3f79dc561bfb8e6c7042a2193c069218c31b5f48b2f5b3aa9701d8073b9a3`.
+The installed executable reports demoncoder 0.1.2. The full inherited connection,
+startup, verification, subagent, orchestration, status and learning mechanisms
+were rerun after the capacity correction and passed the selected requirements.
+
+The review traced editor cancellation, catalog replacement, masked key entry,
+role selection, final save and reopening together. Empty or failed catalogs cannot
+produce a selected model. Returning from a model submenu preserves its previous
+assignment. Saving validates selected catalogs; deselected assignments stay
+unresolved. Bounded rows and explicit capacity preserve usable saved state. The
+capacity defect found by this review is now demonstrated failing and corrected.
+
+The persistence review followed the same parsed bytes into revision comparison,
+private locking, atomic replacement and runtime publication. Conflicting or failed
+saves do not activate a draft. Publication uncertainty is read under the same
+state lock and blocks new work until repaired. A post-rename directory-sync failure
+was reviewed in source; the mechanism does not claim to simulate every filesystem
+or hardware failure. Existing credential-file protection is retained even when
+launching without a saved API key. Provider errors and catalogs cannot expose the
+synthetic credentials used by the negative cases.
+
+The admission review followed Creator capture, active-task pinning, queued Worker
+restoration, late Reviewer selection and independent Oracle/Advisor/Judge requests.
+Default-role recovery exceptions require the same launch enablement and preserve
+checks, access and limits. Original operation identities and allocations survive
+new defaults. Opaque backend changes begin distinct contexts; the installed tests
+verify the notice and actual process/request boundary. Assigned models do not
+enable work or give tool authority to decision roles.
+
+The static warnings were considered with the source rather than counted as test
+passes. The expanded delegation comparison explicitly covers each enabled default
+role while comparing all other saved authority. The keyboard dispatcher branches
+over its four page states and their controls. Small clone matches are cancellation
+and event-copy idioms; public compatibility wrappers and trait callbacks remain
+intentional. No additional correctness or maintainability defect was established
+from those warnings. No baseline or acknowledgement was added to hide them.
+
+The updated manual matches the checked provider sequence, inherited and explicit
+assignments, Save/Enter/Escape controls, live timing and the capacity limit. An
+unrelated older fixed-output-limit paragraph was captured with `cairn backlog`
+as `correct-the-older-output-limit-paragraph-in-the-connections-manual`; it predates
+this workflow and remains outside this commitment. No reference code was copied,
+and the original pi reference is not represented as the unavailable oh-my-pi tree.
+
+### Verification limits
+
+Controlled local API and CLI peers establish routing, failure handling and
+application behavior. They do not promise that a commercial account can use every
+advertised model, or that a later backend release keeps the same protocol.
+Unselected historical live-provider records remain stale and are not represented
+as refreshed paid-provider evidence. The application makes the authentication
+observation and model-availability limits visible.
+
+### Production self-audit
+
+The review checked the production rules against this commitment: scope and
+existing behavior, cohesive implementation, boundary validation, secret handling,
+private persistence and recovery, bounded background work, meaningful failing
+and corrected tests, honest evidence, documentation and plain-language choices.
+The implementation retains existing interfaces where required, adds no new
+execution authority or dependency, and records the known limits above. All work
+and verification items are complete. I am satisfied with the scoped change; no
+open in-scope finding remains. This final review changed no runtime code.
