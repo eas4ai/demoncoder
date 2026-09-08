@@ -1,0 +1,27 @@
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.10s
+.
+----------------------------------------------------------------------
+Ran 1 test in 0.057s
+
+OK
+..
+----------------------------------------------------------------------
+Ran 2 tests in 0.003s
+
+OK
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.09s
+test_native_api_sources_and_errors (__main__.Authentication.test_native_api_sources_and_errors) ... ok
+test_subscription_routes_and_errors (__main__.Authentication.test_subscription_routes_and_errors) ... ok
+
+----------------------------------------------------------------------
+Ran 2 tests in 1.252s
+
+OK
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.11s
+     Running tests/capabilities.rs (target/debug/deps/capabilities-7f54283b1116b50f)
+test_reported_partial_zero_and_absent_usage (__main__.Usage.test_reported_partial_zero_and_absent_usage) ... ok
+
+----------------------------------------------------------------------
+Ran 1 test in 1.517s
+
+OK
