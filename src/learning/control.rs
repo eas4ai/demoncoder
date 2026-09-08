@@ -275,11 +275,11 @@ impl Request {
                 )
             }
         };
+        let mut view = render(&mut store, focus)?;
+        view.text.insert_str(0, &format!("{notice}\n"));
         if write {
             store.save()?;
         }
-        let mut view = render(&mut store, focus)?;
-        view.text.insert_str(0, &format!("{notice}\n"));
         Ok((view, page))
     }
 }

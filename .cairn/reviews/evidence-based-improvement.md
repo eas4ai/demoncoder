@@ -9,7 +9,7 @@ examined:
   - Bounded storage, Unicode inspection, cancellation, restart and installed delivery.
 findings:
   - resolved: LEARN-006: Instruction reads now require a regular file with one hard link, matching confined file-tool admission. Focused and all-connection production tests pass.
-  - open: LEARN-008: Request::run saves catalog mutations before rendering their bounded inspection. A later formatting refusal can therefore report an error after changing state. Prepare the bounded response before committing the mutation.
+  - resolved: LEARN-008: Request::run prepares the bounded response before saving catalog mutations. The regression demonstrates refusal leaves saved state unchanged and a valid annotation still persists.
   - open: LEARN-008: The installed release is still the pre-feature binary. Install the reviewed candidate and run the complete production learning workflow against that exact executable.
 Status: incomplete
 
@@ -95,3 +95,19 @@ recovery, and the terminal case confirms no provider request on refusal. Refresh
 LEARN, VERIFY, SUB, ORCH and REM receipts all pass. No new finding arose from this
 change. The catalog save/render ordering and installed-release findings remain
 open; source inspection confirms the ordering has not yet changed.
+
+## Resolution: format before catalog publication
+
+A regression executes a harmless command that prints bounded fixture output and
+checks an empty fixture file. Sixteen retained correction outcomes exceed the
+focused inspection limit while remaining within retained-state limits. Before
+the repair, the test failed with “report refusal changed the saved catalog.”
+After moving response preparation before save, all ten learning tests passed.
+The test also verifies that a bounded developer annotation succeeds and persists.
+No production limit or historical receipt was changed.
+
+Ripwire reports the run contract unchanged. The delta for this repair exits zero
+with one new dead-code finding naming the regression that Cargo just executed.
+Test mapping still exits four (126 impacted symbols, no mapped tests); it cannot
+replace the executed Cargo and production PTY checks. The initial feature-wide
+quality findings remain documented above and in the implementation plan.

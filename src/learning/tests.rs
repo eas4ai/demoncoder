@@ -36,6 +36,10 @@ fn check(root: &Path, command: &str, snapshot: &str) -> CheckReceipt {
 
 impl Fixture {
     fn failed() -> Self {
+        Self::failed_with_command("test -s behavior")
+    }
+
+    fn failed_with_command(command: &str) -> Self {
         let temp = tempfile::tempdir().unwrap();
         let project = temp.path().join("project");
         fs::create_dir(&project).unwrap();
@@ -49,14 +53,13 @@ impl Fixture {
         let mut task = Task::new(
             1,
             "repair behavior".into(),
-            vec!["test -s behavior".into()],
+            vec![command.into()],
             snapshot.clone(),
             2,
         )
         .unwrap();
         task.start_verification().unwrap();
-        task.checks
-            .push(check(&project, "test -s behavior", &snapshot.digest));
+        task.checks.push(check(&project, command, &snapshot.digest));
         assert!(!task.checks[0].success);
         task.stopped = true;
         record.task = Some(task);
@@ -510,4 +513,51 @@ fn learning_finite_selection_and_missing_authorization_are_not_supported() {
     let mut store = CatalogStore::open(&fixture.runtime, true).unwrap();
     store.catalog.candidate_mut(1).unwrap().authorization = None;
     assert!(store.validate_support(1, 0).is_err());
+}
+
+#[test]
+fn learning_report_refusal_does_not_commit_catalog_mutations() {
+    let command = "python3 -c \"print('x' * 524288)\"; test -s behavior";
+    let fixture = Fixture::failed_with_command(command);
+    fixture.discover();
+    let snapshot = fixture.correction(1, command, false);
+    for _ in 0..16 {
+        let mut store = CatalogStore::open(&fixture.runtime, true).unwrap();
+        store.outcome(1, &snapshot).unwrap();
+        store.save().unwrap();
+        drop(store);
+        fixture
+            .runtime
+            .update(|record| {
+                let task = record.task.as_mut().unwrap();
+                task.start_verification()?;
+                task.checks
+                    .push(check(&fixture.project, command, &snapshot));
+                Ok(())
+            })
+            .unwrap();
+    }
+    let store = CatalogStore::open(&fixture.runtime, false).unwrap();
+    let path = store.directory().join("state.json");
+    drop(store);
+    let before = fs::read(&path).unwrap();
+    let error = super::control::Request::Outcome(1)
+        .run(&fixture.runtime, Some(snapshot))
+        .unwrap_err();
+    assert!(
+        error.to_string().contains("inspection exceeds 8 MiB"),
+        "{error:#}"
+    );
+    assert!(
+        fs::read(&path).unwrap() == before,
+        "report refusal changed the saved catalog"
+    );
+    let (view, _) = super::control::Request::Note(1, "A bounded developer note.".into())
+        .run(&fixture.runtime, None)
+        .unwrap();
+    assert!(view.text.contains("Developer annotation retained"));
+    assert!(
+        fs::read(path).unwrap() != before,
+        "successful annotation was not saved"
+    );
 }
