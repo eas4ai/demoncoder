@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """Declared build outputs through production verification and durable recovery."""
 import json
+from pathlib import Path
 import tempfile
 import sys
 
 sys.dont_write_bytecode = True
 from audit_remediation import App, provider
+import assignable_subagents as children
 
 
 def large_outputs_and_recovery(server):
@@ -35,7 +37,7 @@ def large_outputs_and_recovery(server):
             assert "generated" in json.dumps(server.reviews[-1]).lower()
         finally:
             app.close()
-        resumed = App(directory, server, ["--resume", str(path), *scope])
+        resumed = App(directory, server, ["--resume", str(path), *scope, "--reviewer", "worker"])
         try:
             resumed.send("/task-status")
             _, record = resumed.record()
@@ -65,15 +67,51 @@ def undeclared_input_changes_fail(server):
             app.close()
 
 
+def delegated_outputs():
+    server = children.server_fixture()
+    try:
+        with tempfile.TemporaryDirectory(prefix="demoncoder-generated-child-") as directory:
+            project = children.repository(directory)
+            (project / "build").mkdir()
+            (project / "build/note").write_text("parent generated content")
+            with (project / "build/artifact").open("wb") as artifact:
+                artifact.truncate(9 * 1024 * 1024)
+            app = children.launch(directory, server, ["--generated-output", "build"])
+            try:
+                calls = [
+                    {"name": "bash", "arguments": {"command": "test ! -e build && mkdir build && truncate -s 9437184 build/artifact"}},
+                    {"name": "write", "arguments": {"path": "greeting", "content": "scoped child source\n"}},
+                ]
+                record = children.stopped(app, children.delegate(app, server, "anthropic-api", calls))
+                results = [event["result"] for event in record["activity"] if event["type"] == "tool_finished"]
+                assert len(results) == 2 and all(result["success"] for result in results), results
+                root = Path(record["worktree"]["root"])
+                assert (root / "build/artifact").stat().st_size == 9 * 1024 * 1024
+                app.send("/agent-validate 1")
+                app.wait_for(lambda: children.agent(app)["status"] != "validating", timeout=20)
+                assert children.agent(app)["status"] == "ready", children.agent(app)
+                app.send("/agent-integrate 1")
+                app.wait_for(lambda: children.agent(app)["status"] != "integrating", timeout=20)
+                assert children.agent(app)["status"] == "integrated", children.agent(app)
+                assert (project / "greeting").read_text() == "scoped child source\n"
+                assert (project / "build/note").read_text() == "parent generated content"
+            finally:
+                app.close()
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
 def main():
     server = provider()
     try:
         large_outputs_and_recovery(server)
         undeclared_input_changes_fail(server)
-        print("AUD-003: generated outputs preserve source verification and freeze recovery scope")
     finally:
         server.shutdown()
         server.server_close()
+    delegated_outputs()
+    print("AUD-003: generated outputs preserve source verification, recovery scope and child integration")
 
 
 if __name__ == "__main__":

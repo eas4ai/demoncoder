@@ -1,6 +1,6 @@
 use demoncoder::subagents::{
     state::AssignmentRequest,
-    worktree::{build_delta, inspect, integrate, prepare},
+    worktree::{build_delta, inspect, integrate, prepare, prepare_with_scope},
 };
 use std::{
     fs,
@@ -45,6 +45,76 @@ fn request(owned: &[&str]) -> AssignmentRequest {
         context: String::new(),
         owned_paths: owned.iter().map(|s| s.to_string()).collect(),
     }
+}
+
+#[tokio::test]
+async fn generated_outputs_stay_out_of_child_files_git_objects_and_integration() {
+    use demoncoder::workflow::workspace::CaptureScope;
+
+    let (_temp, parent, child) = repository();
+    fs::create_dir(parent.join("build")).unwrap();
+    fs::write(parent.join("build/note"), "PARENT_GENERATED_CANARY").unwrap();
+    fs::File::create(parent.join("build/artifact"))
+        .unwrap()
+        .set_len(9 * 1024 * 1024)
+        .unwrap();
+    let scope = CaptureScope::new(vec!["build".into()]).unwrap();
+    let identity = prepare_with_scope(&parent, &child, &scope).await.unwrap();
+    assert!(!child.join("build").exists());
+    assert_eq!(identity.child_baseline.scope, scope);
+    fs::create_dir(child.join("build")).unwrap();
+    fs::write(child.join("build/note"), "CHILD_GENERATED_CANARY").unwrap();
+    fs::File::create(child.join("build/artifact"))
+        .unwrap()
+        .set_len(9 * 1024 * 1024)
+        .unwrap();
+    assert_eq!(
+        inspect(&identity).await.unwrap().digest,
+        identity.child_baseline.digest
+    );
+    fs::write(child.join("owned"), "corrected source").unwrap();
+    let snapshot = inspect(&identity).await.unwrap();
+    let delta = build_delta(&identity, &request(&["owned"]), &snapshot.digest)
+        .await
+        .unwrap();
+    assert!(
+        delta
+            .changed_paths
+            .iter()
+            .all(|path| !path.contains("build"))
+    );
+    let restored = serde_json::from_str(&serde_json::to_string(&identity).unwrap()).unwrap();
+    integrate(&parent, &restored, &delta).await.unwrap();
+    assert_eq!(
+        fs::read_to_string(parent.join("owned")).unwrap(),
+        "corrected source"
+    );
+    assert_eq!(
+        fs::read_to_string(parent.join("build/note")).unwrap(),
+        "PARENT_GENERATED_CANARY"
+    );
+    for root in [&parent, &child] {
+        // Without -w, this computes the ID but cannot create the forbidden object.
+        let oid = String::from_utf8(git(root, &["hash-object", "build/note"])).unwrap();
+        assert!(
+            !Command::new("git")
+                .current_dir(&parent)
+                .args(["cat-file", "-e", oid.trim()])
+                .stderr(std::process::Stdio::null())
+                .status()
+                .unwrap()
+                .success()
+        );
+    }
+    let mut mismatched = identity;
+    mismatched.parent_baseline.scope = CaptureScope::default();
+    assert!(
+        inspect(&mismatched)
+            .await
+            .unwrap_err()
+            .to_string()
+            .contains("scope")
+    );
 }
 
 #[tokio::test]

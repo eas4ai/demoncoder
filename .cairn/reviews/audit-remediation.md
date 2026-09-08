@@ -46,3 +46,24 @@ it. The installed case inspects the actual reviewer request and retained state,
 requires public source and explicit exclusions, and completes verified acceptance.
 
 This is a mechanism review, not the final independent commitment review.
+
+## Generated-output mechanism
+
+The initial committed AUD-003 check failed because the application rejected
+--generated-output. The implementation adds explicit scope rather than increasing
+the capture limits or weakening input freshness. Production capture tests require
+an undeclared 9 MiB artifact to fail and a declared artifact to preserve source
+identity. A real source edit and a changed declaration must produce new identities;
+review across different declarations must refuse.
+
+The terminal check now builds and rewrites 9 MiB outputs twice, verifies and accepts
+the actual source, resumes with the same declaration, rejects a different declaration,
+and refuses a check that changes an undeclared input. A real delegated child creates
+a large output, passes validation and integrates its owned source while preserving
+the parent's generated files. Git worktree tests separately prove that parent and
+child generated canaries never enter retained Git objects or source deltas.
+
+An independent read-only call trace confirmed that parent resume, reconciliation,
+verification, review and acceptance all use WorkflowSession::snapshot, and that
+child inspection, reconciliation and integration use the retained baseline scope.
+Learning instruction reads and tool permissions are intentionally unchanged.

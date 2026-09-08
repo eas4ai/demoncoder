@@ -169,6 +169,11 @@ pub struct ContextBinding {
 #[serde(deny_unknown_fields)]
 pub struct Record {
     pub workspace: PathBuf,
+    #[serde(
+        default,
+        skip_serializing_if = "super::workspace::CaptureScope::is_empty"
+    )]
+    pub capture_scope: super::workspace::CaptureScope,
     pub identity: Identity,
     pub reviewer_identity: Option<Identity>,
     pub task: Option<Task>,
@@ -279,6 +284,21 @@ impl SharedRuntime {
         connection: &Connection,
         resume: Option<&Path>,
     ) -> Result<(Self, bool)> {
+        Self::open_with_scope(
+            workspace,
+            connection,
+            resume,
+            &super::workspace::CaptureScope::default(),
+        )
+    }
+
+    pub fn open_with_scope(
+        workspace: &Path,
+        connection: &Connection,
+        resume: Option<&Path>,
+        capture_scope: &super::workspace::CaptureScope,
+    ) -> Result<(Self, bool)> {
+        capture_scope.validate()?;
         let home = PathBuf::from(
             std::env::var_os("HOME")
                 .context("HOME is required for private session recovery records")?,
@@ -301,6 +321,11 @@ impl SharedRuntime {
             let store = Store::open(path)?;
             let record: Record = serde_json::from_value(store.read()?)
                 .map_err(|_| anyhow::anyhow!("invalid session recovery state"))?;
+            record.capture_scope.validate()?;
+            ensure!(
+                record.capture_scope == *capture_scope,
+                "resume requires the original generated-output scope; restore its --generated-output declarations or start a new session"
+            );
             ensure!(
                 record.workspace == workspace && record.identity.matches(connection),
                 "resume requires the original workspace, connection, model and access mode"
@@ -311,6 +336,7 @@ impl SharedRuntime {
             let store = Store::create(&sessions.join(name))?;
             let record = Record {
                 workspace: workspace.into(),
+                capture_scope: capture_scope.clone(),
                 identity: Identity::from(connection),
                 reviewer_identity: None,
                 task: None,

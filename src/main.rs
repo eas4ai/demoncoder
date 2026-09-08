@@ -20,10 +20,11 @@ async fn main() -> Result<()> {
     let live_settings = demoncoder::settings::Handle::open(&args)?;
     let mut selection = args.selection()?;
     let settings = args.workflow_settings()?;
-    let (runtime, resumed) = demoncoder::workflow::runtime::SharedRuntime::open(
+    let (runtime, resumed) = demoncoder::workflow::runtime::SharedRuntime::open_with_scope(
         &selection.workspace,
         &selection.connection,
         args.resume.as_deref(),
+        &settings.capture_scope,
     )?;
     let agent_settings = args.agent_settings()?;
     anyhow::ensure!(

@@ -53,6 +53,9 @@ pub struct Args {
     /// Verification command selected for explicit /task work; repeat for several checks.
     #[arg(long = "check")]
     pub checks: Vec<String>,
+    /// Generated file or directory subtree omitted from source snapshots; repeat for several paths.
+    #[arg(long = "generated-output", value_name = "RELATIVE_PATH")]
+    pub generated_outputs: Vec<String>,
     /// Configured connection that reviews the actual patch without tools.
     #[arg(long)]
     pub reviewer: Option<String>,
@@ -293,6 +296,9 @@ impl Args {
             .transpose()?;
         Ok(crate::workflow::Settings {
             checks: self.checks.clone(),
+            capture_scope: crate::workflow::workspace::CaptureScope::new(
+                self.generated_outputs.clone(),
+            )?,
             reviewer_default: self.reviewer.as_deref() == Some("default")
                 && !config.connections.contains_key("default"),
             reviewer,

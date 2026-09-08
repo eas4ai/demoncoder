@@ -680,8 +680,13 @@ impl Manager {
             Job::Work => {
                 let directory = self.runtime.directory()?.join("agents");
                 crate::workflow::store::private_directory(&directory)?;
-                let identity =
-                    worktree::prepare(&self.workspace, &directory.join(id.to_string())).await?;
+                let scope = self.runtime.record()?.capture_scope;
+                let identity = worktree::prepare_with_scope(
+                    &self.workspace,
+                    &directory.join(id.to_string()),
+                    &scope,
+                )
+                .await?;
                 self.runtime.update_agent(id, |agent| {
                     agent.worktree = Some(identity.clone());
                     agent.status = AgentStatus::Running;
@@ -1685,6 +1690,7 @@ mod tests {
         };
         let record_root = root.path().join("record");
         let record = Record {
+            capture_scope: Default::default(),
             workspace: workspace_root.clone(),
             identity: identity_record,
             reviewer_identity: None,
@@ -1778,6 +1784,7 @@ mod tests {
         std::fs::create_dir(&workspace_root).unwrap();
         let connection = connection();
         let record = Record {
+            capture_scope: Default::default(),
             workspace: workspace_root.clone(),
             identity: Identity::from(&connection),
             reviewer_identity: None,
@@ -1881,6 +1888,7 @@ mod tests {
         let identity = Identity::from(&connection);
         let agents_root = root.path().join("record/agents");
         let record = Record {
+            capture_scope: Default::default(),
             workspace: workspace_root.clone(),
             identity: identity.clone(),
             reviewer_identity: None,

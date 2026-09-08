@@ -6,7 +6,7 @@
 //! the filesystem tools, these bounds assume ordinary kernel syscall completion;
 //! an uninterruptible filesystem syscall is not a hard real-time guarantee.
 use super::state::{AssignmentRequest, WorktreeIdentity, valid_content_path};
-use crate::workflow::workspace::{self, Kind, Snapshot};
+use crate::workflow::workspace::{self, CaptureScope, Kind, Snapshot};
 use anyhow::{Context, Result, ensure};
 use rustix::fs::{Mode, OFlags, ResolveFlags, openat2};
 use serde::{Deserialize, Serialize};
@@ -68,12 +68,14 @@ impl Drop for CaptureCancellation {
 async fn capture_background(
     root: &Path,
     raw: bool,
+    scope: &CaptureScope,
 ) -> Result<(Snapshot, BTreeMap<String, Vec<u8>>)> {
     let root = root.to_owned();
+    let scope = scope.clone();
     let flag = Arc::new(AtomicBool::new(false));
     let worker_flag = flag.clone();
     let worker = tokio::task::spawn_blocking(move || {
-        workspace::capture_cancellable(&root, raw, &worker_flag)
+        workspace::capture_scoped_cancellable(&root, raw, &worker_flag, &scope)
     });
     let _cancellation = CaptureCancellation {
         flag,
@@ -81,8 +83,8 @@ async fn capture_background(
     };
     worker.await.context("workspace capture worker failed")?
 }
-async fn capture_workspace(root: &Path) -> Result<Snapshot> {
-    Ok(capture_background(root, false).await?.0)
+async fn capture_workspace(root: &Path, scope: &CaptureScope) -> Result<Snapshot> {
+    Ok(capture_background(root, false, scope).await?.0)
 }
 async fn write_chunks(file: &mut File, bytes: &[u8], started: Instant) -> Result<()> {
     for chunk in bytes.chunks(64 * 1024) {
@@ -441,7 +443,15 @@ async fn commit_snapshot(
 /// Create a genuine detached worktree containing the complete developer baseline.
 /// The destination must not exist, and must be outside the selected parent tree.
 pub async fn prepare(parent: &Path, destination: &Path) -> Result<WorktreeIdentity> {
-    let (parent_baseline, raw) = capture_background(parent, true).await?;
+    prepare_with_scope(parent, destination, &CaptureScope::default()).await
+}
+
+pub async fn prepare_with_scope(
+    parent: &Path,
+    destination: &Path,
+    scope: &CaptureScope,
+) -> Result<WorktreeIdentity> {
+    let (parent_baseline, raw) = capture_background(parent, true, scope).await?;
     for (name, entry) in &parent_baseline.entries {
         tokio::task::yield_now().await;
         ensure!(
@@ -504,7 +514,7 @@ pub async fn prepare(parent: &Path, destination: &Path) -> Result<WorktreeIdenti
     )
     .await?;
     materialize(&destination, &parent_baseline, &raw).await?;
-    let child_baseline = capture_workspace(&destination).await?;
+    let child_baseline = capture_workspace(&destination, scope).await?;
     ensure!(
         content_equal(&parent_baseline, &child_baseline),
         "copied baseline differs from the developer workspace"
@@ -522,7 +532,7 @@ pub async fn prepare(parent: &Path, destination: &Path) -> Result<WorktreeIdenti
     let git_dir =
         std::fs::canonicalize(value(&destination, &["rev-parse", "--absolute-git-dir"]).await?)?;
     ensure!(
-        capture_workspace(&parent).await? == parent_baseline,
+        capture_workspace(&parent, scope).await? == parent_baseline,
         "parent changed while preparing assignment; retain worktree and retry from a fresh baseline"
     );
     let git_meta = secure_root(&git_dir)?.metadata()?;
@@ -586,6 +596,11 @@ fn read_pointer(root: &Path, name: &str) -> Result<String> {
 
 /// Verify administrative identity as well as all content before trusting a child.
 pub async fn inspect(identity: &WorktreeIdentity) -> Result<Snapshot> {
+    identity.child_baseline.scope.validate()?;
+    ensure!(
+        identity.parent_baseline.scope == identity.child_baseline.scope,
+        "child generated-output scope differs from its parent baseline"
+    );
     ensure!(
         valid_oid(&identity.baseline_commit) && valid_oid(&identity.repository_head),
         "invalid recorded Git commit identity"
@@ -614,7 +629,7 @@ pub async fn inspect(identity: &WorktreeIdentity) -> Result<Snapshot> {
         read_pointer(&identity.git_dir, "gitdir")? == format!("{}\n", pointer.display()),
         "child administrative backpointer changed"
     );
-    let snapshot = capture_workspace(&identity.root).await?;
+    let snapshot = capture_workspace(&identity.root, &identity.child_baseline.scope).await?;
     ensure!(
         snapshot.same_root(&identity.child_baseline),
         "child workspace root replaced"
@@ -718,7 +733,8 @@ pub async fn build_delta(
             "child changed unowned path {path:?}"
         );
     }
-    let (captured, raw) = capture_background(&identity.root, true).await?;
+    let (captured, raw) =
+        capture_background(&identity.root, true, &identity.child_baseline.scope).await?;
     ensure!(
         captured == current,
         "child changed while preparing integration"
@@ -771,7 +787,8 @@ pub async fn integrate(
         changed(&identity.child_baseline, &child) == plan.changed_paths,
         "integration plan paths do not match child delta"
     );
-    let (captured, raw) = capture_background(&identity.root, true).await?;
+    let (captured, raw) =
+        capture_background(&identity.root, true, &identity.child_baseline.scope).await?;
     ensure!(
         captured == child,
         "child changed before result verification"
@@ -790,7 +807,7 @@ pub async fn integrate(
         format!("{:x}", Sha256::digest(&actual_patch)) == plan.patch_digest,
         "integration plan patch changed"
     );
-    let current = capture_workspace(parent).await?;
+    let current = capture_workspace(parent, &identity.parent_baseline.scope).await?;
     ensure!(
         current.same_root(&identity.parent_baseline),
         "parent workspace identity changed"
@@ -871,7 +888,8 @@ pub async fn integrate(
         )
         .await?;
         ensure!(
-            capture_workspace(parent).await? == current && inspect(identity).await? == child,
+            capture_workspace(parent, &identity.parent_baseline.scope).await? == current
+                && inspect(identity).await? == child,
             "workspace changed before integration"
         );
         enable_validated_directory_writes(parent, &current, &expected, &plan.changed_paths).await?;
@@ -891,12 +909,13 @@ pub async fn integrate(
     }
     if actual_patch.is_empty() {
         ensure!(
-            capture_workspace(parent).await? == current && inspect(identity).await? == child,
+            capture_workspace(parent, &identity.parent_baseline.scope).await? == current
+                && inspect(identity).await? == child,
             "workspace changed before permission integration"
         );
     }
     reconcile_metadata(parent, &current, &expected, &plan.changed_paths).await?;
-    let result = capture_workspace(parent).await?;
+    let result = capture_workspace(parent, &identity.parent_baseline.scope).await?;
     ensure!(
         result.entries == expected.entries,
         "integration result differs at {:?}; inspect parent state before retrying",
@@ -1073,7 +1092,9 @@ mod tests {
             )
             .unwrap();
         }
-        let (snapshot, raw) = capture_background(source.path(), true).await.unwrap();
+        let (snapshot, raw) = capture_background(source.path(), true, &CaptureScope::default())
+            .await
+            .unwrap();
         let target = destination.path().to_owned();
         let task = tokio::spawn(async move { materialize(&target, &snapshot, &raw).await });
         let first = destination.path().join("file-0");
@@ -1097,10 +1118,14 @@ mod tests {
         task.abort();
         assert!(task.await.unwrap_err().is_cancelled());
         assert!(cancelled.elapsed() < Duration::from_secs(2));
-        let stopped = capture_workspace(destination.path()).await.unwrap();
+        let stopped = capture_workspace(destination.path(), &CaptureScope::default())
+            .await
+            .unwrap();
         tokio::time::sleep(Duration::from_millis(30)).await;
         assert_eq!(
-            capture_workspace(destination.path()).await.unwrap(),
+            capture_workspace(destination.path(), &CaptureScope::default())
+                .await
+                .unwrap(),
             stopped,
             "cancelled materialization kept changing destination files"
         );
@@ -1114,7 +1139,9 @@ mod tests {
             std::fs::create_dir(&directory).unwrap();
             std::fs::set_permissions(directory, std::fs::Permissions::from_mode(0o700)).unwrap();
         }
-        let before = capture_workspace(destination.path()).await.unwrap();
+        let before = capture_workspace(destination.path(), &CaptureScope::default())
+            .await
+            .unwrap();
         let mut after = before.clone();
         let mut changes = Vec::new();
         for (name, entry) in &mut after.entries {
@@ -1137,10 +1164,14 @@ mod tests {
         .unwrap();
         task.abort();
         assert!(task.await.unwrap_err().is_cancelled());
-        let stopped = capture_workspace(destination.path()).await.unwrap();
+        let stopped = capture_workspace(destination.path(), &CaptureScope::default())
+            .await
+            .unwrap();
         tokio::time::sleep(Duration::from_millis(30)).await;
         assert_eq!(
-            capture_workspace(destination.path()).await.unwrap(),
+            capture_workspace(destination.path(), &CaptureScope::default())
+                .await
+                .unwrap(),
             stopped
         );
     }

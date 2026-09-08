@@ -22,6 +22,9 @@ use rustix::fs::{Dir, Mode, OFlags, ResolveFlags, openat2, readlinkat};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
+mod scope;
+pub use scope::CaptureScope;
+
 const MAX_ENTRIES: usize = 20_000;
 const MAX_DEPTH: usize = 64;
 const MAX_FILE_BYTES: u64 = 8 * 1024 * 1024;
@@ -38,6 +41,8 @@ pub struct Snapshot {
     /// Zero identifies historical snapshots captured before private-source exclusions.
     #[serde(default)]
     export_policy: u8,
+    #[serde(default, skip_serializing_if = "CaptureScope::is_empty")]
+    pub scope: CaptureScope,
     root_device: u64,
     root_inode: u64,
     pub(crate) entries: BTreeMap<String, Entry>,
@@ -100,6 +105,7 @@ struct Scan<'a> {
     stamps: BTreeMap<String, Stamp>,
     raw: Option<BTreeMap<String, Vec<u8>>>,
     cancelled: Option<&'a AtomicBool>,
+    scope: &'a CaptureScope,
     bytes: u64,
 }
 
@@ -164,7 +170,9 @@ impl Scan<'_> {
                 let child = std::str::from_utf8(bytes).context(
                     "workspace contains a non-UTF-8 path; rename it before verification",
                 )?;
-                if crate::export_policy::private_path(&path.join(child)) {
+                if crate::export_policy::private_path(&path.join(child))
+                    || self.scope.excludes(&path.join(child))
+                {
                     continue;
                 }
                 self.walk(&path.join(child), depth + 1)?;
@@ -263,24 +271,40 @@ fn entry(kind: Kind, mode: u32, data: &[u8]) -> Entry {
 /// Refuses symlink roots, descendant mounts, hard-linked regular files, special
 /// files, non-UTF-8 names and oversized trees rather than silently skipping them.
 pub fn capture(root: &Path) -> Result<Snapshot> {
-    Ok(capture_inner(root, false, None)?.0)
+    capture_with_scope(root, &CaptureScope::default())
+}
+
+pub fn capture_with_scope(root: &Path, scope: &CaptureScope) -> Result<Snapshot> {
+    Ok(capture_inner(root, false, None, scope)?.0)
 }
 
 /// The worktree coordinator can cancel a background read at scanner checkpoints.
 /// Raw bytes remain transient and never enlarge serialized evidence records.
+#[cfg(test)]
 pub(crate) fn capture_cancellable(
     root: &Path,
     retain_raw: bool,
     cancelled: &AtomicBool,
 ) -> Result<(Snapshot, BTreeMap<String, Vec<u8>>)> {
-    capture_inner(root, retain_raw, Some(cancelled))
+    capture_scoped_cancellable(root, retain_raw, cancelled, &CaptureScope::default())
+}
+
+pub(crate) fn capture_scoped_cancellable(
+    root: &Path,
+    retain_raw: bool,
+    cancelled: &AtomicBool,
+    scope: &CaptureScope,
+) -> Result<(Snapshot, BTreeMap<String, Vec<u8>>)> {
+    capture_inner(root, retain_raw, Some(cancelled), scope)
 }
 
 fn capture_inner(
     root: &Path,
     retain_raw: bool,
     cancelled: Option<&AtomicBool>,
+    scope: &CaptureScope,
 ) -> Result<(Snapshot, BTreeMap<String, Vec<u8>>)> {
+    scope.validate()?;
     let started = Instant::now();
     let open_root = || -> Result<File> {
         Ok(openat2(rustix::fs::CWD, root, OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC | OFlags::NOFOLLOW, Mode::empty(), ResolveFlags::NO_SYMLINKS)
@@ -296,6 +320,7 @@ fn capture_inner(
             stamps: BTreeMap::new(),
             raw: keep_raw.then(BTreeMap::new),
             cancelled,
+            scope,
             bytes: 0,
         };
         scan.walk(Path::new("."), 0)?;
@@ -313,6 +338,7 @@ fn capture_inner(
     let mut snapshot = Snapshot {
         digest: String::new(),
         export_policy: crate::export_policy::VERSION,
+        scope: scope.clone(),
         root_device: root_stamp.device,
         root_inode: root_stamp.inode,
         entries: second.entries,
@@ -372,6 +398,12 @@ fn describe(output: &mut String, side: &str, value: Option<&Entry>, changed: boo
 /// Baseline includes pre-existing developer edits and untracked/ignored files;
 /// no Git tracked/clean claim is made. Oversized or changed binary evidence fails.
 pub fn review_evidence(before: &Snapshot, after: &Snapshot) -> Result<String> {
+    before.scope.validate()?;
+    after.scope.validate()?;
+    ensure!(
+        before.scope == after.scope,
+        "generated-output scope changed; start a new task baseline"
+    );
     ensure!(
         before.root_device == after.root_device && before.root_inode == after.root_inode,
         "workspace root identity changed; start a new task baseline"
@@ -385,11 +417,22 @@ pub fn review_evidence(before: &Snapshot, after: &Snapshot) -> Result<String> {
         ),
     )?;
     append(&mut output, crate::export_policy::DESCRIPTION)?;
+    if !after.scope.is_empty() {
+        append(
+            &mut output,
+            &format!(
+                "Generated-output scope (excluded from source capture and review): {}\n",
+                serde_json::to_string(&after.scope)?
+            ),
+        )?;
+    }
     let names: std::collections::BTreeSet<_> =
         before.entries.keys().chain(after.entries.keys()).collect();
     for name in names {
         // Older snapshots may contain private text. Never re-export that content.
-        if crate::export_policy::private_path(Path::new(name)) {
+        if crate::export_policy::private_path(Path::new(name))
+            || after.scope.excludes(Path::new(name))
+        {
             continue;
         }
         let old = before.entries.get(name);
@@ -456,6 +499,7 @@ mod tests {
             stamps: BTreeMap::new(),
             raw: None,
             cancelled: None,
+            scope: &CaptureScope::default(),
             bytes: MAX_TOTAL_BYTES - 4,
         };
         scan.walk(Path::new("first"), 1).unwrap();

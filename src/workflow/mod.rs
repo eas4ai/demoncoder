@@ -54,6 +54,7 @@ use state::{CheckReceipt, Task};
 #[derive(Clone, Default)]
 pub struct Settings {
     pub checks: Vec<String>,
+    pub capture_scope: workspace::CaptureScope,
     pub reviewer: Option<Connection>,
     pub reviewer_default: bool,
     pub correction_limit: u32,
@@ -85,6 +86,11 @@ impl WorkflowSession {
         resumed: bool,
     ) -> Result<Self> {
         let mut record = runtime.record()?;
+        settings.capture_scope.validate()?;
+        ensure!(
+            record.capture_scope == settings.capture_scope,
+            "workflow generated-output scope differs from the retained session scope"
+        );
         if let Some(task) = &mut record.task
             && task.creator_identity.is_none()
         {
@@ -194,7 +200,8 @@ impl WorkflowSession {
             "task workspace contains private session or connection settings; select the project directory that excludes those private files"
         );
         let root = self.workspace.clone();
-        tokio::task::spawn_blocking(move || workspace::capture(&root))
+        let scope = self.settings.capture_scope.clone();
+        tokio::task::spawn_blocking(move || workspace::capture_with_scope(&root, &scope))
             .await
             .context("workspace capture failed")?
     }

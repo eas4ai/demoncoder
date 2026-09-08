@@ -4,8 +4,86 @@ use std::{
     time::{Duration, Instant},
 };
 
-use demoncoder::workflow::workspace::{capture, review_evidence};
+use demoncoder::workflow::workspace::{CaptureScope, capture, capture_with_scope, review_evidence};
 use tempfile::tempdir;
+
+#[test]
+fn declared_outputs_skip_large_artifacts_but_scope_and_source_changes_invalidate_identity() {
+    let root = tempdir().unwrap();
+    fs::write(root.path().join("source.rs"), "source").unwrap();
+    let scope = CaptureScope::new(vec!["build".into()]).unwrap();
+    let before = capture_with_scope(root.path(), &scope).unwrap();
+    fs::create_dir(root.path().join("build")).unwrap();
+    let artifact = fs::File::create(root.path().join("build/artifact")).unwrap();
+    artifact.set_len(9 * 1024 * 1024).unwrap();
+    fs::write(root.path().join("build/note"), "GENERATED_CONTENT_CANARY").unwrap();
+    let after = capture_with_scope(root.path(), &scope).unwrap();
+    assert_eq!(before.digest, after.digest);
+    assert!(
+        !serde_json::to_string(&after)
+            .unwrap()
+            .contains("GENERATED_CONTENT_CANARY")
+    );
+    assert!(
+        review_evidence(&before, &after)
+            .unwrap()
+            .contains("Generated-output scope")
+    );
+    assert!(
+        capture(root.path()).is_err(),
+        "undeclared large output must still refuse capture"
+    );
+    fs::write(root.path().join("build-other"), "in-scope input").unwrap();
+    assert_ne!(
+        after.digest,
+        capture_with_scope(root.path(), &scope).unwrap().digest
+    );
+    fs::remove_file(root.path().join("build-other")).unwrap();
+    fs::write(root.path().join("source.rs"), "changed input").unwrap();
+    assert_ne!(
+        after.digest,
+        capture_with_scope(root.path(), &scope).unwrap().digest
+    );
+    let changed_scope = CaptureScope::new(vec!["build".into(), "other".into()]).unwrap();
+    let changed = capture_with_scope(root.path(), &changed_scope).unwrap();
+    assert_ne!(
+        changed.digest,
+        capture_with_scope(root.path(), &scope).unwrap().digest
+    );
+    assert!(
+        review_evidence(&after, &changed)
+            .unwrap_err()
+            .to_string()
+            .contains("scope changed")
+    );
+}
+
+#[test]
+fn generated_output_scope_is_explicit_bounded_and_cannot_name_the_root_or_private_paths() {
+    for path in [
+        "",
+        ".",
+        "..",
+        "../outside",
+        "/outside",
+        ".git",
+        "nested/.git",
+        ".env",
+        "a\nb",
+    ] {
+        assert!(
+            CaptureScope::new(vec![path.into()]).is_err(),
+            "accepted {path:?}"
+        );
+    }
+    assert!(CaptureScope::new(vec!["build".into(); 129]).is_err());
+    assert_eq!(
+        CaptureScope::new(vec!["b".into(), "a".into(), "b".into()]).unwrap(),
+        CaptureScope::new(vec!["a".into(), "b".into()]).unwrap()
+    );
+    let malformed: CaptureScope = serde_json::from_str(r#"{"generated_outputs":["."]}"#).unwrap();
+    assert!(capture_with_scope(tempdir().unwrap().path(), &malformed).is_err());
+}
 
 #[test]
 fn private_source_never_enters_capture_or_review_even_from_older_snapshots() {

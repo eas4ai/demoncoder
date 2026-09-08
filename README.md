@@ -171,7 +171,7 @@ Native OpenAI and Anthropic API sessions support an explicit task workflow.
 Select checks and a configured reviewer before starting:
 
 ```bash
-demoncoder --workspace /path/to/project --check 'cargo test --locked' \
+demoncoder --workspace /path/to/project --generated-output target --check 'cargo test --locked' \
   --reviewer review-model --correction-rounds 2 \
   --task-seconds 900 --task-model-calls 64 --task-tool-calls 128
 ```
@@ -235,7 +235,22 @@ dotfiles, Git/GitHub/gcloud/OpenCode credentials under `.config`, Cargo credenti
 and `.env` variants. Public `.env.example`, `.env.sample` and `.env.template`
 files remain source. The same exclusions apply to review and delegated Git exports;
 excluded files are not reviewed or integrated. Older stored records and Git history
-are not rewritten. It uses repeated bounded scans, not an atomic filesystem
+are not rewritten.
+
+Declare disposable build outputs before starting with `--generated-output target`
+or repeat the flag for several files or directory subtrees. Paths are literal and
+relative to the workspace; no glob expansion is performed. The root, parent
+traversal, private paths and Git administration are refused. The list is bounded
+to 128 paths and 32 KiB. Select the containing output directory when a build also
+creates that directory; undeclared ancestor directories remain source inputs.
+Declared outputs are omitted before reading, so large or changing artifacts do
+not invalidate verification. Other source changes still do. The declaration is
+retained in snapshot and session identity, shown in review evidence, and inherited
+by child capture and integration. It does not change tool permissions. Resume
+requires the same declarations; changing scope requires a new session and fresh
+checks and review.
+
+Capture uses repeated bounded scans, not an atomic filesystem
 snapshot; avoid concurrent edits during checks and review. Limits are 8 MiB per
 file, 64 MiB total content, 20,000 entries, depth 64 and ten seconds per capture.
 Special files, hard links, mounted subtrees and unsupported path names block
