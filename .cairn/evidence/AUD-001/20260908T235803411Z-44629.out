@@ -1,0 +1,73 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.43s
+     Running tests/developer_access.rs (target/debug/deps/developer_access-e415e2d295764c97)
+
+running 16 tests
+test native_read_accepts_outside_documentation_and_git_metadata_but_mutation_stays_rooted ... ok
+test normal_build_links_and_reference_symlinks_do_not_disable_bash ... ok
+test nested_private_settings_are_hidden_without_blocking_the_shell ... ok
+test bash_can_reach_a_network_documentation_endpoint ... ok
+test bash_does_not_inherit_a_host_directory_descriptor ... ok
+test installed_developer_tools_are_available_without_exposing_provider_environment ... ok
+test selected_repository_read_only_assessment ... ignored, requires DEMONCODER_ASSESS_WORKSPACE and uses public network services
+test selected_private_config_cannot_be_changed_by_native_tools ... ok
+test git_can_inspect_and_commit_the_selected_repository ... ok
+test reliability_host_socket_is_not_reachable_from_confined_bash ... ok
+test sweep_public_skill_read_preserves_private_canary ... ok
+test reliability_abstract_socket_and_datagram_bypass_are_denied ... ok
+test private_workspace_settings_and_their_aliases_are_unreadable ... ok
+test sweep_temporary_files_and_pty_work_inside_the_production_sandbox ... ok
+test sweep_nested_namespace_probe_retains_its_actual_disposition ... ok
+test outside_hard_link_and_symlink_writes_are_blocked_without_disabling_other_commands ... ok
+
+test result: ok. 15 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 1.39s
+
+     Running tests/subagent_worktrees.rs (target/debug/deps/subagent_worktrees-f0d5d1e9e4ff70d6)
+
+running 17 tests
+test captures_dirty_binary_ignored_deleted_modes_and_symlinks_without_touching_parent_index ... ok
+test forged_result_and_parent_replacement_refuse_before_effects ... ok
+test conflicts_stale_child_and_unowned_changes_refuse_before_effects ... ok
+test deleting_last_file_preserves_the_validated_empty_directory ... ok
+test additions_deletions_binary_and_executable_delta_are_exact ... ok
+test generated_outputs_stay_out_of_child_files_git_objects_and_integration ... ok
+test deep_owned_file_creates_only_necessary_ancestor_directories ... ok
+test metadata_retargeting_and_unsafe_baselines_are_rejected ... ok
+test hooks_filters_and_signers_cannot_execute ... ok
+test same_path_admin_replacement_and_symlink_pointer_are_rejected ... ok
+test integrates_owned_delta_and_preserves_unrelated_dirty_parent_and_index ... ok
+test owned_empty_directory_delta_integrates_and_nested_git_is_refused ... ok
+test directory_modes_removal_and_symlink_delta_respect_ownership_and_parent_additions ... ok
+test private_source_is_not_copied_or_committed_by_delegation ... ok
+test validated_permission_increase_precedes_writes_inside_readonly_directory ... ok
+test mode_only_delta_and_quoted_filenames_preserve_exact_bytes ... ok
+test repository_diff_prefixes_cannot_redirect_integration_into_unowned_files ... ok
+
+test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.27s
+
+     Running tests/workflow_workspace.rs (target/debug/deps/workflow_workspace-e6c91c68b90d3920)
+
+running 15 tests
+test generated_output_scope_is_explicit_bounded_and_cannot_name_the_root_or_private_paths ... ok
+test hardlinks_and_symlink_roots_are_rejected ... ok
+test changed_binary_blocks_review_but_unchanged_binary_is_identified ... ok
+test private_source_never_enters_capture_or_review_even_from_older_snapshots ... ok
+test evidence_contains_actual_old_new_preexisting_and_untracked_text ... ok
+test special_files_are_rejected_without_opening_or_waiting ... ok
+test edits_additions_removals_modes_and_symlink_targets_change_identity ... ok
+test declared_outputs_skip_large_artifacts_but_scope_and_source_changes_invalidate_identity ... ok
+test unchanged_capture_and_serialization_are_deterministic ... ok
+test review_context_is_validated_and_changes_snapshot_identity ... ok
+test concurrent_symlink_replacement_cannot_read_outside_content ... ok
+test symlink_targets_are_never_read_and_only_root_git_is_excluded ... ok
+test depth_is_bounded_and_replaced_roots_cannot_share_review ... ok
+test oversized_file_and_evidence_are_explicit_refusals ... ok
+test bounded_review_keeps_changed_source_selected_context_and_omitted_identities ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.23s
+
+  Installing demoncoder v0.1.2 (/home/shawn/workspace2/demoncoder)
+    Updating crates.io index
+    Finished `release` profile [optimized] target(s) in 1.45s
+   Replacing /home/shawn/.cargo/bin/demoncoder
+    Replaced package `demoncoder v0.1.2 (/home/shawn/workspace2/demoncoder)` with `demoncoder v0.1.2 (/home/shawn/workspace2/demoncoder)` (executable `demoncoder`)
+AUD-001: production review excludes private source and preserves acceptance

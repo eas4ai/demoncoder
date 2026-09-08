@@ -1,0 +1,9 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.43s
+     Running tests/developer_access.rs (target/debug/deps/developer_access-e415e2d295764c97)
+     Running tests/subagent_worktrees.rs (target/debug/deps/subagent_worktrees-f0d5d1e9e4ff70d6)
+     Running tests/workflow_workspace.rs (target/debug/deps/workflow_workspace-e6c91c68b90d3920)
+  Installing demoncoder v0.1.2 (/home/shawn/workspace2/demoncoder)
+    Updating crates.io index
+    Finished `release` profile [optimized] target(s) in 1.45s
+   Replacing /home/shawn/.cargo/bin/demoncoder
+    Replaced package `demoncoder v0.1.2 (/home/shawn/workspace2/demoncoder)` with `demoncoder v0.1.2 (/home/shawn/workspace2/demoncoder)` (executable `demoncoder`)
