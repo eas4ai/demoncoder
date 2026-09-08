@@ -1,10 +1,15 @@
 # Status and decision remediation review
 
 commitment: status-decision-remediation
-commit: d5c498158454960cc2dc2f2ef4ac098180baf5c5
+commit: 4dfdb6c10af586793c942a04ff4caaad0a4180c8
+examined:
+  - Authoritative runtime projection, stale/error state and lossy notices.
+  - Bounded Unicode paging, role/check history and immutable original evidence.
+  - Terminal draft/history preservation, cancellation and restart.
+  - Command authority, current-file gates, documentation and installed release.
 findings:
   - resolved: REM-002: Historical agent checks now render from retained role inputs; the failing multi-round regression and production inspection cases pass.
-Status: in progress
+Status: complete
 
 ## Baseline failure demonstration
 
@@ -134,3 +139,61 @@ Clippy and diff whitespace checks pass. Ripwire reports no gating quality
 regression and unchanged agent_report signature. The test gate's source-only
 reachability gaps remain supplemented by actual Cargo and production PTY checks.
 Final committed evidence refresh and installed release verification remain due.
+
+## Final review of the repaired candidate
+
+Reviewed the committed historical-check repair against the full inspector,
+runtime projection, command wrappers, terminal input flow and declared contract.
+The original finding is resolved: every retained role input projects its original
+check list into labeled output, including earlier correction rounds. Parsing
+failure remains explicit and cannot turn missing checks into a pass. The
+read-only renderer does not change original receipts or grant command authority.
+No additional in-scope finding remains. No code changed during this final review.
+
+The page boundary tests reconstruct Unicode and multi-round output without gaps.
+The reader uses try_lock off the input path, retains only the requested page,
+and rejects late request generations. A cached page may be historical by design;
+the display identifies it as saved evidence and says files were not rechecked.
+The existing acceptance/integration commands still check actual files. The
+production cases cover stale-file refusal, read-only navigation, draft/history
+retention, narrow resize, cancellation and restart without replay.
+
+All ten named commitment requirements have current passing Cairn receipts after
+7c41d14. The shared mechanisms also passed all seven subagent requirements, all
+seven orchestration requirements, and the inherited terminal checks. The status
+mechanism ran formatting, strict all-target Clippy, the full all-target Rust
+suite, and existing status/usage/continuation/registry/startup terminal drivers.
+The library has 73 passing tests; fixture/live entry points explicitly ignored
+by the general Cargo command are not claimed as executed by that command.
+
+### Installed release verification
+
+Ran cargo install --path . --locked from this candidate. The installed executable
+at /home/shawn/.cargo/bin/demoncoder and target/release/demoncoder match SHA-256
+39060995caa1d9a366341d6ccf9175aa3817d08644bbc8e087ceec26b189bfba.
+With DEMONCODER_TEST_BINARY selecting that installed executable, production
+REM-001, REM-002, REM-003 and REM-004 all passed. These use controlled provider
+fixtures with real terminal, process and filesystem behavior. No current live
+external-provider verification is claimed.
+
+### Production standard self-audit
+
+1. Traced the existing task, agent and terminal owners against the agreed scope.
+2. Kept the change within prerequisite presentation and documentation repairs.
+3. Reused runtime records and check rendering; added no durable store or daemon.
+4. Preserved existing public terminal entry points and durable record formats.
+5. Made unavailable state and parsing failures explicit; identity display omits credentials.
+6. Kept quoted evidence separate from controls and retained existing effect gates.
+7. Inspection performs no persistence; interrupted work still needs explicit reconciliation.
+8. Bounded paging and background refresh; tested contention, cancellation and stale publication.
+9. Maintained one action in progress and resolved the finding only after repair verification.
+10. Ran failure demonstrations, production checks, Rust checks and installed-binary cases.
+11. Limited claims to executed evidence and documented saved-file freshness limits.
+12. Applied the developer's prerequisite scope and decision to continue past malformed review metadata.
+13. Re-reviewed the repaired candidate; no further revision is indicated by this audit.
+14. Documented controls, consequences and limits in plain language.
+
+The earlier unprefixed finding was corrected to open before work resumed. Its
+current resolved entry records an actual verified repair, not the previous
+parser-induced clean result. Cairn validation remediation is separate developer
+work and is not claimed as part of this repository's change.
