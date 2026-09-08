@@ -1,0 +1,21 @@
+command: bash scripts/check-provider-agent-settings.sh
+results: per-requirement
+inputs:
+  - Cargo.toml
+  - Cargo.lock
+  - src/
+  - tests/
+  - scripts/
+  - README.md
+  - docs/spec/
+  - docs/plans/
+  - docs/commitments/provider-agent-settings.md
+requirements:
+  - SET-001
+  - SET-002
+  - SET-003
+  - SET-004
+  - SET-005
+  - SET-006
+  - SET-007
+  - SET-008
