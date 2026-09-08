@@ -5,6 +5,7 @@ commit: a864e430b5ead03df6649aff9bdfeef6c220d40d
 examined:
   - START-003 startup mechanism against the current requirement and falsifier.
 findings:
+  - open: SET-007: Auto-added provider placeholders can exceed the editor connection limit and make the next Settings open fail.
   - resolved: SET-008: Corrected the comma-separated Host paths declaration; specification lint passes.
 Status: incomplete
 
@@ -106,3 +107,13 @@ fixture's incomplete Codex account response. Added the required
 The full development connection runner now reports passes for CONN-002 through
 CONN-006, including rejected/missing/expired credentials and wrong billing routes.
 It still refuses stale historical live-provider evidence for unselected CONN-001.
+
+## Final review finding: connection-limit stability
+
+At 64 existing named connections, Editor::new accepts the configuration and then
+adds placeholders for missing built-in adapters. Saving can therefore retain more
+than 64 entries; the next Settings open rejects the file it just saved. The review
+found this by tracing new/apply/persistence together, beyond the ordinary PTY
+catalog sizes. Keep existing connections and enforce the same capacity while
+adding optional placeholders; verify reopen stability at the boundary. No code
+was changed during this review.
