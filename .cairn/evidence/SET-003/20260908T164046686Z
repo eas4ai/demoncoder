@@ -1,0 +1,21 @@
+requirement: SET-003
+requirement_digest: sha256:d34b93faa95454554776b1744f693ae2893a2fe715245b1d70c3686def5c5c41
+sequence: 3
+history_digest: sha256:f02e60b4941a468550f84b6f48a8c361ea1e0193def4553b7996f073e8768900
+mechanism: provider-agent-settings
+commit: b3663be
+inputs_digest: sha256:633598cc1dfeb8874170275873645796a986efd6ed2475083ca8f75c9984b38b
+mechanism_digest: sha256:b4575f2ee03e973fb80027782196833e2419c2a06b58d8d0cb03bae301f30bda
+inputs_detail: .cairn/evidence/SET-001/20260908T163946099Z-1718811.inputs.json
+command: bash scripts/check-provider-agent-settings.sh
+cwd: .
+exit: 0
+output_digest: sha256:9eeb1d7d38de5b75bf28eb8647465e6166f18162892c0767adb13053209f094d
+output: .cairn/evidence/SET-001/20260908T163946099Z-1718811.out
+stderr_output: .cairn/evidence/SET-001/20260908T163946099Z-1718811.err
+stderr_digest: sha256:a2e03c434a7a9b6665859dacd566703a328e2a510204abcd62dc099249516be8
+signal: none
+execution_error: null
+result: pass
+source: line
+recorded: 2026-09-08T16:40:46.685Z
