@@ -1,0 +1,21 @@
+requirement: START-002
+requirement_digest: sha256:79645d35ea305d27d680b9428f1f18d70b3899fb4c2230c3797d9696378fa55b
+sequence: 1
+history_digest: sha256:2eedabe4d328ed047591c7db21656b5d82f77873109c2b7fa7a67456ac206bad
+mechanism: startup
+commit: 582e88b
+inputs_digest: sha256:6bd0a18dceb211aa21a82bbae844b9e7624b37fb04c05c50431f557429d83c00
+mechanism_digest: sha256:30974c70c7f99e6af978b291bcbf19b03e02050ba9d9712c546471eef671cb8f
+inputs_detail: .cairn/evidence/START-001/20260908T151006873Z-315851.inputs.json
+command: bash scripts/check-startup.sh
+cwd: .
+exit: 0
+output_digest: sha256:f6007c92de238afd3c8b4138d20fbcc8ea2d0979e55c7a5f73dbb8f872834747
+output: .cairn/evidence/START-001/20260908T151006873Z-315851.out
+stderr_output: .cairn/evidence/START-001/20260908T151006873Z-315851.err
+stderr_digest: sha256:cef1de127982536a799207adb1cd6900bde847968269eaa9db3ba0396f8a3219
+signal: none
+execution_error: null
+result: pass
+source: line
+recorded: 2026-09-08T15:10:07.633Z
