@@ -12,4 +12,4 @@ Installed Rust compiler checking fails when Cargo creates an AF_UNIX SOCK_SEQPAC
 
 ## Realized by
 
-(none yet: recorded, not built)
+- 5554026f04bc75d3ffba19216228dd8ff6d9d015 Add confined managed language services across all connections
