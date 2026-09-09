@@ -1,7 +1,7 @@
 # Managed language services review
 
 commitment: managed-language-services
-commit: c4ff9ad72916d42260d5859667cdd791eee3b75c
+commit: 8e551c591225e94335860238a738021a81ff0cc6
 findings:
   - resolved: LSP-004: Independent filtered filesystem copies close the late private-directory read; corrected startup, late-file, external-root and alias regressions pass.
   - resolved: LSP-003: Directory membership validation detects new public workspace and external dependencies during active queries.
@@ -173,3 +173,15 @@ The implementation checklist, documentation, decisions, negative tests, installe
 reviews are complete. The manual states the explicit enablement, dependency and
 freshness limits. Ordinary Bash retains its original launch and socket policy.
 No unresolved finding or needed production revision remains.
+
+
+## Final receipt refresh review
+
+Compared every declared input with the earlier reviewed commit. The sole change
+is marking the finished implementation-plan checklist complete. Runtime, tests,
+mechanisms and specification text are unchanged. Cairn reran the full LSP gate
+and issued six current passing receipts; the command exited zero and every
+captured stdout/stderr hash was verified. The installed artifact still matches
+the recorded SHA256. Re-examined this final difference against the production
+rules and the completed review above: no new code, missing verification or
+unresolved finding remains. No code changed during this review.
