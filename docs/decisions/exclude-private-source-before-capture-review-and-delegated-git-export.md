@@ -1,5 +1,7 @@
 # Exclude private source before capture review and delegated Git export
 
+Superseded by: reject-private-root-overlap-before-capture-and-retire-unsafe-snapshots
+
 Level: Judged
 Decided by: Codex
 Rests on: AUD-001 AUD-002 CODE-007 VERIFY-003 SUB-003 SUB-005

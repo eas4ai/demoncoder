@@ -1,8 +1,8 @@
 //! Source-export exclusions, independent of Git ignore rules and model requests.
 //! Explicit tool access does not authorize automatic disclosure in review or Git snapshots.
-use std::path::{Component, Path};
+use std::path::{Component, Path, PathBuf};
 
-pub(crate) const VERSION: u8 = 1;
+pub(crate) const VERSION: u8 = 2;
 
 /// Shared with the developer tool boundary; preserve its home-relative protection list.
 pub(crate) const PRIVATE_PATHS: &[&str] = &[
@@ -25,19 +25,39 @@ pub(crate) const PRIVATE_PATHS: &[&str] = &[
     ".cargo/credentials.toml",
 ];
 
-pub(crate) const DESCRIPTION: &str = "Private runtime/credential paths (.demoncoder, .codex, .claude, .ssh, .aws, .azure, .kube, credential dotfiles, .config Git/GitHub/gcloud/OpenCode credentials, Cargo credentials and .env variants) are excluded before reading contents. Public .env.example/.env.sample/.env.template files remain source. Excluded files are not reviewed or integrated.";
+pub(crate) const DESCRIPTION: &str = "Private runtime/credential paths (.demoncoder, .codex, .claude, .ssh, .aws, .azure, .kube, credential dotfiles, .config Git/GitHub/gcloud/OpenCode credentials, Cargo credentials and .env variants) are excluded before reading contents. Public .env.example/.env.sample/.env.template files remain source. Excluded files are not reviewed or integrated. Workspaces overlapping declared private roots are refused before capture; older snapshots require a new task baseline.";
+
+/// Keep automatic export and ordinary tool access on the same declared roots.
+/// Lexical names are retained here; consumers also protect canonical aliases.
+pub(crate) fn private_roots(credential_paths: &[PathBuf]) -> Vec<PathBuf> {
+    let mut paths = Vec::new();
+    if let Some(home) = std::env::var_os("HOME") {
+        paths.extend(PRIVATE_PATHS.iter().map(|path| Path::new(&home).join(path)));
+    }
+    for variable in [
+        "CODEX_HOME",
+        "CLAUDE_CONFIG_DIR",
+        "AWS_SHARED_CREDENTIALS_FILE",
+    ] {
+        if let Some(path) = std::env::var_os(variable) {
+            paths.push(PathBuf::from(path));
+        }
+    }
+    paths.extend_from_slice(credential_paths);
+    paths
+}
 
 /// Callers supply the canonical workspace root. Check both configured and physical names.
-pub(crate) fn contains_declared_private(
-    root: &Path,
-    paths: &[std::path::PathBuf],
-) -> anyhow::Result<bool> {
+pub(crate) fn contains_declared_private(root: &Path, paths: &[PathBuf]) -> anyhow::Result<bool> {
     for path in paths {
-        if std::path::absolute(path)?.starts_with(root) {
+        let lexical = std::path::absolute(path)?;
+        if lexical.starts_with(root) || root.starts_with(&lexical) {
             return Ok(true);
         }
         match path.canonicalize() {
-            Ok(resolved) if resolved.starts_with(root) => return Ok(true),
+            Ok(resolved) if resolved.starts_with(root) || root.starts_with(&resolved) => {
+                return Ok(true);
+            }
             Ok(_) => {}
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
             Err(error) => return Err(error.into()),

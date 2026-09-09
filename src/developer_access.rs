@@ -17,7 +17,7 @@ use anyhow::{Context, Result, ensure};
 use rustix::fs::{Mode, OFlags, ResolveFlags, openat2};
 use tokio::process::Command;
 
-use crate::export_policy::PRIVATE_PATHS;
+use crate::export_policy::private_roots;
 
 const INSTRUCTION_FILES: &[&str] = &[
     "AGENTS.md",
@@ -87,12 +87,12 @@ impl DeveloperAccess {
         let home = std::env::var_os("HOME")
             .map(PathBuf::from)
             .and_then(|path| path.canonicalize().ok());
-        let mut private = vec![workspace.join(".demoncoder")];
+        let mut private = private_roots(credential_paths);
+        private.push(workspace.join(".demoncoder"));
         let mut instructions = Vec::new();
         let mut instruction_trees = Vec::new();
         let mut caches = Vec::new();
         if let Some(home) = &home {
-            private.extend(PRIVATE_PATHS.iter().map(|path| home.join(path)));
             for directory in [".codex", ".claude"] {
                 instructions.extend(
                     INSTRUCTION_FILES
@@ -107,16 +107,6 @@ impl DeveloperAccess {
             }
             caches.extend(CACHE_PATHS.iter().map(|path| home.join(path)));
         }
-        for variable in [
-            "CODEX_HOME",
-            "CLAUDE_CONFIG_DIR",
-            "AWS_SHARED_CREDENTIALS_FILE",
-        ] {
-            if let Some(path) = std::env::var_os(variable) {
-                private.push(PathBuf::from(path));
-            }
-        }
-        private.extend(credential_paths.iter().cloned());
         private = private
             .into_iter()
             .map(std::path::absolute)

@@ -305,6 +305,13 @@ fn capture_inner(
     scope: &CaptureScope,
 ) -> Result<(Snapshot, BTreeMap<String, Vec<u8>>)> {
     scope.validate()?;
+    ensure!(
+        !crate::export_policy::contains_declared_private(
+            &root.canonicalize()?,
+            &crate::export_policy::private_roots(&[]),
+        )?,
+        "workspace overlaps a private credential or runtime root; select a project directory outside those roots"
+    );
     let started = Instant::now();
     let open_root = || -> Result<File> {
         Ok(openat2(rustix::fs::CWD, root, OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC | OFlags::NOFOLLOW, Mode::empty(), ResolveFlags::NO_SYMLINKS)
@@ -405,6 +412,11 @@ fn describe(output: &mut String, side: &str, value: Option<&Entry>, changed: boo
 /// Baseline includes pre-existing developer edits and untracked/ignored files;
 /// no Git tracked/clean claim is made. Oversized or changed binary evidence fails.
 pub fn review_evidence(before: &Snapshot, after: &Snapshot) -> Result<String> {
+    ensure!(
+        before.export_policy == crate::export_policy::VERSION
+            && after.export_policy == crate::export_policy::VERSION,
+        "snapshot predates the current private-root export policy; start a new task baseline"
+    );
     before.scope.validate()?;
     after.scope.validate()?;
     ensure!(

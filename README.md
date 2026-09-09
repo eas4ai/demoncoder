@@ -235,7 +235,11 @@ dotfiles, Git/GitHub/gcloud/OpenCode credentials under `.config`, Cargo credenti
 and `.env` variants. Public `.env.example`, `.env.sample` and `.env.template`
 files remain source. The same exclusions apply to review and delegated Git exports;
 excluded files are not reviewed or integrated. Older stored records and Git history
-are not rewritten.
+are not rewritten. Capture refuses workspaces that contain or sit inside declared
+private roots, including HOME-based credential stores, `CODEX_HOME`,
+`CLAUDE_CONFIG_DIR`, and `AWS_SHARED_CREDENTIALS_FILE`; symlink aliases receive the
+same protection. Select a project outside those roots. Review of older snapshots
+that lack this protection requires a new task baseline and fresh checks.
 
 Declare disposable build outputs before starting with `--generated-output target`
 or repeat the flag for several files or directory subtrees. Paths are literal and

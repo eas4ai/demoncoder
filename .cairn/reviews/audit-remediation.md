@@ -204,3 +204,29 @@ AUD-006, recovery, integration, settings locking and route validation. Its probe
 used disposable projects under the designated scratch directory. Actual model,
 effort and usage telemetry were unavailable. Paid provider availability remains
 separate from the passing local installed-backend tests.
+
+## Private-root correction verification
+
+The added regressions failed on the prior implementation: capture retained the
+relocated CODEX_HOME root, and review accepted an older unsafe snapshot. The shared
+root collector now serves both developer tools and capture. Capture checks lexical
+and canonical overlap in both directions before walking or retaining source; this
+also covers direct delegated worktree APIs. Review requires the current export
+policy version because arbitrary private names in older baselines cannot be safely
+identified after their environment changes.
+
+The corrected focused Rust suites passed: 15 workspace tests, 18 worktree tests,
+and 15 developer-access tests (one existing network assessment ignored). A fresh
+subprocess for each case proves CODEX_HOME, CLAUDE_CONFIG_DIR, the AWS credential
+file, a symlink alias, a containing private root and a HOME private ancestor refuse
+capture and preparation without creating a private child file or Git blob. Existing
+public worktree preparation/integration still passes. The terminal privacy suite
+passed all three relocated declarations with no task baseline or provider request,
+as well as ordinary public review and the explicit settings alias case. Clippy
+passed with warnings denied. Current committed evidence refresh remains pending.
+
+The full Cargo all-target suite also passed on the correction, followed by the
+format check. Ripwire's correction quality delta reported one minor formatter
+length increase (the version guard), with no gating regression. Its edit check
+found no capture signature change or incompatible caller. Static test mapping is
+advisory; actual Rust and terminal execution provides the behavioral evidence.
