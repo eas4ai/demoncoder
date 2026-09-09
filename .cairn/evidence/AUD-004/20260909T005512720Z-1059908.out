@@ -1,0 +1,35 @@
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.08s
+   Compiling demoncoder v0.1.2 (/home/shawn/workspace2/demoncoder)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 6.53s
+     Running unittests src/lib.rs (target/debug/deps/demoncoder-0911b3f9cf4c6c88)
+
+running 3 tests
+test workflow::workspace::tests::symlink_targets_share_the_total_content_budget ... ok
+test workflow::workspace::tests::cancelled_capture_stops_at_the_scanner_checkpoint ... ok
+test workflow::workspace::tests::omitted_identities_must_also_fit_the_review_limit ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 102 filtered out; finished in 0.04s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s
+     Running tests/workflow_workspace.rs (target/debug/deps/workflow_workspace-e6c91c68b90d3920)
+
+running 15 tests
+test generated_output_scope_is_explicit_bounded_and_cannot_name_the_root_or_private_paths ... ok
+test hardlinks_and_symlink_roots_are_rejected ... ok
+test changed_binary_blocks_review_but_unchanged_binary_is_identified ... ok
+test evidence_contains_actual_old_new_preexisting_and_untracked_text ... ok
+test edits_additions_removals_modes_and_symlink_targets_change_identity ... ok
+test private_source_never_enters_capture_or_review_even_from_older_snapshots ... ok
+test special_files_are_rejected_without_opening_or_waiting ... ok
+test declared_outputs_skip_large_artifacts_but_scope_and_source_changes_invalidate_identity ... ok
+test unchanged_capture_and_serialization_are_deterministic ... ok
+test review_context_is_validated_and_changes_snapshot_identity ... ok
+test symlink_targets_are_never_read_and_only_root_git_is_excluded ... ok
+test depth_is_bounded_and_replaced_roots_cannot_share_review ... ok
+test concurrent_symlink_replacement_cannot_read_outside_content ... ok
+test oversized_file_and_evidence_are_explicit_refusals ... ok
+test bounded_review_keeps_changed_source_selected_context_and_omitted_identities ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.24s
+
+AUD-004: bounded parent and child reviews preserve complete changed source and omitted identities
