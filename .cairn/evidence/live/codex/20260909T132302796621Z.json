@@ -1,0 +1,1010 @@
+{
+  "adapter": "codex",
+  "model": "gpt-6-astra",
+  "effort": "medium",
+  "transport": "live-default-endpoint",
+  "auth_method": "subscription",
+  "input_digest": "9141a9e5d74f8fa279477461717a74c0fecc404e2f0510f7df0a6b34e3a821a8",
+  "binary_sha256": "31be6b0ad8c2f95fff91dfac4faf65f5384036c5ec81a19dfee54b31fafabd1b",
+  "started_at": "20260909T132302796621Z",
+  "turns": [
+    {
+      "events": [
+        {
+          "connection": "codex",
+          "event": {
+            "type": "ready",
+            "owner": "codex"
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "session_record",
+            "path": "/home/shawn/.demoncoder/sessions/1788960182984-2284836",
+            "resumed": false
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "turn_started"
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "context",
+            "usage": {
+              "used": null,
+              "capacity": null,
+              "estimated": false
+            }
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "text",
+            "text": "I"
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "text",
+            "text": "\u2019ll"
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "text",
+            "text": " read"
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "text",
+            "text": " the"
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "text",
+            "text": " seed"
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "text",
+            "text": ","
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "text",
+            "text": " write"
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "text",
+            "text": " the"
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "text",
+            "text": " function"
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "text",
+            "text": ","
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "text",
+            "text": " edit"
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "text",
+            "text": " its"
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "text",
+            "text": " return"
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "text",
+            "text": " value"
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "text",
+            "text": ","
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "text",
+            "text": " and"
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "text",
+            "text": " run"
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "text",
+            "text": " the"
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "text",
+            "text": " assertion"
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "text",
+            "text": ".\n"
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "tool_started",
+            "call": {
+              "id": "exec-4029620f-daac-4c4c-821b-e61d6871a5a4",
+              "name": "read",
+              "arguments": {
+                "path": "seed.txt"
+              }
+            }
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "tool_finished",
+            "result": {
+              "call_id": "exec-4029620f-daac-4c4c-821b-e61d6871a5a4",
+              "tool": "read",
+              "success": true,
+              "output": "1811635\n",
+              "exit_code": null
+            }
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "context",
+            "usage": {
+              "used": 19027,
+              "capacity": 258400,
+              "estimated": false
+            }
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "usage",
+            "input": 18979,
+            "output": 48,
+            "cached": 0,
+            "cost_usd": null
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "tool_started",
+            "call": {
+              "id": "exec-2f34f934-456a-44bb-9e71-40cec97c9a5d",
+              "name": "write",
+              "arguments": {
+                "content": "def dc_answer():\n    return 1811635\n",
+                "path": "answer.py"
+              }
+            }
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "tool_finished",
+            "result": {
+              "call_id": "exec-2f34f934-456a-44bb-9e71-40cec97c9a5d",
+              "tool": "write",
+              "success": true,
+              "output": "Wrote 36 bytes to answer.py",
+              "exit_code": null
+            }
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "context",
+            "usage": {
+              "used": 19137,
+              "capacity": 258400,
+              "estimated": false
+            }
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "usage",
+            "input": 19100,
+            "output": 37,
+            "cached": 18816,
+            "cost_usd": null
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "tool_started",
+            "call": {
+              "id": "exec-d7995b85-a217-4c89-9594-58ccaef67f48",
+              "name": "edit",
+              "arguments": {
+                "new_text": "    return 1811636",
+                "old_text": "    return 1811635",
+                "path": "answer.py"
+              }
+            }
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "tool_finished",
+            "result": {
+              "call_id": "exec-d7995b85-a217-4c89-9594-58ccaef67f48",
+              "tool": "edit",
+              "success": true,
+              "output": "Edited answer.py",
+              "exit_code": null
+            }
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "context",
+            "usage": {
+              "used": 19256,
+              "capacity": 258400,
+              "estimated": false
+            }
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "usage",
+            "input": 19215,
+            "output": 41,
+            "cached": 18944,
+            "cost_usd": null
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "tool_started",
+            "call": {
+              "id": "exec-1dfd25bc-c8b9-4186-85a9-ccdfa4060dd8",
+              "name": "bash",
+              "arguments": {
+                "command": "python3 -B -c 'from answer import dc_answer; assert dc_answer() == 1811636'"
+              }
+            }
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "tool_finished",
+            "result": {
+              "call_id": "exec-1dfd25bc-c8b9-4186-85a9-ccdfa4060dd8",
+              "tool": "bash",
+              "success": true,
+              "output": "",
+              "exit_code": 0
+            }
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "context",
+            "usage": {
+              "used": 19368,
+              "capacity": 258400,
+              "estimated": false
+            }
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "usage",
+            "input": 19325,
+            "output": 43,
+            "cached": 19072,
+            "cost_usd": null
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "text",
+            "text": "Created"
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "text",
+            "text": " `"
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "text",
+            "text": "answer"
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "text",
+            "text": ".py"
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "text",
+            "text": "`"
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "text",
+            "text": " with"
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "text",
+            "text": " `"
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "text",
+            "text": "dc"
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "text",
+            "text": "_answer"
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "text",
+            "text": "()`"
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "text",
+            "text": " returning"
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "text",
+            "text": " `"
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "text",
+            "text": "181"
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "text",
+            "text": "163"
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "text",
+            "text": "6"
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "text",
+            "text": "`."
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "text",
+            "text": " The"
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "text",
+            "text": " Python"
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "text",
+            "text": " assertion"
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "text",
+            "text": " passed"
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "text",
+            "text": "."
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "context",
+            "usage": {
+              "used": 19461,
+              "capacity": 258400,
+              "estimated": false
+            }
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "usage",
+            "input": 19436,
+            "output": 25,
+            "cached": 19200,
+            "cost_usd": null
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "turn_finished",
+            "status": "complete"
+          }
+        }
+      ],
+      "source": "def dc_answer():\n    return 1811636\n"
+    },
+    {
+      "events": [
+        {
+          "connection": "codex",
+          "event": {
+            "type": "turn_started"
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "context",
+            "usage": {
+              "used": null,
+              "capacity": null,
+              "estimated": false
+            }
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "text",
+            "text": "I"
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "text",
+            "text": "\u2019ll"
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "text",
+            "text": " read"
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "text",
+            "text": " `"
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "text",
+            "text": "answer"
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "text",
+            "text": ".py"
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "text",
+            "text": "`,"
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "text",
+            "text": " add"
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "text",
+            "text": " seven"
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "text",
+            "text": " to"
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "text",
+            "text": " its"
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "text",
+            "text": " return"
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "text",
+            "text": " value"
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "text",
+            "text": ","
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "text",
+            "text": " and"
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "text",
+            "text": " verify"
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "text",
+            "text": " it"
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "text",
+            "text": " with"
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "text",
+            "text": " an"
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "text",
+            "text": " assertion"
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "text",
+            "text": ".\n"
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "tool_started",
+            "call": {
+              "id": "exec-5a25cd00-d94d-4eb5-9ab2-7b665e45d444",
+              "name": "read",
+              "arguments": {
+                "path": "answer.py"
+              }
+            }
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "tool_finished",
+            "result": {
+              "call_id": "exec-5a25cd00-d94d-4eb5-9ab2-7b665e45d444",
+              "tool": "read",
+              "success": true,
+              "output": "def dc_answer():\n    return 1811636\n",
+              "exit_code": null
+            }
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "context",
+            "usage": {
+              "used": 19578,
+              "capacity": 258400,
+              "estimated": false
+            }
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "usage",
+            "input": 19529,
+            "output": 49,
+            "cached": 19200,
+            "cost_usd": null
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "tool_started",
+            "call": {
+              "id": "exec-e52c7650-cdd5-41f5-ac61-043af9ae1d3e",
+              "name": "edit",
+              "arguments": {
+                "new_text": "    return 1811643",
+                "old_text": "    return 1811636",
+                "path": "answer.py"
+              }
+            }
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "tool_finished",
+            "result": {
+              "call_id": "exec-e52c7650-cdd5-41f5-ac61-043af9ae1d3e",
+              "tool": "edit",
+              "success": true,
+              "output": "Edited answer.py",
+              "exit_code": null
+            }
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "context",
+            "usage": {
+              "used": 19702,
+              "capacity": 258400,
+              "estimated": false
+            }
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "usage",
+            "input": 19661,
+            "output": 41,
+            "cached": 19328,
+            "cost_usd": null
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "tool_started",
+            "call": {
+              "id": "exec-07a8ee26-51b5-4ad3-b3c7-a9b90f8b231d",
+              "name": "bash",
+              "arguments": {
+                "command": "python3 -B -c 'from answer import dc_answer; assert dc_answer() == 1811643'"
+              }
+            }
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "tool_finished",
+            "result": {
+              "call_id": "exec-07a8ee26-51b5-4ad3-b3c7-a9b90f8b231d",
+              "tool": "bash",
+              "success": true,
+              "output": "",
+              "exit_code": 0
+            }
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "context",
+            "usage": {
+              "used": 19816,
+              "capacity": 258400,
+              "estimated": false
+            }
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "usage",
+            "input": 19773,
+            "output": 43,
+            "cached": 19456,
+            "cost_usd": null
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "text",
+            "text": "`"
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "text",
+            "text": "dc"
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "text",
+            "text": "_answer"
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "text",
+            "text": "()`"
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "text",
+            "text": " now"
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "text",
+            "text": " returns"
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "text",
+            "text": " `"
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "text",
+            "text": "181"
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "text",
+            "text": "164"
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "text",
+            "text": "3"
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "text",
+            "text": "`."
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "text",
+            "text": " The"
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "text",
+            "text": " Python"
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "text",
+            "text": " assertion"
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "text",
+            "text": " passed"
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "text",
+            "text": "."
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "context",
+            "usage": {
+              "used": 19907,
+              "capacity": 258400,
+              "estimated": false
+            }
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "usage",
+            "input": 19887,
+            "output": 20,
+            "cached": 19584,
+            "cost_usd": null
+          }
+        },
+        {
+          "connection": "codex",
+          "event": {
+            "type": "turn_finished",
+            "status": "complete"
+          }
+        }
+      ],
+      "source": "def dc_answer():\n    return 1811643\n"
+    }
+  ],
+  "backend_version": "codex-cli 0.153.4",
+  "seed": 1811635,
+  "result": "pass"
+}
