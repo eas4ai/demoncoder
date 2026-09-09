@@ -1,10 +1,10 @@
 # Release follow-up review
 
 commitment: release-followups
-commit: 38bf1e02c8c9b4a3c41ca240c27bc1ee4337c956
+commit: 182208a95c45251564eb34e61f57781bf0ad629e
 findings:
-  - open: OUTPUT-001: The Connections and authentication manual paragraph incorrectly describes a fixed 4096-token Anthropic limit and no CLI override.
-Status: in progress
+  - resolved: OUTPUT-001: The manual now agrees with discovered/default output limits and saved/CLI overrides; current output-limit checks pass.
+Status: complete
 
 ## OUTPUT-002 mechanism review
 
@@ -75,3 +75,25 @@ and the actual live verdict pair pass. A focused baseline-pinned Ripwire compari
 reported one minor test-length increase, no gating regression; its test map does
 not discover the explicitly ignored live entrypoint, whose real execution above
 supplies evidence. No production runtime code changed.
+
+## Final examination and acceptance
+
+Reviewed the complete follow-up change: explicit model selection is limited to
+the live Oracle test runner, the manual describes existing verified behavior,
+and the queued socket-policy review is recorded without changing runtime policy.
+All six selected requirements have current passing receipts with actual command
+exit zero. Their stdout/stderr hashes were verified. All four live coding records
+and the live Oracle pair pass their current-input validators. The saved settings
+file still matches its pre-check SHA256. No production executable changed.
+
+The manual now distinguishes provider output defaults, Anthropic model discovery,
+positive saved limits and the invocation override. Existing tests inspect actual
+native requests and reject incomplete tools. The corrected paragraph was compared
+with the agreed OUTPUT contract and CLI behavior; no contradictory cap remains.
+
+Production self-audit against rules 1–14: scope and ownership remain bounded;
+credentials and saved defaults are preserved; error and quota observations remain
+honest; runtime behavior is unchanged; execution evidence covers the test-helper
+change; documentation, decision review and cleanup are complete. No unresolved
+finding remains. The earlier account-side blocker assessment is superseded by the
+developer clarification and the successful current live cycles.
