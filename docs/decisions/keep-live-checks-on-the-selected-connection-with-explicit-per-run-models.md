@@ -12,4 +12,4 @@ The developer clarified that a model-specific quota response confirms the authen
 
 ## Realized by
 
-(none yet: recorded, not built)
+- 829ca5153691867bd00004a18656b7d350082692 Allow an explicit model for a live Oracle check without changing defaults
