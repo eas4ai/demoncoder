@@ -4,7 +4,9 @@ commitment: audit-remediation
 examined:
   - CODE-007: final tool boundary, installed backend fixture, shared executor and mechanism runner.
 findings:
-  - open: AUD-006: The installed Codex fixture conflicts with subscription route validation and fails before its tool cycle; repair the mechanism without weakening the guard.
+  - resolved: AUD-006: The installed Codex fixture and cumulative gate now pass against the supported route.
+  - open: AUD-001: Environment-declared credential roots can enter snapshots and reviewer requests; cover the shared private roots and historical snapshot boundary.
+  - open: AUD-002: The same missing private-root admission can export credentials through delegated capture and Git snapshots.
 Status: in progress
 
 ## CODE-007 mechanism review
@@ -128,3 +130,68 @@ The real cumulative gate completed successfully: all 21 drivers, full Rust tests
 formatting and Clippy, then installed-release tool/result cycles, private review,
 generated outputs, bounded parent/child review, and all six verification/recovery
 terminal cases. Paid live-provider and Oracle cases were explicitly unverified.
+
+## Final parent examination
+
+Reviewed the complete 00facef^..a4557b70045e03cea81a044602582207445b0f03
+implementation, tests, runners, declarations, decisions and documentation without
+changing code. Attacked private path selection, configured aliases, hard links,
+old snapshot formatting, Git-object export, source/scope identity, child scope
+propagation, mandatory changed-file evidence, request-size refusal, and subscription
+route integrity. Capture still refuses multiply linked files before reading them,
+pins regular inodes, and reads symlink text without following its target. Source
+and review scope are validated at admission and resume and retained through child
+preparation, inspection, verification, delta construction and integration.
+
+The append path validates its complete byte count before mutation and appends only
+the new fragment. The settings guard retains writer exclusion while alive and
+explicitly unlocks its open file description when the transaction ends. The Codex
+fixture serves only its loopback CONNECT peer and accepts only chatgpt.com:443;
+it does not rewrite effective configuration or use real provider credentials.
+
+All selected requirements have fresh passing receipts. AUD-006 receipt
+20260909T001808764Z records exit 0 and the complete cumulative output. Examining
+that retained output confirmed 21 unique completed drivers, both development and
+installed CODE-007/008 passes, and no false CODE-010/CONN-001 paid-live pass. The
+installed binary and target/release/demoncoder both hash to
+0ac06942962c5b537df4b82a7dd20da337adc314e11b295c6cda56e67f3ddeaf;
+the installed version command reports 0.1.2.
+
+Ripwire's test gate named 20 test-file obligations; normal Rust cases and the
+required PTY drivers ran, with the paid live Oracle explicitly separate. Its
+static graph cannot prove dynamically driven coverage. A quality-delta comparison
+used disposable source archives with the pre-remediation baseline pinned before
+loading the final source. It exited 2 with 11 major metric suggestions, not a clean
+scan. Examined the added capture branches, review formatter length, CLI fields,
+compatibility wrappers and fixture setup. They implement the declared boundaries
+in their existing owners; splitting them only to reduce the metric would obscure
+the single capture/review checks. The dead-code suggestions include executed Rust
+tests, serde callbacks and test-only wrappers. No unresolved behavior defect was
+identified by this parent examination.
+
+Self-audit against production rules 1–14: scope and ownership are explicit; changes
+are confined to the agreed requirements and an inherited failing Settings lock;
+validation, failure behavior, private-data boundaries and recovery identity remain
+covered. Existing interfaces retain default wrappers; new scopes require explicit
+launch choices. Tests include failing baselines and corrected production paths,
+and documentation states limits and unverified paid availability. No speculative
+feature, hidden permission expansion, or new runtime owner was added. The final
+independent reviewer result is recorded below before acceptance.
+
+## Independent review finding: relocated private roots
+
+The independent reviewer reproduced an actual terminal failure on the committed
+candidate using synthetic credentials only. With CODEX_HOME set to the workspace's
+runtime-secrets directory, /task, /verify and /review completed, and the auth.json
+canary appeared in both state.json and the actual reviewer request. DeveloperAccess
+protects CODEX_HOME, CLAUDE_CONFIG_DIR and AWS_SHARED_CREDENTIALS_FILE, but snapshot
+admission checks only explicit connection credential paths. Relative path filtering
+also cannot recognize a workspace selected inside a private root. Delegated capture
+uses the same incomplete boundary and must be repaired with the parent path.
+
+The correction must check lexical and resolved private roots in both directions
+before capture, preserving existing reserved-name exclusions and public projects.
+Historical snapshots can also contain arbitrary private filenames from an earlier
+environment. Because they retain no dynamic-root provenance, new review must refuse
+those unsafe older versions and ask for a new task baseline. Historical records and
+Git objects remain untouched. This finding is recorded before code changes.
