@@ -1,5 +1,7 @@
 # Reject private-root overlap before capture and retire unsafe snapshots
 
+Superseded by: admit-only-owned-child-source-inside-the-session-container
+
 Level: Judged
 Decided by: Codex
 Supersedes: exclude-private-source-before-capture-review-and-delegated-git-export

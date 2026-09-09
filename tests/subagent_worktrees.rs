@@ -791,3 +791,60 @@ fn declared_private_roots_block_capture_and_git_export() {
         );
     }
 }
+
+#[test]
+fn only_the_child_owner_can_capture_source_in_the_session_store() {
+    const PROBE: &str = "DEMONCODER_OWNED_CONTAINER_PROBE";
+    if let Ok(case) = std::env::var(PROBE) {
+        let home = PathBuf::from(std::env::var_os("HOME").unwrap());
+        let parent = home.join("parent");
+        let child = home.join(".demoncoder/sessions/session/agents/1");
+        fs::create_dir_all(child.parent().unwrap()).unwrap();
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        runtime.block_on(async {
+            let prepared = prepare(&parent, &child).await;
+            if case == "declared" {
+                assert!(prepared.is_err(), "child exception ignored CODEX_HOME");
+                return;
+            }
+            let identity = prepared.unwrap();
+            assert!(
+                demoncoder::workflow::workspace::capture(&child).is_err(),
+                "ordinary capture inherited child authority"
+            );
+            fs::write(child.join("owned"), "validated child source").unwrap();
+            let snapshot = inspect(&identity).await.unwrap();
+            let delta = build_delta(&identity, &request(&["owned"]), &snapshot.digest)
+                .await
+                .unwrap();
+            integrate(&parent, &identity, &delta).await.unwrap();
+            assert_eq!(
+                fs::read_to_string(parent.join("owned")).unwrap(),
+                "validated child source"
+            );
+        });
+        return;
+    }
+    for case in ["public", "declared"] {
+        let (temp, _, _) = repository();
+        let mut child = Command::new(std::env::current_exe().unwrap());
+        child
+            .args([
+                "--exact",
+                "only_the_child_owner_can_capture_source_in_the_session_store",
+                "--nocapture",
+            ])
+            .env(PROBE, case)
+            .env("HOME", temp.path());
+        if case == "declared" {
+            child.env("CODEX_HOME", temp.path().join(".demoncoder"));
+        }
+        let result = child.output().unwrap();
+        assert!(
+            result.status.success(),
+            "{case}: {}{}",
+            String::from_utf8_lossy(&result.stdout),
+            String::from_utf8_lossy(&result.stderr)
+        );
+    }
+}

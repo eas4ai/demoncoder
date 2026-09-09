@@ -238,7 +238,9 @@ excluded files are not reviewed or integrated. Older stored records and Git hist
 are not rewritten. Capture refuses workspaces that contain or sit inside declared
 private roots, including HOME-based credential stores, `CODEX_HOME`,
 `CLAUDE_CONFIG_DIR`, and `AWS_SHARED_CREDENTIALS_FILE`; symlink aliases receive the
-same protection. Select a project outside those roots. Review of older snapshots
+same protection. Select a project outside those roots. The runtime can capture its
+own isolated child source inside the session store; ordinary workspace capture
+cannot use that allowance, and declared provider credential roots still refuse. Review of older snapshots
 that lack this protection requires a new task baseline and fresh checks.
 
 Declare disposable build outputs before starting with `--generated-output target`

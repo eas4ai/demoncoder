@@ -230,3 +230,24 @@ format check. Ripwire's correction quality delta reported one minor formatter
 length increase (the version guard), with no gating regression. Its edit check
 found no capture signature change or incompatible caller. Static test mapping is
 advisory; actual Rust and terminal execution provides the behavioral evidence.
+
+## Owned child source correction
+
+The refreshed AUD-001/002 mechanism passed after the private-root repair. The next
+AUD-003 check failed in actual delegation: child worktrees live below
+HOME/.demoncoder/sessions, and the broad root refusal blocked those public source
+copies too. Retained receipt 20260909T004922600Z captures that regression.
+
+The worktree owner now explicitly identifies only its newly materialized or
+administratively validated child at the lower capture call. That internal marker
+omits only the HOME session-container root; all environment credential declarations
+still apply, even when CODEX_HOME names that same container. Ordinary capture has
+no such allowance. Parent capture still uses the complete guard. Private entry
+filtering, old-version review refusal and child tool confinement are unchanged.
+
+A subprocess regression verifies child validation and integration inside the real
+session-store layout while ordinary capture of that same directory refuses. Its
+negative variant sets CODEX_HOME to the session container and requires refusal.
+Both cases pass. The complete generated-output terminal suite passes again,
+including the child that triggered the retained failure. Focused capture, worktree
+and developer-access suites also passed; cumulative committed checks follow.

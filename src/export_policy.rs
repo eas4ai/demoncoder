@@ -25,14 +25,22 @@ pub(crate) const PRIVATE_PATHS: &[&str] = &[
     ".cargo/credentials.toml",
 ];
 
-pub(crate) const DESCRIPTION: &str = "Private runtime/credential paths (.demoncoder, .codex, .claude, .ssh, .aws, .azure, .kube, credential dotfiles, .config Git/GitHub/gcloud/OpenCode credentials, Cargo credentials and .env variants) are excluded before reading contents. Public .env.example/.env.sample/.env.template files remain source. Excluded files are not reviewed or integrated. Workspaces overlapping declared private roots are refused before capture; older snapshots require a new task baseline.";
+pub(crate) const DESCRIPTION: &str = "Private runtime/credential paths (.demoncoder, .codex, .claude, .ssh, .aws, .azure, .kube, credential dotfiles, .config Git/GitHub/gcloud/OpenCode credentials, Cargo credentials and .env variants) are excluded before reading contents. Public .env.example/.env.sample/.env.template files remain source. Excluded files are not reviewed or integrated. Ordinary workspaces overlapping declared private roots are refused before capture. Only owned child source may be captured inside the session store; other private roots remain protected. Older snapshots require a new task baseline.";
 
 /// Keep automatic export and ordinary tool access on the same declared roots.
 /// Lexical names are retained here; consumers also protect canonical aliases.
-pub(crate) fn private_roots(credential_paths: &[PathBuf]) -> Vec<PathBuf> {
+pub(crate) fn private_roots(
+    credential_paths: &[PathBuf],
+    include_session_store: bool,
+) -> Vec<PathBuf> {
     let mut paths = Vec::new();
     if let Some(home) = std::env::var_os("HOME") {
-        paths.extend(PRIVATE_PATHS.iter().map(|path| Path::new(&home).join(path)));
+        paths.extend(
+            PRIVATE_PATHS
+                .iter()
+                .filter(|path| include_session_store || **path != ".demoncoder")
+                .map(|path| Path::new(&home).join(path)),
+        );
     }
     for variable in [
         "CODEX_HOME",

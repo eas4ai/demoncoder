@@ -25,6 +25,14 @@ use sha2::{Digest, Sha256};
 mod scope;
 pub use scope::CaptureScope;
 
+/// Only the worktree owner can admit child source inside the session container.
+/// Other credential roots and private entry names remain protected in both modes.
+#[derive(Clone, Copy)]
+pub(crate) enum CaptureRoot {
+    Workspace,
+    OwnedWorktree,
+}
+
 const MAX_ENTRIES: usize = 20_000;
 const MAX_DEPTH: usize = 64;
 const MAX_FILE_BYTES: u64 = 8 * 1024 * 1024;
@@ -275,7 +283,7 @@ pub fn capture(root: &Path) -> Result<Snapshot> {
 }
 
 pub fn capture_with_scope(root: &Path, scope: &CaptureScope) -> Result<Snapshot> {
-    Ok(capture_inner(root, false, None, scope)?.0)
+    Ok(capture_inner(root, false, None, scope, CaptureRoot::Workspace)?.0)
 }
 
 /// The worktree coordinator can cancel a background read at scanner checkpoints.
@@ -286,7 +294,13 @@ pub(crate) fn capture_cancellable(
     retain_raw: bool,
     cancelled: &AtomicBool,
 ) -> Result<(Snapshot, BTreeMap<String, Vec<u8>>)> {
-    capture_scoped_cancellable(root, retain_raw, cancelled, &CaptureScope::default())
+    capture_scoped_cancellable(
+        root,
+        retain_raw,
+        cancelled,
+        &CaptureScope::default(),
+        CaptureRoot::Workspace,
+    )
 }
 
 pub(crate) fn capture_scoped_cancellable(
@@ -294,8 +308,9 @@ pub(crate) fn capture_scoped_cancellable(
     retain_raw: bool,
     cancelled: &AtomicBool,
     scope: &CaptureScope,
+    kind: CaptureRoot,
 ) -> Result<(Snapshot, BTreeMap<String, Vec<u8>>)> {
-    capture_inner(root, retain_raw, Some(cancelled), scope)
+    capture_inner(root, retain_raw, Some(cancelled), scope, kind)
 }
 
 fn capture_inner(
@@ -303,12 +318,13 @@ fn capture_inner(
     retain_raw: bool,
     cancelled: Option<&AtomicBool>,
     scope: &CaptureScope,
+    kind: CaptureRoot,
 ) -> Result<(Snapshot, BTreeMap<String, Vec<u8>>)> {
     scope.validate()?;
     ensure!(
         !crate::export_policy::contains_declared_private(
             &root.canonicalize()?,
-            &crate::export_policy::private_roots(&[]),
+            &crate::export_policy::private_roots(&[], matches!(kind, CaptureRoot::Workspace)),
         )?,
         "workspace overlaps a private credential or runtime root; select a project directory outside those roots"
     );
