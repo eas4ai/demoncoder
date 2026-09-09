@@ -1,7 +1,7 @@
 # Managed language services review
 
 commitment: managed-language-services
-commit: 9d6f5323ea23bd200b4dc62171b3d6ffcc91d368
+commit: c9558bf
 findings:
   - resolved: LSP-004: Independent filtered filesystem copies close the late private-directory read; corrected startup, late-file, external-root and alias regressions pass.
   - resolved: LSP-003: Directory membership validation detects new public workspace and external dependencies during active queries.
@@ -210,3 +210,56 @@ coverage and staged whitespace checks pass. Ripwire test-gate reported zero
 changed symbols. Root quality-delta exited 2 with findings in vendored reference
 trees; it is not a passing quality gate or evidence of a production-code change.
 No code changed during this review and no new LSP finding remains.
+
+## Review after plugin specification remediation and restart-test correction
+
+Reviewed candidate c9558bf on 2026-09-09. The plugin draft now contains 41
+requirements. Its runtime and compatibility contracts address all ten findings
+in docs/reviews/skills-plugins-hooks-adversarial.md. The complete feature scope
+remains required, and the roadmap still selects this LSP commitment. Draft
+contracts and fixed compatibility inventories do not claim implemented plugin
+behavior or live backend/connector qualification. Requirement coverage, local
+links and anchors, event inventory and specification lint passed.
+
+The first evidence refresh failed two existing tests, and a second run repeated
+the version assertion failure. Both runs remain in evidence history. Individual
+reruns passed, so those passes were not treated as a resolution. Inspection
+traced both failures to valid copied-view retirement: queued filesystem hints
+can restart a peer before a query, and the global document counter advances on
+reopening. A save-only peer has no diagnostics after restart until it receives
+another save. The host must not manufacture a save from a diagnostic query.
+
+Rewriting identical source bytes before the diagnostic query reproduced both
+original assertion failures individually: version 2 versus expected 1, and an
+explicit pending report. The corrected tests retain this deterministic restart.
+They require increasing versions, the SHA256 of current source, current error
+counts and unchanged verification state. The save test checks ordinary and
+forced-restart queries, accepts only current matching reports or explicit pending,
+requires pending after the forced restart, and verifies that neither queries nor
+failed edits add a save receipt. This corrects test assumptions; it does not
+relax LSP-003 freshness or change production code. Both corrected tests passed
+individually before the full mechanism ran.
+
+The full mechanism then exited zero against 4a72dcb and issued six passing
+receipts at 20260909T222859657Z/20260909T222859658Z. It includes formatting,
+Clippy, all-target tests, all 31 language-service cases with installed Rust and
+TypeScript servers, and all four controlled adapter cycles. Verified stdout
+and stderr hashes for every receipt. Controlled adapters add no live-provider
+authentication evidence.
+
+Compared runtime source, check scripts, dependencies, README and agreed LSP
+requirements with the preceding reviewed tree: unchanged. The only executable
+diff is the two test corrections above. Inspected their assertions for accidental
+acceptance of clean timeouts, stale content, extra saves or swallowed errors;
+each remains rejected. Existing private-source and blocked-scan revocation
+regressions remain in the passing full mechanism. No production behavior, access
+policy or public interface changed.
+
+Ripwire edit-check found no signature change or caller incompatibility. Its
+test-gate reported no changed symbols during the document pass. Root
+quality-delta exited 2 with vendored reference-tree findings; it is not a passing
+quality result. Manual inspection and executed project checks establish this
+change's validation. Production rules 1–14 were reviewed: scoped work, explicit
+failure history, stronger restart coverage, current documentation and retained
+evidence are complete. No unresolved LSP finding remains. No code changed during
+this review.
