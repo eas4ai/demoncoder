@@ -1365,6 +1365,7 @@ The updated startup performs this repair for its owned default directory.
 | Native write cannot create a file | Its parent directory must already exist, and the path must satisfy the selected access policy. |
 | Edit requires exactly one match | Read the current file and use a unique, exact `old_text`. |
 | Provider HTTP failure / model rejected | Check the selected account, model, effort, and endpoint. DemonCoder does not switch credentials or models automatically. |
+| Selected model has exhausted its quota | An authenticated quota response means the connection is reachable, but the requested work did not complete. Wait for quota to return or explicitly select another available model. DemonCoder does not switch models automatically. |
 | Subscription login rejected | Authenticate the selected backend using its subscription login and check its selected login directory. An API key is not a substitute. |
 | Environment API key is empty | Set it to the intended key or unset it to allow the saved key. |
 | Invalid/private configuration error | Check TOML fields, ownership, `0600` permissions for credentials, size, and absence of symlinks. Diagnostics intentionally omit input that may contain keys. |
@@ -1474,8 +1475,11 @@ python3 tests/live_connections.py --run claude
 python3 tests/live_oracle.py --run
 ```
 
-The coding driver also accepts `--model MODEL`. Live calls use the selected real
-credentials and can consume API credit or subscription allowance. Each coding
+Both live drivers accept `--model MODEL` with `--run` to select a model for that
+check without changing saved defaults, credentials or authentication routes. For
+example, `python3 tests/live_oracle.py --run --model MODEL` overrides the saved
+Oracle model for that check only. Live calls use the selected real credentials
+and can consume API credit or subscription allowance. Each coding
 case creates a disposable repository, runs two turns with actual tool effects,
 and independently checks the resulting source. The Oracle driver obtains an
 allow/deny verdict pair without executing either proposed tool operation.

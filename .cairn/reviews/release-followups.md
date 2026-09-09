@@ -3,7 +3,7 @@
 commitment: release-followups
 commit: 182208a95c45251564eb34e61f57781bf0ad629e
 findings:
-  - open: OUTPUT-001: Document both live-driver model overrides and distinguish model quota from authentication failure, as authorized by the developer.
+  - resolved: OUTPUT-001: Both live-driver overrides and the distinction between model quota and authentication failure are documented.
   - resolved: OUTPUT-001: The manual now agrees with discovered/default output limits and saved/CLI overrides; current output-limit checks pass.
 Status: in progress
 
@@ -98,3 +98,12 @@ honest; runtime behavior is unchanged; execution evidence covers the test-helper
 change; documentation, decision review and cleanup are complete. No unresolved
 finding remains. The earlier account-side blocker assessment is superseded by the
 developer clarification and the successful current live cycles.
+
+## Manual clarification verification
+
+Compared the two new passages with both live drivers’ executed --help output,
+the retained successful override checks, and the recorded authenticated quota
+response. Both drivers support explicit model selection; saved settings remained
+unchanged during the recorded live checks. The troubleshooting entry distinguishes
+reachability from completed work and states that model selection is explicit.
+No runtime or test code changed. git diff --check passed.
