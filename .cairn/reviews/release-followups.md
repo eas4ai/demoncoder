@@ -1,7 +1,7 @@
 # Release follow-up review
 
 commitment: release-followups
-commit: 6df64b7faac5106263ab13cf49256f09c7683403
+commit: 38bf1e02c8c9b4a3c41ca240c27bc1ee4337c956
 findings:
   - open: OUTPUT-001: The Connections and authentication manual paragraph incorrectly describes a fixed 4096-token Anthropic limit and no CLI override.
 Status: in progress
@@ -47,3 +47,31 @@ actual model without editing saved settings or changing credentials/transport.
 The old runner safely rejected --run --model sonnet before any provider request.
 Empty selections and model selections without --run are explicit usage errors.
 The live corrected case is checked against committed inputs below.
+
+## Live evidence and queued socket decision review
+
+All four real default transports completed both live coding turns. The OpenAI
+API and Codex used gpt-6-astra; the Anthropic API and Claude subscription used
+explicit claude-opus-5 overrides. Their original read/write/edit/Bash calls,
+completed assertions and retained source passed the existing validators. The
+Claude subscription Oracle used explicit sonnet for its two verdict-only cases;
+it allowed the disposable outside read and denied the home-move proposal without
+executing either proposal. A before/after SHA256 comparison confirmed the private
+settings file remained unchanged. Model-specific quota observations remain in
+history and are not represented as completed work.
+
+Reviewed the queued Unix-socket decision and reliability-sockets runner against
+REL-001. Its executed cases deny pathname/abstract Unix sockets and datagram
+bypasses in confined Bash, retain permitted networking and stream socketpairs,
+and verify explicit host-mode Unix sockets remain available. The consequences
+for local Docker, SSH-agent and database sockets were explained to the developer.
+Record the confirmed follow-up review and clear its queue entry; no runtime policy
+changes are required. The manual paragraph remains the sole open finding.
+
+The 13-line Oracle test-runner change preserves saved assignments unless an
+explicit per-run model is supplied, rejects empty or non-run overrides, and keeps
+transport/authentication checks intact. Formatting, compilation, targeted Clippy
+and the actual live verdict pair pass. A focused baseline-pinned Ripwire comparison
+reported one minor test-length increase, no gating regression; its test map does
+not discover the explicitly ignored live entrypoint, whose real execution above
+supplies evidence. No production runtime code changed.
