@@ -14,4 +14,6 @@ Keep the shared complete private-root refusal for ordinary workspaces. The workt
 
 ## Realized by
 
-(none yet: recorded, not built)
+- fc7869f85a2a096ee6fdf2d6fefacb1b82f44e1a Preserve owned child capture without admitting private workspaces
+
+CaptureRoot distinguishes ordinary workspaces from the worktree owner. The owner exception omits only the HOME session store. The generated-output terminal regression and isolated-process positive/negative checks pass.
