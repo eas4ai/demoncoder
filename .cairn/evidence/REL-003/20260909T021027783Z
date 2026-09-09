@@ -1,0 +1,21 @@
+requirement: REL-003
+requirement_digest: sha256:bee78c37b55cbac6baa541295e89a7d1aa23f5131e24596a69026647147c765d
+sequence: 16
+history_digest: sha256:0c201fc485d4b4fe12dd842c880ca0a362f64c4008524c0026d8873b11b726ad
+mechanism: reliability-streams
+commit: 60af6e4
+inputs_digest: sha256:50c96fefaba4236da1d039f57776e9723fcaddaac74a1d787414558b42c56002
+mechanism_digest: sha256:9ecc8c4ad02b565580f4203a3cd18fdfb724dcdd87dfcf7bdc776920a86d78cf
+inputs_detail: .cairn/evidence/REL-003/20260909T021022815Z-2364051.inputs.json
+command: bash scripts/check-reliability-streams.sh
+cwd: .
+exit: 0
+output_digest: sha256:e230944cc743ebd330a813cfbf9f2417bb0fac4a4663568c1126e5c5b24da35f
+output: .cairn/evidence/REL-003/20260909T021022815Z-2364051.out
+stderr_output: .cairn/evidence/REL-003/20260909T021022815Z-2364051.err
+stderr_digest: sha256:fdad733cbb5467f928056be398525a066492bbb0a8b09ab7caa79fa3f002bc2d
+signal: none
+execution_error: null
+result: pass
+source: line
+recorded: 2026-09-09T02:10:27.783Z
