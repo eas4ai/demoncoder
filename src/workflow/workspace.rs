@@ -324,7 +324,7 @@ fn capture_inner(
     ensure!(
         !crate::export_policy::contains_declared_private(
             &root.canonicalize()?,
-            &crate::export_policy::private_roots(&[], matches!(kind, CaptureRoot::Workspace)),
+            &crate::export_policy::private_roots(root, &[], matches!(kind, CaptureRoot::Workspace)),
         )?,
         "workspace overlaps a private credential or runtime root; select a project directory outside those roots"
     );

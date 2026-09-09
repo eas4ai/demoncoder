@@ -742,6 +742,10 @@ fn declared_private_roots_block_capture_and_git_export() {
         "CODEX_HOME",
         "CLAUDE_CONFIG_DIR",
         "AWS_SHARED_CREDENTIALS_FILE",
+        "relative-codex",
+        "relative-claude",
+        "relative-aws",
+        "parent-relative",
         "alias",
         "ancestor",
         "home",
@@ -761,6 +765,13 @@ fn declared_private_roots_block_capture_and_git_export() {
         )
         .unwrap();
         let (variable, value) = match case {
+            "relative-codex" => ("CODEX_HOME", PathBuf::from("runtime-secrets")),
+            "relative-claude" => ("CLAUDE_CONFIG_DIR", PathBuf::from("runtime-secrets")),
+            "relative-aws" => (
+                "AWS_SHARED_CREDENTIALS_FILE",
+                PathBuf::from("runtime-secrets/auth.json"),
+            ),
+            "parent-relative" => ("CODEX_HOME", PathBuf::from("../parent/runtime-secrets")),
             "AWS_SHARED_CREDENTIALS_FILE" => (case, secret_dir.join("auth.json")),
             "alias" => {
                 let alias = temp.path().join("outside-alias");

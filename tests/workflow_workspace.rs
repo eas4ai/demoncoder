@@ -201,9 +201,9 @@ fn private_source_never_enters_capture_or_review_even_from_older_snapshots() {
             .to_string()
             .contains("new task baseline")
     );
-    // Even the first exclusion-policy version lacked dynamic root provenance.
+    // Version two protected absolute roots but missed workspace-relative declarations.
     let mut older = serde_json::to_value(&snapshot).unwrap();
-    older["export_policy"] = 1.into();
+    older["export_policy"] = 2.into();
     let mut private = older["entries"]["./source.rs"].clone();
     private["text"] = "OLDER_DYNAMIC_PRIVATE_CANARY".into();
     older["entries"]["./runtime-secrets/auth.json"] = private;

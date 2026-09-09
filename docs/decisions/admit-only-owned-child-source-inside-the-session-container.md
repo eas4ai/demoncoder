@@ -1,5 +1,7 @@
 # Admit only owned child source inside the session container
 
+Superseded by: protect-relative-credential-roots-in-launch-and-workspace-directories
+
 Level: Judged
 Decided by: Codex
 Supersedes: reject-private-root-overlap-before-capture-and-retire-unsafe-snapshots

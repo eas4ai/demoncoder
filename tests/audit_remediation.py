@@ -2,6 +2,7 @@
 """Audit regressions through the actual terminal, tools and reviewer requests."""
 import argparse
 import http.server
+import itertools
 import json
 from pathlib import Path
 import sys
@@ -81,12 +82,16 @@ def configured_credential_alias(server):
 
 
 def relocated_credentials(server):
-    for variable in ("CODEX_HOME", "CLAUDE_CONFIG_DIR", "AWS_SHARED_CREDENTIALS_FILE"):
+    for variable, relative in itertools.product(
+            ("CODEX_HOME", "CLAUDE_CONFIG_DIR", "AWS_SHARED_CREDENTIALS_FILE"),
+            (False, True)):
         with tempfile.TemporaryDirectory(prefix="demoncoder-private-environment-") as directory:
             secret = Path(directory) / "project/runtime-secrets/auth.json"
             secret.parent.mkdir(parents=True)
             secret.write_text("DYNAMIC_TERMINAL_PRIVATE_CANARY")
             value = secret if variable == "AWS_SHARED_CREDENTIALS_FILE" else secret.parent
+            if relative:
+                value = value.relative_to(Path(directory) / "project")
             app = App(directory, server, ["--check", "true", "--reviewer", "worker"],
                       environment={variable: str(value)})
             try:

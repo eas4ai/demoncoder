@@ -2,7 +2,7 @@
 //! Explicit tool access does not authorize automatic disclosure in review or Git snapshots.
 use std::path::{Component, Path, PathBuf};
 
-pub(crate) const VERSION: u8 = 2;
+pub(crate) const VERSION: u8 = 3;
 
 /// Shared with the developer tool boundary; preserve its home-relative protection list.
 pub(crate) const PRIVATE_PATHS: &[&str] = &[
@@ -30,6 +30,7 @@ pub(crate) const DESCRIPTION: &str = "Private runtime/credential paths (.demonco
 /// Keep automatic export and ordinary tool access on the same declared roots.
 /// Lexical names are retained here; consumers also protect canonical aliases.
 pub(crate) fn private_roots(
+    workspace: &Path,
     credential_paths: &[PathBuf],
     include_session_store: bool,
 ) -> Vec<PathBuf> {
@@ -52,6 +53,14 @@ pub(crate) fn private_roots(
         }
     }
     paths.extend_from_slice(credential_paths);
+    // Backends inherit these declarations but run in the selected workspace.
+    // Protect that interpretation as well as the launch-directory interpretation.
+    let workspace_relative: Vec<_> = paths
+        .iter()
+        .filter(|path| path.is_relative())
+        .map(|path| workspace.join(path))
+        .collect();
+    paths.extend(workspace_relative);
     paths
 }
 

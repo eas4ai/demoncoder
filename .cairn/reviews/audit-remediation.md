@@ -309,3 +309,23 @@ private paths for every relevant execution directory before exporting source,
 with direct parent and delegated regression cases. Preserve the launch-relative
 protection too. No implementation change was made during this review. The earlier
 parent no-further-correction assessment is superseded by this reproduced finding.
+
+## Relative-root correction verification
+
+The new isolated-process regression failed before correction on relative CODEX_HOME:
+production capture retained the private root. The shared collector now retains both
+launch-relative and workspace-relative interpretations of declarations for capture
+and developer tools. This is conservative for ambiguous relative paths. The internal
+owned-child exception still omits only the default session-store entry; explicit
+environment roots are retained. Export-policy version three rejects older baselines,
+including version two, which did not cover relative backend declarations.
+
+The focused corrected suites passed: 15 capture tests, 19 worktree tests and 15
+developer-access tests (one pre-existing public-network assessment ignored).
+The process-isolated worktree case now covers relative Codex, Claude and AWS
+credential declarations plus a parent-relative name, as well as prior absolute,
+canonical-alias and ancestor cases. Each must refuse both capture and preparation
+without creating a private child file or Git blob. The actual terminal privacy
+suite passed absolute and relative variants for all three declarations, ordinary
+public review/acceptance, and the configured alias case. Formatting and all-target
+Clippy with warnings denied passed. Fresh committed cumulative evidence follows.

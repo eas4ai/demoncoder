@@ -87,7 +87,7 @@ impl DeveloperAccess {
         let home = std::env::var_os("HOME")
             .map(PathBuf::from)
             .and_then(|path| path.canonicalize().ok());
-        let mut private = private_roots(credential_paths, true);
+        let mut private = private_roots(workspace, credential_paths, true);
         private.push(workspace.join(".demoncoder"));
         let mut instructions = Vec::new();
         let mut instruction_trees = Vec::new();
