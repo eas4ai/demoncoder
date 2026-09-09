@@ -1,0 +1,85 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.09s
+     Running unittests src/lib.rs (target/debug/deps/demoncoder-0911b3f9cf4c6c88)
+
+running 3 tests
+test adapters::anthropic::accumulation_tests::missing_fields_start_with_the_complete_fragment ... ok
+test adapters::anthropic::accumulation_tests::fragments_reuse_available_storage_and_preserve_unicode ... ok
+test adapters::anthropic::accumulation_tests::exact_byte_limit_refuses_overflow_without_changing_the_block ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 102 filtered out; finished in 0.01s
+
+   Compiling demoncoder v0.1.2 (/home/shawn/workspace2/demoncoder)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.72s
+     Running tests/reliability_streams.rs (target/debug/deps/reliability_streams-ec976d9032f0e21c)
+
+running 3 tests
+test anthropic_accepts_exact_byte_bound_after_completion ... ok
+test anthropic_rejects_excess_before_completion ... ok
+test anthropic_bounds_inline_input_before_admitting_any_response_calls ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.53s
+
+cairn: REL-003: pass
+   Compiling demoncoder v0.1.2 (/home/shawn/workspace2/demoncoder)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.59s
+     Running tests/reliability_utf8.rs (target/debug/deps/reliability_utf8-f23f356348d99172)
+
+running 3 tests
+test replacement_expansion_preserves_the_raw_byte_limit ... ok
+test bash_keeps_stream_decoders_separate_and_flushes_incomplete_eof ... ok
+test bash_preserves_every_multibyte_split_boundary ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.63s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s
+     Running unittests src/lib.rs (target/debug/deps/demoncoder-0911b3f9cf4c6c88)
+
+running 1 test
+test tools::utf8_tests::every_partition_matches_whole_stream_lossy_decoding ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 104 filtered out; finished in 0.00s
+
+cairn: REL-004: pass
+   Compiling demoncoder v0.1.2 (/home/shawn/workspace2/demoncoder)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.73s
+     Running tests/output_limits.rs (target/debug/deps/output_limits-5d168b2cfb44d1ad)
+
+running 12 tests
+test explicit_limit_bypasses_model_discovery ... ok
+test metadata_redirect_does_not_contact_another_origin ... ok
+test discovery_encodes_model_names_without_changing_the_endpoint_origin ... ok
+test output_limits_are_positive_and_unsupported_backends_reject_them ... ok
+test model_limit_is_discovered_once_and_used_in_real_requests ... ok
+test openai_incomplete_output_retains_usage_without_admitting_calls ... ok
+test malformed_or_oversized_metadata_fails_without_reflecting_its_body ... ok
+test openai_keeps_provider_defaults_or_uses_an_explicit_limit ... ok
+test discovery_errors_are_actionable_and_do_not_reflect_secret_bodies ... ok
+test missing_or_invalid_model_limits_never_send_a_message ... ok
+test truncated_text_or_tool_calls_fail_with_usage_and_a_usable_next_prompt ... ok
+test cancellation_during_discovery_prevents_message_admission ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.79s
+
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.08s
+...
+----------------------------------------------------------------------
+Ran 3 tests in 3.835s
+
+OK
+test_cancelled_key_input_restores_terminal_and_saves_nothing (__main__.Onboarding.test_cancelled_key_input_restores_terminal_and_saves_nothing) ... ok
+test_first_run_and_repeated_run_use_saved_choices (__main__.Onboarding.test_first_run_and_repeated_run_use_saved_choices) ... ok
+test_key_input_is_not_echoed_and_is_saved_privately (__main__.Onboarding.test_key_input_is_not_echoed_and_is_saved_privately) ... ok
+
+----------------------------------------------------------------------
+Ran 3 tests in 0.849s
+
+OK
+cairn: CODE-009: pass
+.
+----------------------------------------------------------------------
+Ran 1 test in 0.047s
+
+OK
+cairn: OUTPUT-001: pass
+cairn: OUTPUT-002: pass
+cairn: OUTPUT-003: pass
