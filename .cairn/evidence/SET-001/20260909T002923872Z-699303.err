@@ -1,0 +1,88 @@
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.14s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.09s
+     Running unittests src/lib.rs (target/debug/deps/demoncoder-0911b3f9cf4c6c88)
+test_claude_status_is_a_managed_login_observation_and_aliases_are_labelled (__main__.ProviderSettings.test_claude_status_is_a_managed_login_observation_and_aliases_are_labelled) ... ok
+test_cli_presence_does_not_establish_subscription_login (__main__.ProviderSettings.test_cli_presence_does_not_establish_subscription_login) ... ok
+test_correcting_a_rejected_key_offers_only_checked_models (__main__.ProviderSettings.test_correcting_a_rejected_key_offers_only_checked_models) ... ok
+test_environment_key_controls_checks_without_replacing_saved_key (__main__.ProviderSettings.test_environment_key_controls_checks_without_replacing_saved_key) ... ok
+test_failed_model_discovery_cannot_contribute_choices (__main__.ProviderSettings.test_failed_model_discovery_cannot_contribute_choices) ... ok
+test_missing_key_and_rejected_key_never_appear_authenticated (__main__.ProviderSettings.test_missing_key_and_rejected_key_never_appear_authenticated) ... ok
+test_overlapping_model_ids_keep_provider_identity_and_request_route (__main__.ProviderSettings.test_overlapping_model_ids_keep_provider_identity_and_request_route) ... ok
+test_provider_checkboxes_precede_models (__main__.ProviderSettings.test_provider_checkboxes_precede_models) ... ok
+test_reflected_credential_is_not_rendered_as_a_model (__main__.ProviderSettings.test_reflected_credential_is_not_rendered_as_a_model) ... ok
+test_roles_default_override_cancel_and_creator_change_are_distinct (__main__.ProviderSettings.test_roles_default_override_cancel_and_creator_change_are_distinct) ... ok
+test_saved_unavailable_model_requires_an_explicit_replacement (__main__.ProviderSettings.test_saved_unavailable_model_requires_an_explicit_replacement) ... ok
+test_slow_check_can_be_cancelled_while_other_provider_completes (__main__.ProviderSettings.test_slow_check_can_be_cancelled_while_other_provider_completes) ... ok
+test_slow_subscription_check_times_out_without_authentication (__main__.ProviderSettings.test_slow_subscription_check_times_out_without_authentication) ... ok
+
+----------------------------------------------------------------------
+Ran 13 tests in 18.189s
+
+OK
+test_active_task_is_pinned_and_reviewer_resolves_after_correction (__main__.RoleSettings.test_active_task_is_pinned_and_reviewer_resolves_after_correction) ... ok
+test_explicit_child_connection_overrides_settings_worker (__main__.RoleSettings.test_explicit_child_connection_overrides_settings_worker) ... ok
+test_oracle_default_uses_its_assignment_without_tools (__main__.RoleSettings.test_oracle_default_uses_its_assignment_without_tools) ... ok
+test_queued_worker_captures_old_model_and_new_assignment_uses_new_default (__main__.RoleSettings.test_queued_worker_captures_old_model_and_new_assignment_uses_new_default) ... ok
+test_recovery_keeps_queued_identity_allocation_and_new_reviewer_default (__main__.RoleSettings.test_recovery_keeps_queued_identity_allocation_and_new_reviewer_default) ... ok
+test_role_overrides_and_inheritance_preserve_decision_authority (__main__.RoleSettings.test_role_overrides_and_inheritance_preserve_decision_authority) ... ok
+
+----------------------------------------------------------------------
+Ran 6 tests in 9.434s
+
+OK
+test_cancelling_live_slow_discovery_keeps_draft_and_scrolled_conversation (__main__.LiveSettings.test_cancelling_live_slow_discovery_keeps_draft_and_scrolled_conversation) ... ok
+test_conflicting_and_failed_saves_stay_open_and_keep_previous_runtime_model (__main__.LiveSettings.test_conflicting_and_failed_saves_stay_open_and_keep_previous_runtime_model) ... ok
+test_deselected_creator_blocks_admission_without_redirecting_or_losing_draft (__main__.LiveSettings.test_deselected_creator_blocks_admission_without_redirecting_or_losing_draft) ... ok
+test_explicit_launch_model_overrides_later_saved_creator_changes (__main__.LiveSettings.test_explicit_launch_model_overrides_later_saved_creator_changes) ... ok
+test_held_cli_turn_finishes_before_new_context_and_settings_command_is_not_a_prompt (__main__.LiveSettings.test_held_cli_turn_finishes_before_new_context_and_settings_command_is_not_a_prompt) ... ok
+test_held_native_turn_keeps_model_and_next_work_retains_history_and_draft (__main__.LiveSettings.test_held_native_turn_keeps_model_and_next_work_retains_history_and_draft) ... ok
+
+----------------------------------------------------------------------
+Ran 6 tests in 3.579s
+
+OK
+  Installing demoncoder v0.1.2 (/home/shawn/workspace2/demoncoder)
+    Updating crates.io index
+    Finished `release` profile [optimized] target(s) in 0.93s
+   Replacing /home/shawn/.cargo/bin/demoncoder
+    Replaced package `demoncoder v0.1.2 (/home/shawn/workspace2/demoncoder)` with `demoncoder v0.1.2 (/home/shawn/workspace2/demoncoder)` (executable `demoncoder`)
+test_claude_status_is_a_managed_login_observation_and_aliases_are_labelled (__main__.ProviderSettings.test_claude_status_is_a_managed_login_observation_and_aliases_are_labelled) ... ok
+test_cli_presence_does_not_establish_subscription_login (__main__.ProviderSettings.test_cli_presence_does_not_establish_subscription_login) ... ok
+test_correcting_a_rejected_key_offers_only_checked_models (__main__.ProviderSettings.test_correcting_a_rejected_key_offers_only_checked_models) ... ok
+test_environment_key_controls_checks_without_replacing_saved_key (__main__.ProviderSettings.test_environment_key_controls_checks_without_replacing_saved_key) ... ok
+test_failed_model_discovery_cannot_contribute_choices (__main__.ProviderSettings.test_failed_model_discovery_cannot_contribute_choices) ... ok
+test_missing_key_and_rejected_key_never_appear_authenticated (__main__.ProviderSettings.test_missing_key_and_rejected_key_never_appear_authenticated) ... ok
+test_overlapping_model_ids_keep_provider_identity_and_request_route (__main__.ProviderSettings.test_overlapping_model_ids_keep_provider_identity_and_request_route) ... ok
+test_provider_checkboxes_precede_models (__main__.ProviderSettings.test_provider_checkboxes_precede_models) ... ok
+test_reflected_credential_is_not_rendered_as_a_model (__main__.ProviderSettings.test_reflected_credential_is_not_rendered_as_a_model) ... ok
+test_roles_default_override_cancel_and_creator_change_are_distinct (__main__.ProviderSettings.test_roles_default_override_cancel_and_creator_change_are_distinct) ... ok
+test_saved_unavailable_model_requires_an_explicit_replacement (__main__.ProviderSettings.test_saved_unavailable_model_requires_an_explicit_replacement) ... ok
+test_slow_check_can_be_cancelled_while_other_provider_completes (__main__.ProviderSettings.test_slow_check_can_be_cancelled_while_other_provider_completes) ... ok
+test_slow_subscription_check_times_out_without_authentication (__main__.ProviderSettings.test_slow_subscription_check_times_out_without_authentication) ... ok
+
+----------------------------------------------------------------------
+Ran 13 tests in 17.958s
+
+OK
+test_cancelling_live_slow_discovery_keeps_draft_and_scrolled_conversation (__main__.LiveSettings.test_cancelling_live_slow_discovery_keeps_draft_and_scrolled_conversation) ... ok
+test_conflicting_and_failed_saves_stay_open_and_keep_previous_runtime_model (__main__.LiveSettings.test_conflicting_and_failed_saves_stay_open_and_keep_previous_runtime_model) ... ok
+test_deselected_creator_blocks_admission_without_redirecting_or_losing_draft (__main__.LiveSettings.test_deselected_creator_blocks_admission_without_redirecting_or_losing_draft) ... ok
+test_explicit_launch_model_overrides_later_saved_creator_changes (__main__.LiveSettings.test_explicit_launch_model_overrides_later_saved_creator_changes) ... ok
+test_held_cli_turn_finishes_before_new_context_and_settings_command_is_not_a_prompt (__main__.LiveSettings.test_held_cli_turn_finishes_before_new_context_and_settings_command_is_not_a_prompt) ... ok
+test_held_native_turn_keeps_model_and_next_work_retains_history_and_draft (__main__.LiveSettings.test_held_native_turn_keeps_model_and_next_work_retains_history_and_draft) ... ok
+
+----------------------------------------------------------------------
+Ran 6 tests in 3.478s
+
+OK
+test_active_task_is_pinned_and_reviewer_resolves_after_correction (__main__.RoleSettings.test_active_task_is_pinned_and_reviewer_resolves_after_correction) ... ok
+test_explicit_child_connection_overrides_settings_worker (__main__.RoleSettings.test_explicit_child_connection_overrides_settings_worker) ... ok
+test_oracle_default_uses_its_assignment_without_tools (__main__.RoleSettings.test_oracle_default_uses_its_assignment_without_tools) ... ok
+test_queued_worker_captures_old_model_and_new_assignment_uses_new_default (__main__.RoleSettings.test_queued_worker_captures_old_model_and_new_assignment_uses_new_default) ... ok
+test_recovery_keeps_queued_identity_allocation_and_new_reviewer_default (__main__.RoleSettings.test_recovery_keeps_queued_identity_allocation_and_new_reviewer_default) ... ok
+test_role_overrides_and_inheritance_preserve_decision_authority (__main__.RoleSettings.test_role_overrides_and_inheritance_preserve_decision_authority) ... ok
+
+----------------------------------------------------------------------
+Ran 6 tests in 7.190s
+
+OK
