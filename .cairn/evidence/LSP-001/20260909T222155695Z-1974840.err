@@ -1,0 +1,14 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.25s
+     Running tests/language_services.rs (target/debug/deps/language_services-4406d7fd356b8442)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.10s
+     Running unittests src/lib.rs (target/debug/deps/demoncoder-b84c158a175b14c4)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.31s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.19s
+     Running unittests src/lib.rs (target/debug/deps/demoncoder-b84c158a175b14c4)
+     Running unittests src/main.rs (target/debug/deps/demoncoder-ce6cc29fa2683b5e)
+     Running tests/capabilities.rs (target/debug/deps/capabilities-9b761578bfe67b56)
+     Running tests/developer_access.rs (target/debug/deps/developer_access-b60723e8ade6beba)
+     Running tests/host_guard.rs (target/debug/deps/host_guard-f0100786cd8b2a0d)
+     Running tests/inherited_fd_driver.rs (target/debug/deps/inherited_fd_driver-4afe3e7ebc151279)
+     Running tests/language_services.rs (target/debug/deps/language_services-4406d7fd356b8442)
+error: test failed, to rerun pass `--test language_services`
