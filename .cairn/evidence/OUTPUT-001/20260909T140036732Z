@@ -1,0 +1,21 @@
+requirement: OUTPUT-001
+requirement_digest: sha256:758b9c74b7c5726b1ddd8c85a06ef874770546091c342c7f359803ef75a88344
+sequence: 4
+history_digest: sha256:008078fe327981c4f2ac7e8d2c7987b227bf3de758931fe52f3b8dfd245c2f56
+mechanism: output-limits
+commit: d84e437
+inputs_digest: sha256:52f54e4be15be16d6c70d5791b20401d00e7a22b4c9ceb39a1f5c6295eb67b51
+mechanism_digest: sha256:cd20b5e235c6fbc0f39c06bbc5cd13dd5577621cf20e936d08755191dd7bd07d
+inputs_detail: .cairn/evidence/OUTPUT-001/20260909T140030305Z-2959333.inputs.json
+command: bash scripts/check-output-limits.sh
+cwd: .
+exit: 0
+output_digest: sha256:dbb45bb4923d7935268d069d19b16db020f22da158c868736cb473c3668098cc
+output: .cairn/evidence/OUTPUT-001/20260909T140030305Z-2959333.out
+stderr_output: .cairn/evidence/OUTPUT-001/20260909T140030305Z-2959333.err
+stderr_digest: sha256:ef1402fecd8302e65986e8bde731861fa3508df9a40b029a37d84ecdce349782
+signal: none
+execution_error: null
+result: pass
+source: line
+recorded: 2026-09-09T14:00:36.732Z
