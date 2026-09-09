@@ -1,6 +1,6 @@
 # Roadmap
 
-Current: audit-remediation
+Current: release-followups
 
 The developer selected the usable coding session as the first commitment
 and agreed to use Cairn on 2026-09-06. The developer confirmed its detailed
@@ -22,6 +22,7 @@ requirements and falsifiers together on 2026-09-06.
 | 5 | evidence-based-improvement | Operational evidence leads to a cited improvement candidate, an authorized correction, and a useful lesson for later work. |
 | 6 | provider-agent-settings | Authenticated provider selection, Creator defaults, per-role model assignments and live Settings. |
 | 6a | audit-remediation | Close protected-source exports, support explicit build/review scopes, fix stream copying and restore cumulative installed coverage. |
+| 6b | release-followups | Refresh real-provider evidence, reconcile output-limit documentation and review the existing socket policy. |
 
 The first coding session and startup fixes are complete. The developer selected
 developer-usability after encountering blocked assessment tools and missing chat
@@ -65,3 +66,8 @@ with SET-001 through SET-008 and their behavioral falsifiers.
 Provider-agent-settings is complete. On 2026-09-08 the developer selected
 remediation of the six findings from the end-to-end code audit. AUD-001 through
 AUD-006 and their falsifiers are the current commitment.
+
+Audit remediation is complete. On 2026-09-08 the developer confirmed the concrete
+release follow-ups. Existing OUTPUT-001 through OUTPUT-003, REL-001, CODE-010
+and CONN-001 supply their agreed behavior and falsifiers. Feature backlog items
+remain proposals until separately specified and selected.
