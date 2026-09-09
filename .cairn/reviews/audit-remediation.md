@@ -1,14 +1,14 @@
 # Audit remediation review
 
 commitment: audit-remediation
-commit: 8abc99b7a0a8e84e397ccf128f11013d9a8c73b2
+commit: cc10e8cc4c098be7466c4fcecac58958ca8b3a85
 examined:
-  - CODE-007: final tool boundary, installed backend fixture, shared executor and mechanism runner.
+  - AUD-001 through AUD-006 and inherited requirements: complete source/test diff, private capture and Git export boundaries, source/review scope and recovery, stream append, settings locking, supported installed backends and cumulative mechanisms.
 findings:
   - resolved: AUD-006: The installed Codex fixture and cumulative gate now pass against the supported route.
-  - open: AUD-001: Environment-declared credential roots can enter snapshots and reviewer requests; cover the shared private roots and historical snapshot boundary.
-  - open: AUD-002: The same missing private-root admission can export credentials through delegated capture and Git snapshots.
-Status: in progress
+  - resolved: AUD-001: Shared absolute and relative private-root admission and version-three historical-baseline refusal prevent new retained source and reviewer exports; current production checks and independent review pass.
+  - resolved: AUD-002: Parent and owned-child capture apply the complete private-root policy before materialization and Git object creation; relative declarations and validated child integration pass the production regressions.
+Status: complete
 
 ## CODE-007 mechanism review
 
@@ -329,3 +329,60 @@ without creating a private child file or Git blob. The actual terminal privacy
 suite passed absolute and relative variants for all three declarations, ordinary
 public review/acceptance, and the configured alias case. Formatting and all-target
 Clippy with warnings denied passed. Fresh committed cumulative evidence follows.
+
+## Final relative-root candidate evidence
+
+The committed relative-root correction is 4904f37. The complete candidate, including
+fresh receipts, is cc10e8c. The parent examined the correction's complete source and
+test diff in addition to the previously examined accumulated audit change.
+
+AUD-006 receipt 20260909T020755399Z records exit 0. Its retained output contains all
+21 unique completed-product drivers and the installed-release tools/results,
+privacy, generated-output, bounded-review and six recovery cases. Formatting,
+Clippy and the full all-target Rust suite passed in that same run. All 34 selected
+requirements now have fresh passing receipts; the parent verified the SHA256 of
+each retained stdout and stderr file. Default coding/connection aggregate exits
+still reflect stale paid-live evidence; CODE-010 and CONN-001 remain unverified.
+
+The installed and target/release executables both hash to
+b6ce64cf4219914bf5789adea74e514b7f22b4976ba6d5863be5bfd26ba0bee7,
+and the installed version command reports 0.1.2.
+
+A baseline-pinned Ripwire comparison limited to this correction reported one
+major test-verbosity suggestion: the process-isolated private-root matrix grew
+from 84 to 95 lines. The additional cases exercise distinct relative declarations
+without mutating the test runner's shared environment. No production metric
+regression was reported in this comparison. Its test gate remains advisory with
+exit 4; executed cumulative tests establish the local behavior, not paid access.
+The complete earlier quality comparison is retained above and is not claimed clean.
+
+Every committed check used its own TMPDIR beneath the designated scratch directory,
+which was removed afterward. A final process-reference and ownership check allowed
+removal of 143 remaining completed-test artifacts in /tmp and scratchpads; active
+files, other projects and shared caches were preserved. Parent self-audit against
+production rules 1–14 found no further correction needed on this verified candidate.
+Fresh independent review follows before acceptance.
+
+## Fresh independent final verdict
+
+ASTRA REVIEW VERDICT: ship
+REASON: No material unresolved defect found in the complete 00facef^..cc10e8c
+scope. The relative-root repair covers both execution-directory interpretations
+before capture and developer-tool admission while preserving the owned-child guard.
+FINDINGS: none.
+
+The independent reviewer inspected private-root collection, capture refusal,
+developer access, worktree ordering, relative terminal/Git-object regressions,
+version-three historical refusal, generated/review scope and recovery identity,
+complete changed-source evidence, stream append reuse/limits, cumulative runner
+selection and the installed Codex canonical-route assertion. Its read-only
+`git diff --check 00facef^..cc10e8c` passed. It created no artifacts and made no
+repository changes. Parent verification and retained checks supply execution
+coverage; the independent review was not presented as another test run.
+
+The requested reviewer was gpt-5.6-terra at high effort. Actual model, effort and
+usage telemetry were not exposed. Paid-live CODE-010 and CONN-001 remain unverified.
+Ambiguous relative declarations can conservatively refuse capture. These limits
+are explicit and do not weaken the selected local falsifiers. The parent accepts
+this candidate after the independent ship verdict and the final production-rule
+self-audit; no unresolved finding remains.
