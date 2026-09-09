@@ -23,4 +23,4 @@ runtimes. An unavailable overlay remains a launch failure, not a host fallback.
 
 ## Realized by
 
-(none yet: recorded, not built)
+- 5554026f04bc75d3ffba19216228dd8ff6d9d015 Add confined managed language services across all connections
