@@ -1,7 +1,7 @@
 # Managed language services review
 
 commitment: managed-language-services
-commit: 8e551c591225e94335860238a738021a81ff0cc6
+commit: 9d6f5323ea23bd200b4dc62171b3d6ffcc91d368
 findings:
   - resolved: LSP-004: Independent filtered filesystem copies close the late private-directory read; corrected startup, late-file, external-root and alias regressions pass.
   - resolved: LSP-003: Directory membership validation detects new public workspace and external dependencies during active queries.
@@ -185,3 +185,28 @@ captured stdout/stderr hash was verified. The installed artifact still matches
 the recorded SHA256. Re-examined this final difference against the production
 rules and the completed review above: no new code, missing verification or
 unresolved finding remains. No code changed during this review.
+
+
+## Review after the extension specification draft
+
+Compared the reviewed candidate with the current tree. Runtime source, tests,
+check scripts, dependencies, README and the agreed language-service requirements
+and commitment are unchanged. The new extension specification files are marked
+Draft; their separate draft commitment is not Current. They preserve the existing
+LSP admission, filtered-filesystem and diagnostic-freshness requirements. No new
+runtime plugin behavior or broader file access is activated by these documents.
+
+The full managed-language-services mechanism reran against commit 942ef85 and
+exited zero. All six requirements have current passing receipts. Verified each
+receipt's stdout and stderr digest against the captured files. The run includes
+formatting, Clippy, all-target tests, installed Rust/TypeScript language-service
+cases and all four controlled adapter cycles. This adds no live-provider claim.
+
+Reviewed the new documents for accidental changes to the agreed LSP contract,
+ambiguous Draft status, incomplete requirement coverage and scope reduction.
+The draft is one complete extension deliverable with 31 requirements; it does
+not count unimplemented components as done. Spec lint, local links, requirement
+coverage and staged whitespace checks pass. Ripwire test-gate reported zero
+changed symbols. Root quality-delta exited 2 with findings in vendored reference
+trees; it is not a passing quality gate or evidence of a production-code change.
+No code changed during this review and no new LSP finding remains.
