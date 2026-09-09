@@ -1,0 +1,21 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.32s
+     Running tests/output_limits.rs (target/debug/deps/output_limits-5d168b2cfb44d1ad)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.08s
+...
+----------------------------------------------------------------------
+Ran 3 tests in 3.745s
+
+OK
+test_cancelled_key_input_restores_terminal_and_saves_nothing (__main__.Onboarding.test_cancelled_key_input_restores_terminal_and_saves_nothing) ... ok
+test_first_run_and_repeated_run_use_saved_choices (__main__.Onboarding.test_first_run_and_repeated_run_use_saved_choices) ... ok
+test_key_input_is_not_echoed_and_is_saved_privately (__main__.Onboarding.test_key_input_is_not_echoed_and_is_saved_privately) ... ok
+
+----------------------------------------------------------------------
+Ran 3 tests in 0.885s
+
+OK
+.
+----------------------------------------------------------------------
+Ran 1 test in 0.060s
+
+OK
