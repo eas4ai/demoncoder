@@ -1,0 +1,21 @@
+requirement: SUB-004
+requirement_digest: sha256:47d95c5fa647360f459f4e336946c4d4c633f15ac45a018a72c4f728489ee1ec
+sequence: 21
+history_digest: sha256:8e5204e543918680b7b7ad67f7bc6ce6506a9bb6d03feb4ade98efb220340c25
+mechanism: assignable-subagents
+commit: c3e8978
+inputs_digest: sha256:ed13ce3c347dfd53a9374de0992b3ed645da6e4d727b22f3e195213c55c47c31
+mechanism_digest: sha256:c4c5102b2bdd7939514ea11c33ba696889e46499644b1985ebe5b6edc9f26c63
+inputs_detail: .cairn/evidence/SUB-001/20260909T021148000Z-2386875.inputs.json
+command: bash scripts/check-assignable-subagents.sh
+cwd: .
+exit: 0
+output_digest: sha256:e0a0be801bccafef36ef2200ccadaff251bddefb2fd573d62c4569989c41442e
+output: .cairn/evidence/SUB-001/20260909T021148000Z-2386875.out
+stderr_output: .cairn/evidence/SUB-001/20260909T021148000Z-2386875.err
+stderr_digest: sha256:3048d1e6b267294446f38d99d3cb9888ff99a08efad067cecb820110e778d27b
+signal: none
+execution_error: null
+result: pass
+source: line
+recorded: 2026-09-09T02:12:47.431Z
