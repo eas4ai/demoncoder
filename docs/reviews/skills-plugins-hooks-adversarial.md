@@ -2,7 +2,8 @@
 
 Date: 2026-09-09
 Reviewed commit: 1ee77cb31d4ba2d3921c99274f47da3fbb077e73
-Verdict: Not ready for implementation planning.
+Original verdict: Not ready for implementation planning.
+Remediation: All ten specification findings addressed below on 2026-09-09.
 
 The complete scope remains required. None of these findings recommends an MVP,
 deferring a component, or calling an unsupported feature complete. The problem is
@@ -266,5 +267,39 @@ The previous lint and regression passes establish document structure and existin
 runtime health. They do not establish soundness of this new design. No new runtime
 test can prove these unimplemented plugin requirements yet. This review therefore
 records explicit counterexamples and the tests needed to close each finding.
-All ten findings remain open. No specification or runtime code was changed during
-the examination.
+All ten findings were open at the end of that examination. No specification or
+runtime code was changed during the examination.
+
+## Specification remediation
+
+The developer requested remediation after this review. The revised draft adds
+six runtime-contract requirements and four compatibility requirements, retaining
+all 31 earlier requirements in the same complete commitment. The roadmap still
+selects managed language services. No plugin runtime implementation is claimed.
+
+The following are design walkthroughs of the original counterexamples against
+the revised normative rules. They are not executed plugin acceptance tests.
+
+| Finding | Revised contract | Counterexample and corrected case |
+|---|---|---|
+| F01 | PCOMP-001, manifest precedence | Root skill/MCP components survive the overlay; an inline OpenAI object replaces only OpenAI settings. Canonical-file deduplication prevents repeated components. |
+| F02 | PRUN-001 | Both gate/rewriter orders judge the frozen final path. A stale combined-handler allow needs a pure decision endpoint or remains held. A permitted final candidate executes once; effectful handlers are not replayed to obtain a fresh verdict. |
+| F03 | PRUN-002 | A delayed result for A cannot release B after a file, absent path, directory, permission or external precondition changes. An unchanged candidate retains a valid delayed decision. External atomicity requires a real transaction rather than a precheck claim. |
+| F04 | PCOMP-002 | Worktree stdout paths, replacement watch lists and Codex post-compaction stops have distinct decoding and transitions. The event/type matrix defines concurrency, special effects, ignored source fields, failures and deliberate host-policy differences. |
+| F05 | PCOMP-003 | Backend compaction waits at the actual callback/core barrier. A host-only event cannot satisfy the requirement. Deny/allow and relay-loss behavior require real backend qualification; the deliverable includes the managed Codex integration needed to abort on relay loss. |
+| F06 | PRUN-003 | A broken ConfigChange gate cannot intercept developer quarantine. Quarantine stops admissions and preserves holds; agent-origin requests fail, and removing required managed policy still needs its authority. |
+| F07 | PRUN-004 | A v1 task retains its code/state tuple while v2 migrates a staged copy. Crashes recover the durable activation boundary. Rollback retains newer state and exposes divergence rather than silently merging or discarding it. |
+| F08 | PRUN-005 | Current check receipts, review findings, todo state, allocations and developer acceptance gate real coding completion. Changing a fixture marker cannot discharge them. Cairn results map to specific actions and execution errors remain held. |
+| F09 | PCOMP-004 | The committed v1 inventory fixes fields, 34 events, five handler types, test dimensions, immutable source digests and five licensed real packages. Deleting an inventoried handler must fail coverage and behavior tests. The Supabase app has an explicit service/account binding and required authenticated read-only smoke case. |
+| F10 | PRUN-006 | Line-only overflow stops the producer, retains its prefix and requires an acknowledged-gap restart. Cursor sources resume from durable intake with deduplication. A crash restores recovery state without silently acknowledging loss or repeating admitted work. |
+
+The contracts are in [plugin runtime behavior](../spec/plugin-runtime-contract.md)
+and [plugin compatibility](../spec/plugin-compatibility.md). The
+[frozen inventory](../spec/compatibility/plugin-profile-v1.json) records required
+future test results as not run. Source digests and fixture provenance were checked
+during specification work; no authenticated connector or backend barrier test ran.
+
+The specification gaps identified here are closed. Runtime conformance remains
+the full draft commitment's delivery obligation, including proprietary-backend
+qualification and real connector access. A demonstrated external constraint must
+return for a developer decision; it cannot become an implementation-local exclusion.

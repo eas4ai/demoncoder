@@ -21,6 +21,7 @@ ignored, malformed frontmatter supplies executable defaults, or a required
 component is silently dropped.
 Mechanism: Validate mixed supported/unsupported fixtures, malformed manifests,
 duplicate identities and explicit partial activation through the production loader.
+The composition rules in PCOMP-001 include portable roots with Codex overlays.
 
 [EXT-002] The developer MUST be able to install, validate, inspect, enable,
 disable, reload and remove local plugins through visible application controls.
@@ -84,13 +85,13 @@ Mechanism: Drive each adapter with controlled prompt/tool/completion exchanges
 and an ambient-plugin canary; distinguish controlled transport from live smoke evidence.
 
 [EXT-008] Application-bundled workflow plugins MUST use the same activation,
-policy, execution and evidence rules as user packages. The initial bundled Best
-Practices plugin MUST pair readable skill instructions with an executable gate
-that can fail on a documented violating fixture. Cairn integration MUST remain
+policy, execution and evidence rules as user packages. The bundled Best
+Practices plugin MUST enforce the real receipt-based completion policy in PRUN-005
+and pair that gate with readable skill instructions. Cairn integration MUST remain
 optional. It MUST consume actual referee output when installed.
 Falsifier: Bundled code bypasses confinement, a claimed enforcement gate always
 passes, or ordinary DemonCoder use requires Cairn to be installed.
-Mechanism: Run the Best Practices fixture before and after correction, inspect
+Mechanism: Violate each PRUN-005 obligation before and after correction, inspect
 its gate receipt, and launch a normal session without either workflow enabled.
 
 [EXT-009] The implementation MUST deliver the complete agreed plugin component

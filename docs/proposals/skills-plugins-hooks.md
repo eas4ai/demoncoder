@@ -38,13 +38,13 @@ available instructions and their origin. These are proposed product controls,
 not existing commands.
 
 The loader recognizes `.claude-plugin/plugin.json`, `.codex-plugin/plugin.json`
-and portable Agent Plugins 1.0 root `plugin.json`. When multiple manifests exist,
-installation requires selecting a dialect; it does not merge them or execute
-components twice. A root manifest must declare the recognized schema. Future
-schema versions outside the agreed reference version require an explicit
-compatibility update. Manifest-free skills and Claude multi-component directories
-are supported through their documented discovery rules, with a stable recorded
-identity derived at import time.
+and portable Agent Plugins 1.0 root `plugin.json`. Portable identity and fixed
+skill/MCP roots remain canonical. Inline `extensions.com.openai` replaces the
+OpenAI overlay; when absent, the Codex overlay contributes those settings.
+Independent legacy dialects require an explicit selection only when they are
+actual alternatives. The full precedence, merge and discovery rules are in the
+[compatibility contract](../spec/plugin-compatibility.md#manifest-precedence).
+Manifest-free Claude components retain stable recorded identities.
 
 The application records author, origin, declared version, content digest and
 component identities. No version string is a substitute for the content digest.
@@ -112,11 +112,13 @@ own execution and cleanup. The existing workflow store owns durable receipts.
 Adapters expose only events they actually observe. No module needs to own a
 second independent model/tool loop.
 
-A task captures the active generation. Reload validates a replacement at an idle
+A task captures both the active code generation and its state generation under
+the [state transaction contract](../spec/plugin-runtime-contract.md#mutable-state-and-activation). Reload validates a replacement at an idle
 boundary; running work and children retain their captured generation. Failed reload
 keeps the old generation usable. Disable prevents new admissions immediately and
 cancels plugin background work. Required gates interrupted by disable leave their
-tasks blocked until the developer changes the policy. Old snapshots remain until
+tasks blocked until the authorized developer repairs the policy. The non-hooked
+quarantine control always stops admissions, even if ConfigChange is broken. Old snapshots remain until
 no task references them. Removal explains retained snapshots instead of deleting
 files still needed for recovery.
 
@@ -148,8 +150,9 @@ pending action; observer means it cannot retroactively reverse an action.
 | Notification | Attributed runtime notification; observer |
 | FileChanged | Bounded reconciled workspace observation |
 | MessageDisplay | Presentation transform only; original model/tool evidence remains intact |
+| Elicitation / ElicitationResult | Authenticated MCP input request/response before server delivery; typed accept/decline/cancel, never forged developer input |
 | PostToolBatch | After all admitted operations in a declared batch settle; retain each operation's receipt |
-| PreCompact / PostCompact | Before/after real context compaction; gate then result observation |
+| PreCompact / PostCompact | Before/after real context compaction; pre-action gate then observation or dialect-specific continuation hold |
 | CwdChanged / DirectoryAdded | Actual session workspace transitions after access validation; shell `cd` alone is not this event |
 | TeammateIdle | Before an assigned agent enters idle state; bounded follow-up or idle transition, preserving allocation and cancellation |
 
@@ -162,51 +165,32 @@ An unresolved required event blocks Done; an `unsupported` label is not completi
 
 ## Handler behavior
 
-Every native event carries a schema version, event identifier, causal operation,
-session/task/role identity, package generation and applicable bounded payload.
-Responses contain a disposition (`continue`, `block`, `ask`), reason and only the
-fields allowed for that event. Unknown decision fields are invalid. Tool rewrites
-cannot change tool name or call identifier. The final rewritten request passes
-ordinary schema and access checks again.
+The [runtime contract](../spec/plugin-runtime-contract.md) specifies final-candidate
+admission, snapshot freshness, configuration recovery, mutable-state transactions,
+workflow gates and delivery recovery. The
+[compatibility contract](../spec/plugin-compatibility.md) specifies exact dialect
+results, concurrent groups and the backend bridge. These detailed contracts govern
+this overview; a generic three-value decision cannot replace their special results.
 
-Capture order by configured priority, scope (bundled, user, workspace), package
-identity and declaration order, in that order. Lower priorities run first; equal
-priorities default to zero. Blocking ends admission; an allow cannot cancel it.
-Post-tool handlers run after the original outcome has been recorded. They may
-append attributed context or block the next continuation, but cannot replace the
-outcome or claim the executed operation did not happen. Importers preserve each
-dialect's distinction between tool result and continuation decision.
+Transform first, then bind every required decision to the final request and
+inspected input revision. A later rewrite invalidates older decisions. Never
+replay effectful handlers just to revalidate a policy. A stale result leaves work
+held until a fresh decision exists within the same allowance.
 
-Command handlers prefer an executable plus argument array. Imported shell commands
-use an explicitly identified shell and receive event JSON on stdin. Package-root
-variables resolve to the immutable snapshot through the dialect's documented
-environment contract. Event text is never inserted into shell source. Minimal
-environment and explicit executable/dependency paths avoid inheriting private
-application credentials. Workspace reads and writes, networking and plugin data
-are separately declared grants. Gate execution stays confined even in host mode.
+Actual mutation evidence remains immutable even when a post-operation handler
+stops continuation or transforms model-facing output. Command execution uses
+explicit confinement, environment and destinations; prompt and agent inspection
+uses snapshot-bound evidence. All model usage consumes the owning task or explicit
+session allowance. Cancellation and host quarantine cannot be vetoed by plugins.
 
-Prompt handlers are tool-free model evaluations with strict verdict validation.
-The developer selects their model; missing configuration blocks activation.
-Agent handlers use read-only isolated assignments. Both consume the owning
-task's allocation. Session-level paid handlers require a visible developer-set
-session allowance and charge it durably; missing allowance blocks activation.
-HTTP and MCP handlers use explicit destinations and credential bindings under
-the same response, deadline and evidence contract.
+The host alone authenticates developer answers. Package context, classifier
+assertions, channel messages and rewritten output never become developer authority.
 
-A required gate fails closed on a crash, timeout or invalid response. An observer
-failure is visible alongside the original result. A Stop block may spend one of
-the existing task corrections; it creates no new allowance. Ordinary informational
-answers do not acquire an implicit coding task merely because a hook exists.
-Cancellation is always effective. Hooks cannot mark work accepted or verification
-passed; a formatter's success is only evidence that the formatter ran.
-
-Record invocation identity, generation, admitted input digest, timing, outcome,
-bounded output and usage in the existing durable workflow record. Do not record
-secret input contents. Persist admission before effects and outcome afterward.
-An interrupted operation with unknown effects requires reconciliation, not replay.
-Handler substeps do not redispatch lifecycle hooks by default. A handler requiring
-reentrancy declares it explicitly, with a maximum depth of four and rejection of
-repeated event/handler/candidate cycles. Its substeps still pass ordinary admission.
+Handler substeps do not redispatch hooks by default. Explicit reentrancy is
+bounded to depth four and rejects repeated event/handler/candidate cycles;
+every substep still passes ordinary admission. Durable invocation records retain
+identity, generation, input digest, timing, bounded outcome and usage without
+secret input contents. Package-root variables resolve to the immutable snapshot.
 
 ### Initial resource limits
 
@@ -224,26 +208,24 @@ oversized; it is never truncated into an apparently valid decision.
 | Command/prompt timeout | Default 10 / 30 seconds; explicit override up to 120 seconds |
 | Entire gate chain | Default 60 seconds; configured maximum 120 seconds, always bounded by remaining task time |
 | Stop corrections | Existing remaining task limit, currently at most two; never reset by hooks |
-| Monitor line/queue | 16 KiB / 64 messages per monitor; overflow pauses delivery and reports loss until reconciliation |
+| Monitor line/queue | 16 KiB / 64 messages per monitor; overflow stops intake with a durable gap/cursor and the defined resume controls |
 
 Implementation must also cap concurrent runners using existing task allocations;
-dispatch ordered gates sequentially per owning event. Async handlers use bounded
+dispatch ordered groups sequentially per owning event, with the source-defined
+concurrency inside each group. Async handlers use bounded
 queues, explicit owners and cancellation; they cannot serve as gates after admission.
 
 ## Workflow plugins
 
-Ship an optional `best-practices` package as a complete integration example. Its
-skill explains the coding standard and review procedure. Its command gate checks
-an explicit, committed fixture policy and demonstrably rejects a violating case.
-The documentation must distinguish machine-checked rules from judgment that still
-requires review. A model saying it complied is not an executable proof.
-
-A separate optional `cairn` package exposes skills for specification, wake and
-evidence collection, and interpret real referee verdicts through command hooks.
-It must not duplicate Cairn's state machine or invent passing results. This keeps
-the keystone's promise that normal DemonCoder operation does not depend on Cairn.
-Projects can choose another workflow package, or none. Hook state is scoped by
-plugin, workspace and role so a parent's result cannot discharge a child's gate.
+Ship both Best Practices and Cairn packages in full, optional to enable. The
+[workflow contract](../spec/plugin-runtime-contract.md#bundled-workflow-obligations)
+names the real obligations and maps every referee verdict to a runtime action.
+Best Practices checks current executed checks, current review, unfinished work,
+remaining allowance and explicit acceptance against typed runtime receipts. Its
+policy is developer-approved; a demonstration-only marker file cannot satisfy it.
+The skill/reviewer handles judgment without claiming mechanical proof of prose.
+Cairn Done discharges only its referee gate; other verification and acceptance
+requirements remain. Normal DemonCoder use still does not require Cairn.
 
 ## Services, agents and distribution
 
@@ -288,7 +270,7 @@ or disabled themes fall back to the previous valid built-in preset. Output style
 shape presentation/instructions without overriding host controls or original
 evidence. Plugin theme editing creates a user copy.
 
-Support user, project, local-session and managed scope. Managed policy constrains
+Support user, project, private local-project and managed scope. Managed policy constrains
 all lower scopes; explicit developer choices resolve same-name package conflicts.
 The UI shows every origin and the active selection. Project discovery never
 silently authorizes executable components. Author controls include package init,
@@ -310,7 +292,8 @@ constraint to resolve, not grounds for silently claiming full compatibility.
 ## One complete commitment
 
 Proposed commitment: `skills-plugins-hooks`. It includes EXT-001 through EXT-009,
-HOOK-001 through HOOK-011 and PLUG-001 through PLUG-011 in full. No component is
+HOOK-001 through HOOK-011, PLUG-001 through PLUG-011, PRUN-001 through
+PRUN-006 and PCOMP-001 through PCOMP-004 in full. No component is
 postponed to a separate release. Optional means the developer may choose whether
 to enable a delivered plugin, not whether we implement its support.
 
@@ -327,9 +310,10 @@ themes and output styles; scopes, marketplaces, pinned updates and dependencies;
 both bundled workflow examples; all four connection checks; negative-path and
 recovery demonstrations; documentation; and a clean commitment review.
 
-Use equivalent Claude, Codex and portable fixtures plus representative real
-packages whose licenses permit use. Record their revisions and exercise each
-declared component through production paths. A parser-only test, disabled feature,
+Use the complete [frozen profile inventory](../spec/compatibility/plugin-profile-v1.json),
+including its five pinned real package trees, source/schema digests and required
+synthetic cases. Exercise every inventoried component and field through production
+paths; no implementation-local fixture substitution or coverage exclusion is allowed. A parser-only test, disabled feature,
 placeholder runner or compatibility warning cannot satisfy a required feature.
 Provider-controlled unavailable accounts or private APIs need a named limitation
 and explicit scope decision, never an automatic reduction of this deliverable.
@@ -338,7 +322,9 @@ and explicit scope decision, never an automatic reduction of this deliverable.
 
 Every requirement has a falsifier and proposed mechanism in
 [extensions](../spec/extensions.md), [hooks](../spec/lifecycle-hooks.md) and
-[components and distribution](../spec/plugin-components.md). These are test designs, not
+[components and distribution](../spec/plugin-components.md),
+[runtime state and admission](../spec/plugin-runtime-contract.md), and
+[compatibility](../spec/plugin-compatibility.md). These are test designs, not
 recorded passing evidence. Use actual effects in temporary workspaces to prove
 denial, not only a mocked handler's return value. Pair violating and corrected
 cases. Exercise process descendants, private canaries, stale approvals, generation
@@ -366,8 +352,9 @@ The developer supplied the Claude plugin reference as a package baseline.
 [Claude's plugin reference](https://code.claude.com/docs/en/plugins-reference)
 and [hook reference](https://code.claude.com/docs/en/hooks) describe that dialect;
 the [Agent Skills specification](https://agentskills.io/specification) supplies
-the shared skill format. Reference date: 2026-09-09. Compatibility fixtures must
-record the upstream schema/profile they test rather than claim indefinite parity.
+the shared skill format. Reference date: 2026-09-09. The frozen profile pins Claude SDK 0.3.267,
+Codex rust-v0.153.4 source commit, portable schemas and real package tree identities.
+Those artifacts fix coverage independently of changing documentation pages.
 
 OpenAI's [package documentation](https://developers.openai.com/plugins/build/plugins)
 describes portable root `plugin.json`, the `.codex-plugin/plugin.json` compatibility

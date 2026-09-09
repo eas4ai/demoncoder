@@ -16,10 +16,13 @@ event is attributed to its parent task alone, or a pathological matcher hangs ad
 Mechanism: Record full production event traces for success, denial, failure,
 cancellation and resume; compare event order, identity and missing-event behavior.
 
-[HOOK-002] Gates MUST run in a stable order captured with the task. A blocking
+[HOOK-002] Gate groups MUST run in a stable order captured with the task;
+source-defined concurrent groups follow PCOMP-002. A blocking
 result MUST dominate permission to continue. A pre-tool hook MAY propose new
 arguments. It MUST NOT change tool identity. The runtime MUST validate and admit
 the final arguments against the existing access policy after all rewrites.
+The final-candidate and snapshot protocols in PRUN-001 and PRUN-002 govern
+plugin decisions as well as developer answers.
 Falsifier: A later allow overrides a deny, an allowed path is rewritten to an
 outside path without another policy check, or package discovery order changes decisions.
 Mechanism: Compose allow/deny/rewrite fixtures in opposite discovery orders and
@@ -52,7 +55,8 @@ Mechanism: Run always-block, corrected-pass, exhausted-budget and cancelled task
 count actual continuations, costs and acceptance transitions.
 
 [HOOK-006] Command handlers MUST execute as tracked, confined child processes
-with a bounded JSON input and output protocol. They MUST receive only declared
+with bounded JSON input and the bounded event-specific output protocol in
+PCOMP-002, including non-JSON worktree paths. They MUST receive only declared
 environment, file and network access, including when the main session uses host
 mode. Shell execution MUST be explicit. Event data MUST NOT be interpolated into
 executable shell source. Cancellation MUST terminate the owned process tree.
