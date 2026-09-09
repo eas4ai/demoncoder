@@ -1,6 +1,7 @@
 # Audit remediation review
 
 commitment: audit-remediation
+commit: a4557b70045e03cea81a044602582207445b0f03
 examined:
   - CODE-007: final tool boundary, installed backend fixture, shared executor and mechanism runner.
 findings:
@@ -195,3 +196,11 @@ Historical snapshots can also contain arbitrary private filenames from an earlie
 environment. Because they retain no dynamic-root provenance, new review must refuse
 those unsafe older versions and ask for a new task baseline. Historical records and
 Git objects remain untouched. This finding is recorded before code changes.
+
+The final independent verdict is fix-first. A delegated probe also confirmed that
+runtime-secrets/auth.json entered the child and the shared Git blob database.
+The reviewer found no other changed-scope defect after inspecting AUD-003 through
+AUD-006, recovery, integration, settings locking and route validation. Its probes
+used disposable projects under the designated scratch directory. Actual model,
+effort and usage telemetry were unavailable. Paid provider availability remains
+separate from the passing local installed-backend tests.
