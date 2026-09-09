@@ -4,6 +4,7 @@ use demoncoder::{
     tools::{AccessPolicy, ToolCall, ToolExecutor, ToolResult},
 };
 use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
 use std::{
     io::BufRead,
     os::unix::fs::PermissionsExt,
@@ -337,6 +338,7 @@ async fn empty_pull_reports_preserve_pushed_errors_and_their_freshness() {
 async fn revisions_reject_old_and_future_diagnostics_and_preserve_repeated_errors() {
     let fixture = Fixture::new("reorder");
     let executor = fixture.executor();
+    let mut previous_version = 0;
     for (index, content) in ["BROKEN first", "BROKEN second", "corrected"]
         .iter()
         .enumerate()
@@ -353,8 +355,16 @@ async fn revisions_reject_old_and_future_diagnostics_and_preserve_repeated_error
             "{}",
             result.output
         );
+        // A metadata change can retire the admitted view even with identical text.
+        std::fs::write(fixture.root.path().join("main.rs"), content).unwrap();
         let value = diagnostics(&executor).await;
-        assert_eq!(value["source"]["version"], index + 1);
+        let version = value["source"]["version"].as_u64().unwrap();
+        assert!(version > previous_version, "{value}");
+        previous_version = version;
+        assert_eq!(
+            value["source"]["sha256"],
+            format!("{:x}", Sha256::digest(content.as_bytes()))
+        );
         assert_eq!(value["data"]["state"], "current");
         assert_eq!(value["data"]["verification"], "not run");
         assert_eq!(
@@ -590,12 +600,36 @@ async fn only_successful_mutations_save_current_synchronized_text() {
         let receipts = std::fs::read_to_string(fixture.root.path().join("save-receipts")).unwrap();
         let last: Value = serde_json::from_str(receipts.lines().last().unwrap()).unwrap();
         assert_eq!(last["text"], expected);
-        let _ = diagnostics(&executor).await;
-        assert_eq!(
-            std::fs::read_to_string(fixture.root.path().join("save-receipts")).unwrap(),
-            receipts,
-            "a diagnostic query emitted didSave"
-        );
+        for force_restart in [false, true] {
+            if force_restart {
+                // Retiring the copied view loses this save-only peer's report.
+                std::fs::write(fixture.root.path().join("main.rs"), expected).unwrap();
+            }
+            let query = tool(
+                &executor,
+                "lsp",
+                json!({"operation":"diagnostics","path":"main.rs"}),
+            )
+            .await;
+            if query.success {
+                assert!(!force_restart, "a restarted save-only peer has no report");
+                let value: Value = serde_json::from_str(&query.output).unwrap();
+                assert_eq!(value["data"]["state"], "current");
+                assert_eq!(value["data"]["items"].as_array().unwrap().len(), errors);
+            } else {
+                // A late filesystem event may also restart the unchanged case.
+                assert!(
+                    query.output.starts_with("diagnostics pending:"),
+                    "{}",
+                    query.output
+                );
+            }
+            assert_eq!(
+                std::fs::read_to_string(fixture.root.path().join("save-receipts")).unwrap(),
+                receipts,
+                "a diagnostic query emitted didSave"
+            );
+        }
     }
     let receipts = std::fs::read_to_string(fixture.root.path().join("save-receipts")).unwrap();
     assert_eq!(receipts.lines().count(), 2);
