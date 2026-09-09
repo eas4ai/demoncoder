@@ -1,0 +1,21 @@
+requirement: LSP-006
+requirement_digest: sha256:23b084a6966570b741bba7e92b47b91cbcffeeb57000e2ff68a510900aa2b260
+sequence: 1
+history_digest: sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+mechanism: managed-language-services
+commit: c452873
+inputs_digest: sha256:325ff2135c5cf877de00955c622fc1aa581cf850e29725390db7e3d20becc011
+mechanism_digest: sha256:b03cf8f63d450161b46c11ef979e09ae01c232caf20dec5daab91ebc47ca8bb9
+inputs_detail: .cairn/evidence/LSP-001/20260909T150835922Z-3932464.inputs.json
+command: bash scripts/check-managed-language-services.sh
+cwd: .
+exit: 127
+output_digest: sha256:928df1867d16802d9b2664aecbe955a423288d0c9f31ef2aaa7ff3478dd38000
+output: .cairn/evidence/LSP-001/20260909T150835922Z-3932464.out
+stderr_output: .cairn/evidence/LSP-001/20260909T150835922Z-3932464.err
+stderr_digest: sha256:928df1867d16802d9b2664aecbe955a423288d0c9f31ef2aaa7ff3478dd38000
+signal: none
+execution_error: null
+result: fail
+source: exit
+recorded: 2026-09-09T15:08:35.997Z
