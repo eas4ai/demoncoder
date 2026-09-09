@@ -1,0 +1,73 @@
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.09s
+CODE-002 openai-api production tool cycle passed
+CODE-002 anthropic-api production tool cycle passed
+CODE-002 codex production tool cycle passed
+CODE-002 claude production tool cycle passed
+cairn: CODE-002: pass
+.
+----------------------------------------------------------------------
+Ran 1 test in 0.054s
+
+OK
+CODE-002 openai-api production tool cycle passed
+CODE-002 anthropic-api production tool cycle passed
+CODE-002 codex production tool cycle passed
+CODE-002 claude production tool cycle passed
+cairn: CODE-002: pass
+CODE-002 openai-api production tool cycle passed
+CODE-002 anthropic-api production tool cycle passed
+CODE-002 codex production tool cycle passed
+CODE-002 claude production tool cycle passed
+cairn: CODE-002: pass
+..
+----------------------------------------------------------------------
+Ran 2 tests in 0.001s
+
+OK
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s
+CONN-002 independent registration, configured selection, native read, and terminal rendering passed
+cairn: CONN-002: pass
+test_native_api_sources_and_errors (__main__.Authentication.test_native_api_sources_and_errors) ... ok
+test_subscription_routes_and_errors (__main__.Authentication.test_subscription_routes_and_errors) ... ok
+
+----------------------------------------------------------------------
+Ran 2 tests in 1.345s
+
+OK
+cairn: CONN-003: pass
+CODE-006 openai-api completed preceding context, file extension, and verification passed
+CODE-006 openai-api cancelled preceding context, file extension, and verification passed
+CODE-006 anthropic-api completed preceding context, file extension, and verification passed
+CODE-006 anthropic-api cancelled preceding context, file extension, and verification passed
+CODE-006 codex completed preceding context, file extension, and verification passed
+CODE-006 codex cancelled preceding context, file extension, and verification passed
+CODE-006 claude completed preceding context, file extension, and verification passed
+CODE-006 claude cancelled preceding context, file extension, and verification passed
+CONN-004 codex rejected a wrong resumed identity before its queued tool
+CONN-004 claude rejected a wrong resumed identity before its queued tool
+cairn: CONN-004: pass
+cairn: CODE-006: pass
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s
+     Running tests/capabilities.rs (target/debug/deps/capabilities-7f54283b1116b50f)
+
+running 1 test
+test declared_missing_controls_stop_before_factory_creation ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+CONN-005 openai-api rejected the requested model without tools, model substitution, or retry
+CONN-005 anthropic-api rejected the requested model without tools, model substitution, or retry
+CONN-005 codex rejected the requested model without tools, model substitution, or retry
+CONN-005 claude rejected the requested model without tools, model substitution, or retry
+cairn: CONN-005: pass
+test_reported_partial_zero_and_absent_usage (__main__.Usage.test_reported_partial_zero_and_absent_usage) ... ok
+
+----------------------------------------------------------------------
+Ran 1 test in 1.511s
+
+OK
+cairn: CONN-006: pass
+CONN-001 openai-api unverified: live evidence is stale
+CONN-001 anthropic-api unverified: live evidence is stale
+CONN-001 codex unverified: live evidence is stale
+CONN-001 claude unverified: live evidence is stale
