@@ -80,6 +80,28 @@ def configured_credential_alias(server):
             app.close()
 
 
+def relocated_credentials(server):
+    for variable in ("CODEX_HOME", "CLAUDE_CONFIG_DIR", "AWS_SHARED_CREDENTIALS_FILE"):
+        with tempfile.TemporaryDirectory(prefix="demoncoder-private-environment-") as directory:
+            secret = Path(directory) / "project/runtime-secrets/auth.json"
+            secret.parent.mkdir(parents=True)
+            secret.write_text("DYNAMIC_TERMINAL_PRIVATE_CANARY")
+            value = secret if variable == "AWS_SHARED_CREDENTIALS_FILE" else secret.parent
+            app = App(directory, server, ["--check", "true", "--reviewer", "worker"],
+                      environment={variable: str(value)})
+            try:
+                count = len(server.requests)
+                app.send("/task inspect public project")
+                errors = [event["message"] for event in app.events() if event["type"] == "error"]
+                assert any("private" in error and "workspace" in error for error in errors), errors
+                assert len(server.requests) == count, "unsafe task reached a provider"
+                path, record = app.record()
+                assert record["task"] is None, "unsafe task retained a baseline"
+                assert "DYNAMIC_TERMINAL_PRIVATE_CANARY" not in (path / "state.json").read_text()
+            finally:
+                app.close()
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--case", choices=["privacy"], default="privacy")
@@ -88,6 +110,7 @@ def main():
     try:
         private_review(server)
         configured_credential_alias(server)
+        relocated_credentials(server)
         print("AUD-001: production review excludes private source and preserves acceptance")
     finally:
         server.shutdown()

@@ -705,3 +705,89 @@ async fn repository_diff_prefixes_cannot_redirect_integration_into_unowned_files
         assert_eq!(fs::read_to_string(parent.join("owned")).unwrap(), "child\n");
     }
 }
+
+#[test]
+fn declared_private_roots_block_capture_and_git_export() {
+    const PROBE: &str = "DEMONCODER_PRIVATE_ROOT_PROBE";
+    if let Some(parent) = std::env::var_os(PROBE) {
+        let parent = PathBuf::from(parent);
+        let child = parent.parent().unwrap().join("refused-child");
+        assert!(
+            demoncoder::workflow::workspace::capture(&parent).is_err(),
+            "private root entered a retained workspace snapshot"
+        );
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        assert!(
+            runtime.block_on(prepare(&parent, &child)).is_err(),
+            "private root entered delegated source"
+        );
+        let oid = git(
+            &parent,
+            &["hash-object", "--no-filters", "runtime-secrets/auth.json"],
+        );
+        assert!(
+            !Command::new("git")
+                .current_dir(&parent)
+                .args(["cat-file", "-e", std::str::from_utf8(&oid).unwrap().trim()])
+                .output()
+                .unwrap()
+                .status
+                .success(),
+            "private blob entered Git objects"
+        );
+        assert!(!child.join("runtime-secrets/auth.json").exists());
+        return;
+    }
+    for case in [
+        "CODEX_HOME",
+        "CLAUDE_CONFIG_DIR",
+        "AWS_SHARED_CREDENTIALS_FILE",
+        "alias",
+        "ancestor",
+        "home",
+    ] {
+        let (temp, mut parent, _) = repository();
+        if case == "home" {
+            let destination = temp.path().join(".codex/project");
+            fs::create_dir_all(destination.parent().unwrap()).unwrap();
+            fs::rename(&parent, &destination).unwrap();
+            parent = destination;
+        }
+        let secret_dir = parent.join("runtime-secrets");
+        fs::create_dir(&secret_dir).unwrap();
+        fs::write(
+            secret_dir.join("auth.json"),
+            "DYNAMIC_PRIVATE_EXPORT_CANARY",
+        )
+        .unwrap();
+        let (variable, value) = match case {
+            "AWS_SHARED_CREDENTIALS_FILE" => (case, secret_dir.join("auth.json")),
+            "alias" => {
+                let alias = temp.path().join("outside-alias");
+                symlink(&secret_dir, &alias).unwrap();
+                ("CODEX_HOME", alias)
+            }
+            "ancestor" => ("CODEX_HOME", temp.path().to_owned()),
+            "home" => ("HOME", temp.path().to_owned()),
+            _ => (case, secret_dir),
+        };
+        // Set process-local environment in a fresh test process; never mutate the
+        // shared environment of Rust's parallel test threads.
+        let result = Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "declared_private_roots_block_capture_and_git_export",
+                "--nocapture",
+            ])
+            .env(PROBE, &parent)
+            .env(variable, value)
+            .output()
+            .unwrap();
+        assert!(
+            result.status.success(),
+            "{case}: {}{}",
+            String::from_utf8_lossy(&result.stdout),
+            String::from_utf8_lossy(&result.stderr)
+        );
+    }
+}

@@ -195,8 +195,27 @@ fn private_source_never_enters_capture_or_review_even_from_older_snapshots() {
     private["text"] = "OLDER_PRIVATE_CANARY".into();
     older["entries"]["./.demoncoder/token"] = private;
     let older = serde_json::from_value(older).unwrap();
-    let evidence = review_evidence(&older, &snapshot).unwrap();
-    assert!(!evidence.contains("OLDER_PRIVATE_CANARY"));
+    assert!(
+        review_evidence(&older, &snapshot)
+            .unwrap_err()
+            .to_string()
+            .contains("new task baseline")
+    );
+    // Even the first exclusion-policy version lacked dynamic root provenance.
+    let mut older = serde_json::to_value(&snapshot).unwrap();
+    older["export_policy"] = 1.into();
+    let mut private = older["entries"]["./source.rs"].clone();
+    private["text"] = "OLDER_DYNAMIC_PRIVATE_CANARY".into();
+    older["entries"]["./runtime-secrets/auth.json"] = private;
+    let older = serde_json::from_value(older).unwrap();
+    assert!(
+        review_evidence(&older, &snapshot)
+            .unwrap_err()
+            .to_string()
+            .contains("new task baseline")
+    );
+    assert!(review_evidence(&snapshot, &older).is_err());
+    let evidence = review_evidence(&snapshot, &snapshot).unwrap();
     assert!(evidence.contains("public source"));
     assert!(evidence.contains(".demoncoder") && evidence.contains("excluded"));
 }

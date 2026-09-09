@@ -77,7 +77,7 @@ class WorkflowProvider(Provider):
 
 
 class App:
-    def __init__(self, directory, server, extra=(), expect_start=True, home_workspace=False):
+    def __init__(self, directory, server, extra=(), expect_start=True, home_workspace=False, environment=None):
         self.root = Path(directory)
         self.workspace = self.root if home_workspace else self.root / "project"
         self.workspace.mkdir(exist_ok=True)
@@ -107,6 +107,8 @@ class App:
                "ANTHROPIC_API_KEY": "synthetic-anthropic-key", "OPENAI_API_KEY":"synthetic-openai-key"}
         if "TMPDIR" in os.environ:
             env["TMPDIR"] = os.environ["TMPDIR"]
+        if environment:
+            env.update(environment)
         self.process = subprocess.Popen(
             [str(BINARY), "--trust-workspace", "--workspace", str(self.workspace),
              "--config", str(self.config), "--event-log", str(self.log), *extra],
