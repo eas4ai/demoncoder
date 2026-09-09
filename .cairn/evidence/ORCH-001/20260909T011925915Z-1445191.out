@@ -1,0 +1,234 @@
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.09s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.09s
+     Running unittests src/lib.rs (target/debug/deps/demoncoder-0911b3f9cf4c6c88)
+
+running 105 tests
+test chat::tests::final_tool_receipt_replaces_streamed_output ... ok
+test chat::tests::compact_wrapped_rows_expand_without_losing_content ... ok
+test adapters::anthropic::accumulation_tests::missing_fields_start_with_the_complete_fragment ... ok
+test context::tests::context_estimate_includes_instructions_and_tools_without_inventing_capacity ... ok
+test context::tests::context_message_start_resets_previous_request_and_deltas_replace_counts ... ok
+test context::tests::context_uses_last_request_and_counts_cached_anthropic_input ... ok
+test chat::tests::full_view_anchor_survives_new_output_resize_and_toggle ... ok
+test developer_access::tests::cancelled_preparation_yields_and_stops_without_starting_a_command ... ok
+test export_policy::tests::declared_private_paths_include_relative_names_and_symlink_aliases ... ok
+test export_policy::tests::nested_private_entries_are_distinct_from_public_names_and_templates ... ok
+test adapters::anthropic::accumulation_tests::fragments_reuse_available_storage_and_preserve_unicode ... ok
+test adapters::anthropic::accumulation_tests::exact_byte_limit_refuses_overflow_without_changing_the_block ... ok
+test inspection::pager::tests::chunk_boundaries_and_skipped_pages_preserve_every_byte ... ok
+test inspection::pager::tests::pages_reconstruct_unicode_without_gaps_or_repetition ... ok
+test inspection::poller::tests::status_refresh_keeps_the_requested_page_available ... ok
+test inspection::tests::agent_roles_and_source_are_readable_without_rewriting_original_evidence ... ok
+test inspection::tests::authoritative_counts_cover_every_state_without_completing_tasks ... ok
+test inspection::tests::high_page_requests_stay_bounded_and_do_not_wrap_to_another_record ... ok
+test inspection::tests::historical_agent_checks_are_readable_across_correction_rounds_and_pages ... ok
+test inspection::tests::recovery_and_missing_targets_are_explicit_and_offer_no_automatic_effects ... ok
+test inspection::tests::task_evidence_keeps_history_and_never_calls_old_checks_current ... ok
+test adapters::process::tests::finite_status_preserves_group_cleanup_and_rejects_failed_exit ... ok
+test learning::tests::learning_cancel_does_not_wait_for_a_blocked_storage_worker ... ok
+test adapters::process::tests::group_cleanup_covers_drop_and_exited_leader ... ok
+test learning::tests::learning_approval_matching_disable_and_original_source_are_enforced ... ok
+test learning::tests::learning_instruction_subtrees_limits_and_external_links ... ok
+test learning::tests::learning_finite_selection_and_missing_authorization_are_not_supported ... ok
+test learning::tests::learning_failed_abandoned_and_supported_outcomes_keep_history ... ok
+test learning::tests::learning_instructions_preserve_the_file_tools_hard_link_boundary ... ok
+test highlight::tests::fenced_code_is_colored_and_unknown_languages_remain_plain ... ok
+test learning::tests::learning_observation_refresh_annotation_and_source_integrity ... ok
+test highlight::tests::multiline_code_state_and_oversized_fallback_are_bounded ... ok
+test learning::tests::learning_reservation_survives_reopen_and_never_creates_or_replays_task ... ok
+test selection::tests::reverse_unicode_selection_uses_display_columns_and_keeps_snapshot_bytes ... ok
+test selection::tests::snapshot_rejects_excess_bytes_or_rows ... ok
+test session::tests::closed_correction_handoff_returns_a_specific_admission_reason ... ok
+test learning::tests::learning_unrelated_accepted_check_does_not_prove_original_failure_fixed ... ok
+test settings::editor::tests::saving_near_capacity_keeps_existing_connections_and_can_reopen ... ok
+test session::tests::lifecycle_backpressure_does_not_discard_background_cancellation ... ok
+test settings::probe::tests::anthropic_catalog_follows_only_bounded_same_origin_pages ... ok
+test native::tests::cancellation_during_result_publication_preserves_completed_receipt ... ok
+test developer_access::tests::cold_cache_keeps_installed_tools_and_does_not_write_the_host_cache ... ok
+test settings::probe::tests::codex_declines_requests_and_rejects_non_subscription_login ... ok
+test settings::probe::tests::codex_rejects_conflicting_subscription_routes ... ok
+test settings::probe::tests::backend_checks_never_submit_coding_work ... ok
+test settings::probe::tests::native_catalog_checks_http_auth_and_rejects_bad_responses ... ok
+test settings::probe::tests::native_catalog_does_not_publish_reflected_credentials ... ok
+test settings::store::tests::failed_or_invalid_save_does_not_apply_and_deselection_never_redirects ... ok
+test settings::probe::tests::codex_does_not_accept_a_login_on_another_provider_route ... ok
+test chat::tests::retained_blocks_and_indexes_remain_bounded ... ok
+test settings::store::tests::migration_keeps_legacy_oracle_override ... ok
+test socket_filter::tests::socket_filter_cannot_be_rewritten_or_truncated ... ok
+test socket_filter::tests::socket_filter_enforces_domains_types_and_abis ... ok
+test startup::tests::settings_lock_ends_with_its_owner_even_if_a_child_inherits_the_descriptor ... ok
+test status::tests::status_context_and_cost_keep_unknown_estimates_and_zero_distinct ... ok
+test status::tests::status_output_and_diff_parsing_are_bounded_and_nul_delimited ... ok
+test settings::store::tests::private_publication_rejects_competing_edits_and_preserves_active_revision ... ok
+test settings::store::tests::inherited_roles_follow_creator_while_overrides_and_authority_remain_distinct ... ok
+test subagents::manager::tests::cancellation_between_reservation_and_registration_prevents_launch ... ok
+test status::tests::status_uses_actual_workspace_and_never_runs_configured_filters ... ok
+test subagents::manager::tests::forced_shutdown_after_parent_effect_persists_uncertainty_and_blocks_queue ... ok
+test subagents::manager::tests::one_refused_registration_does_not_strand_an_independent_reservation ... ok
+test subagents::manager::tests::individual_cancellation_after_parent_effect_requires_explicit_recovery ... ok
+test settings::probe::tests::native_catalog_bounds_transfer_bytes_and_total_wait ... ok
+test subagents::manager::tests::healthy_integration_keeps_independent_admissions_available ... ok
+test terminal::inspection_panel::tests::late_page_cannot_replace_a_new_request ... ok
+test terminal::inspection_panel::tests::missing_stale_and_failed_state_never_looks_measured ... ok
+test terminal::tests::dropped_agent_notice_cannot_disable_idle_cancellation ... ok
+test terminal::tests::empty_output_deltas_do_not_accumulate_transcript_entries ... ok
+test terminal::tests::fenced_code_renders_styles_without_interpreting_control_sequences ... ok
+test terminal::tests::scrollbar_drag_endpoints_follow_compact_full_and_resized_geometry ... ok
+test settings::probe::tests::backend_rejects_missing_billing_malformed_slow_and_oversize_status ... ok
+test terminal::tests::selection_survives_final_receipt_resize_and_reselection ... ok
+test terminal::tests::status_and_oracle_omit_unknown_money_but_keep_zero_and_reset_context ... ok
+test tools::utf8_tests::every_partition_matches_whole_stream_lossy_decoding ... ok
+test terminal::tests::scrollbar_tracks_full_history_and_leaves_two_empty_outer_columns ... ok
+test transcript::tests::empty_fragments_and_many_newlines_have_bounded_metadata ... ok
+test native::tests::presentation_error_preserves_actual_failure_for_the_next_prompt ... ok
+test subagents::worktree::tests::metadata_reconciliation_stops_at_cancellation_without_detached_mutations ... ok
+test transcript::tests::rows_beyond_u16_are_reachable_and_controls_stay_literal ... ok
+test transcript::tests::scroll_anchor_survives_new_output_and_resize_until_expiry ... ok
+test transcript::tests::streamed_fences_and_unicode_keep_the_same_text_and_colors ... ok
+test transcript::tests::streaming_graphemes_match_a_single_complete_append ... ok
+test workflow::allocation::tests::incomplete_usage_remains_unknown_after_known_reports ... ok
+test workflow::allocation::tests::rollback_and_monotonic_elapsed_cannot_extend_allocation ... ok
+test workflow::allocation::tests::serialized_allocation_does_not_reset_consumption ... ok
+test workflow::review::tests::supervision_prompt_has_exact_role_header_and_evidence_boundary ... ok
+test workflow::runtime::delegation::tests::backend_invocations_have_a_durable_separate_limit_and_do_not_reset ... ok
+test workflow::runtime::delegation::tests::orchestration_identity_rejects_a_nonfixed_correction_limit ... ok
+test workflow::runtime::delegation::tests::validation_admission_rechecks_capacity_in_the_durable_transition ... ok
+test transcript::tests::idle_layout_and_visible_rows_do_not_scan_the_history ... ok
+test workflow::runtime::tests::inspection_never_waits_for_a_writer_or_claims_failed_persistence_is_current ... ok
+test workflow::runtime::tests::clock_failure_during_admission_is_persisted_without_granting_execution ... ok
+test workflow::runtime::tests::recovery_identity_freezes_authority_without_retaining_credentials ... ok
+test workflow::runtime::tests::inspection_recovers_authoritative_counts_when_live_notices_are_dropped ... ok
+test workflow::workspace::tests::cancelled_capture_stops_at_the_scanner_checkpoint ... ok
+test workflow::store::durability_tests::directory_sync_failure_reports_uncertainty_with_valid_replacement ... ok
+test workflow::workspace::tests::symlink_targets_share_the_total_content_budget ... ok
+test transcript::tests::oversized_unicode_retains_a_bounded_valid_tail_and_expires_old_anchors ... ok
+test workflow::workspace::tests::omitted_identities_must_also_fit_the_review_limit ... ok
+test transcript::tests::many_lines_and_resizes_keep_the_index_bounded_and_visit_only_visible_lines ... ok
+test subagents::worktree::tests::cancelling_git_stops_its_owned_descendants ... ok
+test adapters::process::tests::interrupted_receive_retains_partial_json ... ok
+test subagents::worktree::tests::materialization_yields_to_timers_and_stops_writes_when_cancelled ... ok
+test learning::tests::learning_report_refusal_does_not_commit_catalog_mutations ... ok
+
+test result: ok. 105 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 16.90s
+
+     Running tests/orchestration_schedule.rs (target/debug/deps/orchestration_schedule-768c5fe93821465a)
+
+running 13 tests
+test admission_validates_the_limit_even_for_an_empty_graph ... ok
+test admission_rejects_an_over_capacity_recovered_state ... ok
+test admission_counts_only_active_nodes_and_orders_queued_eligible_nodes ... ok
+test admission_caps_unsorted_ready_nodes_and_stops_at_full_capacity ... ok
+test empty_graph_validates_and_admits_nothing ... ok
+test gates_wait_for_integration_and_admits_independent_work ... ok
+test diamond_dependencies_require_every_direct_parent_to_be_integrated ... ok
+test recovered_graphs_may_arrive_out_of_order_but_dependencies_are_lower_ids ... ok
+test gates_report_sorted_unmet_and_blocked_prerequisites ... ok
+test validation_rejects_bounds_ids_duplicates_and_invalid_dependencies ... ok
+test unknown_gate_target_is_an_error ... ok
+test integration_releases_dependents_and_blocking_propagates_to_the_gate ... ok
+test validation_rejects_more_than_31_dependencies ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/orchestration_state.rs (target/debug/deps/orchestration_state-d840f4f696d75a01)
+
+running 6 tests
+test correction_admission_is_durable_and_never_exceeds_two ... ok
+test role_receipts_retain_effective_identity_and_exact_evidence ... ok
+test orchestration_integration_requires_a_current_resolved_ready_stage ... ok
+test old_records_and_delegation_identity_remain_readable ... ok
+test dependency_projection_preserves_terminal_and_active_meaning ... ok
+test orchestration_cli_requires_complete_trusted_supervision_selection ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/subagent_state.rs (target/debug/deps/subagent_state-59e657384e1ed8e3)
+
+running 3 tests
+test ownership_uses_path_components_and_never_grants_git_administration ... ok
+test malformed_or_unbounded_assignments_never_acquire_ownership ... ok
+test integration_requires_current_complete_checks_and_review ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/subagent_worktrees.rs (target/debug/deps/subagent_worktrees-f0d5d1e9e4ff70d6)
+
+running 19 tests
+test captures_dirty_binary_ignored_deleted_modes_and_symlinks_without_touching_parent_index ... ok
+test deleting_last_file_preserves_the_validated_empty_directory ... ok
+test additions_deletions_binary_and_executable_delta_are_exact ... ok
+test forged_result_and_parent_replacement_refuse_before_effects ... ok
+test conflicts_stale_child_and_unowned_changes_refuse_before_effects ... ok
+test deep_owned_file_creates_only_necessary_ancestor_directories ... ok
+test declared_private_roots_block_capture_and_git_export ... ok
+test metadata_retargeting_and_unsafe_baselines_are_rejected ... ok
+test generated_outputs_stay_out_of_child_files_git_objects_and_integration ... ok
+test integrates_owned_delta_and_preserves_unrelated_dirty_parent_and_index ... ok
+test hooks_filters_and_signers_cannot_execute ... ok
+test directory_modes_removal_and_symlink_delta_respect_ownership_and_parent_additions ... ok
+test owned_empty_directory_delta_integrates_and_nested_git_is_refused ... ok
+test same_path_admin_replacement_and_symlink_pointer_are_rejected ... ok
+test only_the_child_owner_can_capture_source_in_the_session_store ... ok
+test private_source_is_not_copied_or_committed_by_delegation ... ok
+test mode_only_delta_and_quoted_filenames_preserve_exact_bytes ... ok
+test validated_permission_increase_precedes_writes_inside_readonly_directory ... ok
+test repository_diff_prefixes_cannot_redirect_integration_into_unowned_files ... ok
+
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.28s
+
+     Running tests/tool_extensions.rs (target/debug/deps/tool_extensions-443732b44a154366)
+
+running 2 tests
+test child_and_reviewer_cannot_receive_parent_extensions ... ok
+test parent_extension_uses_shared_receipts_and_rejects_unknown_tools ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
+
+     Running tests/worktree_access.rs (target/debug/deps/worktree_access-c0cb51988bfe3430)
+
+running 11 tests
+test conflicting_host_policy_is_rejected ... ok
+test credential_store_cannot_overlap_system_runtime ... ok
+test native_files_are_strictly_rooted ... ok
+test failed_sandbox_preparation_never_runs_host_command ... ok
+test mounted_paths_are_rejected ... ok
+test configured_oracle_cannot_expand_child_access ... ok
+test shell_aliases_and_inherited_descriptors_cannot_escape ... ok
+test shell_has_no_writable_scaffolding_or_host_socket_access ... ok
+test credentials_and_git_directories_are_masked ... ok
+test shell_cannot_reach_home_or_git_administration ... ok
+test cancelling_strict_shell_stops_its_descendants ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.27s
+
+ORCH-001: queue_capacity passed
+ORCH-001: invalid_dependencies passed
+ORCH-001: production terminal cases passed
+cairn: ORCH-001: pass
+ORCH-002: dependencies passed
+ORCH-002: failed_prerequisites passed
+ORCH-002: production terminal cases passed
+cairn: ORCH-002: pass
+ORCH-003: advisor_evidence passed
+ORCH-003: advisor_refusals passed
+ORCH-003: stale_role_retention passed
+ORCH-003: production terminal cases passed
+cairn: ORCH-003: pass
+ORCH-004: disputes passed
+ORCH-004: dispute_refusals passed
+ORCH-004: production terminal cases passed
+cairn: ORCH-004: pass
+ORCH-005: correction_bounds passed
+ORCH-005: correction_check_freshness passed
+ORCH-005: shared_limits passed
+ORCH-005: production terminal cases passed
+cairn: ORCH-005: pass
+ORCH-006: cancellation passed
+ORCH-006: cancellation_persistence_failure passed
+ORCH-006: production terminal cases passed
+cairn: ORCH-006: pass
+ORCH-007: recovery passed
+ORCH-007: recovery_authority_and_integration passed
+ORCH-007: recovery_limits passed
+ORCH-007: production terminal cases passed
+cairn: ORCH-007: pass
