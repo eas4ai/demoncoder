@@ -1,6 +1,6 @@
 # Roadmap
 
-Current: release-followups
+Current: managed-language-services
 
 The developer selected the usable coding session as the first commitment
 and agreed to use Cairn on 2026-09-06. The developer confirmed its detailed
@@ -71,3 +71,8 @@ Audit remediation is complete. On 2026-09-08 the developer confirmed the concret
 release follow-ups. Existing OUTPUT-001 through OUTPUT-003, REL-001, CODE-010
 and CONN-001 supply their agreed behavior and falsifiers. Feature backlog items
 remain proposals until separately specified and selected.
+
+On 2026-09-09 the developer confirmed LSP-001 through LSP-006 and their
+falsifiers as the managed-language-services commitment. Release follow-ups are
+complete. The reference-informed sequence is recorded in
+[the delivery proposal](../proposals/reference-feature-sequence.md).

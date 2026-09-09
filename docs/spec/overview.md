@@ -50,6 +50,7 @@ responsible for choosing sound requirements and meaningful checks.
 | [evidence-based-improvement.md](evidence-based-improvement.md) | LEARN | Cited improvement candidates, authorized corrections and scoped reusable lessons. |
 | [provider-agent-settings.md](provider-agent-settings.md) | SET | Provider authentication, model assignment and live Settings. |
 | [audit-remediation.md](audit-remediation.md) | AUD | Protected source exports, practical verification/review scope, efficient streaming and complete regression coverage. |
+| [managed-language-services.md](managed-language-services.md) | LSP | Managed Rust/TypeScript navigation and fresh diagnostics through shared tools. |
 | [roadmap.md](roadmap.md) | — | The selected commitment and intended delivery sequence. |
 
 The broader [design narrative](../spec.md) retains product direction,
