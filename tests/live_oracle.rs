@@ -29,6 +29,13 @@ async fn live_verdict_pair() {
     if let Some(effort) = assignment.get("effort") {
         config.effort = Some(effort.as_str().unwrap().into());
     }
+    if let Ok(model) = std::env::var("DEMONCODER_ORACLE_MODEL") {
+        assert!(
+            !model.trim().is_empty(),
+            "explicit Oracle model must not be empty"
+        );
+        config.model = Some(model);
+    }
     assert!(
         config.endpoint.is_none() && config.binary.is_none(),
         "live Oracle requires the default endpoint and installed backend"

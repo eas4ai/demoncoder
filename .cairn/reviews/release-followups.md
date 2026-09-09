@@ -35,3 +35,15 @@ required live verdict evidence as unverified; CODE-001 through CODE-009 pass.
 This account-side limitation cannot be repaired by changing the check footprint.
 The four live connection sessions have not yet been rerun in this commitment.
 The manual correction and queued decision closeout remain pending.
+
+## Connection-level clarification and Oracle test selection
+
+The developer corrected the earlier escalation: Fable's quota response confirms
+authenticated reachability and is a model-specific limit, not a connection blocker.
+The prior failure record remains intact. Complete coding/Oracle cycles still have
+their own execution evidence. The existing coding runner already allows --model;
+the Oracle runner now accepts the same explicit per-run selection and retains the
+actual model without editing saved settings or changing credentials/transport.
+The old runner safely rejected --run --model sonnet before any provider request.
+Empty selections and model selections without --run are explicit usage errors.
+The live corrected case is checked against committed inputs below.

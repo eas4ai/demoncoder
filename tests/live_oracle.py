@@ -38,13 +38,19 @@ def validate(record, current):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--run", action="store_true")
+    parser.add_argument("--model", help="explicit model for this live run; saved settings stay unchanged")
     args = parser.parse_args()
+    if args.model is not None and (not args.run or not args.model.strip()):
+        parser.error("--model requires --run and a nonempty model name")
     current = digest()
     if args.run:
         EVIDENCE.mkdir(parents=True, exist_ok=True)
         stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
         destination = EVIDENCE / (stamp + ".json")
         env = dict(os.environ, DEMONCODER_ORACLE_RECORD=str(destination), DEMONCODER_ORACLE_DIGEST=current)
+        env.pop("DEMONCODER_ORACLE_MODEL", None)
+        if args.model is not None:
+            env["DEMONCODER_ORACLE_MODEL"] = args.model
         subprocess.run(["cargo", "test", "--locked", "--test", "live_oracle", "--", "--ignored"], cwd=ROOT, env=env, check=True)
     paths = sorted(EVIDENCE.glob("*.json"))
     assert paths, "no retained live Oracle verdict pair"

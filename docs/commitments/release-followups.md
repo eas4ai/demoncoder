@@ -24,3 +24,9 @@ Done when the named requirements have current passing evidence, the manual
 matches the verified output-limit behavior, the queued decision review is
 recorded, and the final commitment review has no unresolved findings. New
 feature backlog items require their own specified commitment.
+
+The developer clarified on 2026-09-09 that verification concerns each connection,
+not a particular model. A model-specific quota response establishes authenticated
+reachability and is not a connection failure. Explicit per-run model choices may
+complete the live coding and Oracle cycles on the same connection; saved defaults,
+credentials and billing routes stay unchanged. Record the model actually used.
