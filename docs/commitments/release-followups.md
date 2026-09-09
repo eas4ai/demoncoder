@@ -30,3 +30,8 @@ not a particular model. A model-specific quota response establishes authenticate
 reachability and is not a connection failure. Explicit per-run model choices may
 complete the live coding and Oracle cycles on the same connection; saved defaults,
 credentials and billing routes stay unchanged. Record the model actually used.
+
+On 2026-09-09 the developer authorized two further manual clarifications: document
+`--model MODEL` for both live drivers, including unchanged saved defaults, and
+distinguish exhausted model quota from failed authentication in troubleshooting.
+Completion also requires both explanations to match the verified behavior.

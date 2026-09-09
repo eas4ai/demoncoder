@@ -3,8 +3,9 @@
 commitment: release-followups
 commit: 182208a95c45251564eb34e61f57781bf0ad629e
 findings:
+  - open: OUTPUT-001: Document both live-driver model overrides and distinguish model quota from authentication failure, as authorized by the developer.
   - resolved: OUTPUT-001: The manual now agrees with discovered/default output limits and saved/CLI overrides; current output-limit checks pass.
-Status: complete
+Status: in progress
 
 ## OUTPUT-002 mechanism review
 
