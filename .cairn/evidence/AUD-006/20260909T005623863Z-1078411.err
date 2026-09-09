@@ -1,0 +1,447 @@
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.17s
+   Compiling demoncoder v0.1.2 (/home/shawn/workspace2/demoncoder)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.62s
+     Running unittests src/lib.rs (target/debug/deps/demoncoder-0911b3f9cf4c6c88)
+     Running unittests src/main.rs (target/debug/deps/demoncoder-bcc0b6ba3357676d)
+     Running tests/capabilities.rs (target/debug/deps/capabilities-7f54283b1116b50f)
+     Running tests/developer_access.rs (target/debug/deps/developer_access-e415e2d295764c97)
+     Running tests/host_guard.rs (target/debug/deps/host_guard-e7f3dd0871ba416f)
+     Running tests/inherited_fd_driver.rs (target/debug/deps/inherited_fd_driver-c1cd63ae90794f74)
+     Running tests/live_oracle.rs (target/debug/deps/live_oracle-3b7a3cc53ee1202a)
+     Running tests/orchestration_schedule.rs (target/debug/deps/orchestration_schedule-768c5fe93821465a)
+     Running tests/orchestration_state.rs (target/debug/deps/orchestration_state-d840f4f696d75a01)
+     Running tests/output_limits.rs (target/debug/deps/output_limits-5d168b2cfb44d1ad)
+     Running tests/queue_driver.rs (target/debug/deps/queue_driver-eaa976dcefdbcef4)
+     Running tests/queue_runtime.rs (target/debug/deps/queue_runtime-e01becbc162b8b6a)
+     Running tests/registry_driver.rs (target/debug/deps/registry_driver-c03f478d67e70982)
+     Running tests/reliability_streams.rs (target/debug/deps/reliability_streams-ec976d9032f0e21c)
+     Running tests/reliability_utf8.rs (target/debug/deps/reliability_utf8-f23f356348d99172)
+     Running tests/subagent_state.rs (target/debug/deps/subagent_state-59e657384e1ed8e3)
+     Running tests/subagent_worktrees.rs (target/debug/deps/subagent_worktrees-f0d5d1e9e4ff70d6)
+     Running tests/tool_extensions.rs (target/debug/deps/tool_extensions-443732b44a154366)
+     Running tests/tools.rs (target/debug/deps/tools-146f4d767211ea29)
+     Running tests/verification_workflow.rs (target/debug/deps/verification_workflow-c71caf6ee9a58ecd)
+     Running tests/workflow_store.rs (target/debug/deps/workflow_store-122ba78f04bb105f)
+     Running tests/workflow_workspace.rs (target/debug/deps/workflow_workspace-e6c91c68b90d3920)
+     Running tests/worktree_access.rs (target/debug/deps/worktree_access-c0cb51988bfe3430)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.12s
+test_cancelled_key_input_restores_terminal_and_saves_nothing (__main__.Onboarding.test_cancelled_key_input_restores_terminal_and_saves_nothing) ... ok
+test_first_run_and_repeated_run_use_saved_choices (__main__.Onboarding.test_first_run_and_repeated_run_use_saved_choices) ... ok
+test_key_input_is_not_echoed_and_is_saved_privately (__main__.Onboarding.test_key_input_is_not_echoed_and_is_saved_privately) ... ok
+
+----------------------------------------------------------------------
+Ran 3 tests in 0.861s
+
+OK
+.
+----------------------------------------------------------------------
+Ran 1 test in 0.055s
+
+OK
+test_help_and_version_do_not_start_setup (__main__.Information.test_help_and_version_do_not_start_setup) ... ok
+
+----------------------------------------------------------------------
+Ran 1 test in 0.023s
+
+OK
+test_default_workspace_is_launch_directory_and_explicit_overrides (__main__.Workspace.test_default_workspace_is_launch_directory_and_explicit_overrides) ... ok
+
+----------------------------------------------------------------------
+Ran 1 test in 0.630s
+
+OK
+test_custom_shared_parent_is_rejected_without_chmod (__main__.Directory.test_custom_shared_parent_is_rejected_without_chmod) ... ok
+test_existing_default_directory_is_secured_without_losing_files (__main__.Directory.test_existing_default_directory_is_secured_without_losing_files) ... ok
+test_saved_connections_survive_directory_repair_and_new_project_trust (__main__.Directory.test_saved_connections_survive_directory_repair_and_new_project_trust) ... ok
+test_symlinked_default_directory_is_rejected_without_chmod (__main__.Directory.test_symlinked_default_directory_is_rejected_without_chmod) ... ok
+
+----------------------------------------------------------------------
+Ran 4 tests in 0.236s
+
+OK
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.14s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.09s
+     Running tests/tools.rs (target/debug/deps/tools-146f4d767211ea29)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.10s
+     Running unittests src/lib.rs (target/debug/deps/demoncoder-0911b3f9cf4c6c88)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.09s
+     Running unittests src/lib.rs (target/debug/deps/demoncoder-0911b3f9cf4c6c88)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s
+     Running unittests src/lib.rs (target/debug/deps/demoncoder-0911b3f9cf4c6c88)
+...
+----------------------------------------------------------------------
+Ran 3 tests in 0.000s
+
+OK
+test_cancelled_key_input_restores_terminal_and_saves_nothing (__main__.Onboarding.test_cancelled_key_input_restores_terminal_and_saves_nothing) ... ok
+test_first_run_and_repeated_run_use_saved_choices (__main__.Onboarding.test_first_run_and_repeated_run_use_saved_choices) ... ok
+test_key_input_is_not_echoed_and_is_saved_privately (__main__.Onboarding.test_key_input_is_not_echoed_and_is_saved_privately) ... ok
+
+----------------------------------------------------------------------
+Ran 3 tests in 0.965s
+
+OK
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.09s
+     Running tests/host_guard.rs (target/debug/deps/host_guard-e7f3dd0871ba416f)
+test_all_connections_execute_host_tools_through_the_oracle (__main__.HostAccess.test_all_connections_execute_host_tools_through_the_oracle) ... ok
+test_outside_paths_and_oracle_failures (__main__.HostAccess.test_outside_paths_and_oracle_failures) ... ok
+
+----------------------------------------------------------------------
+Ran 2 tests in 9.726s
+
+OK
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.09s
+.
+----------------------------------------------------------------------
+Ran 1 test in 0.063s
+
+OK
+..
+----------------------------------------------------------------------
+Ran 2 tests in 0.001s
+
+OK
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.09s
+test_native_api_sources_and_errors (__main__.Authentication.test_native_api_sources_and_errors) ... ok
+test_subscription_routes_and_errors (__main__.Authentication.test_subscription_routes_and_errors) ... ok
+
+----------------------------------------------------------------------
+Ran 2 tests in 1.402s
+
+OK
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s
+     Running tests/capabilities.rs (target/debug/deps/capabilities-7f54283b1116b50f)
+test_reported_partial_zero_and_absent_usage (__main__.Usage.test_reported_partial_zero_and_absent_usage) ... ok
+
+----------------------------------------------------------------------
+Ran 1 test in 1.509s
+
+OK
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.08s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.09s
+     Running unittests src/lib.rs (target/debug/deps/demoncoder-0911b3f9cf4c6c88)
+..
+----------------------------------------------------------------------
+Ran 2 tests in 1.550s
+
+OK
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s
+     Running tests/developer_access.rs (target/debug/deps/developer_access-e415e2d295764c97)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s
+     Running unittests src/lib.rs (target/debug/deps/demoncoder-0911b3f9cf4c6c88)
+.
+----------------------------------------------------------------------
+Ran 1 test in 0.809s
+
+OK
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.09s
+     Running tests/output_limits.rs (target/debug/deps/output_limits-5d168b2cfb44d1ad)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.09s
+...
+----------------------------------------------------------------------
+Ran 3 tests in 3.944s
+
+OK
+test_cancelled_key_input_restores_terminal_and_saves_nothing (__main__.Onboarding.test_cancelled_key_input_restores_terminal_and_saves_nothing) ... ok
+test_first_run_and_repeated_run_use_saved_choices (__main__.Onboarding.test_first_run_and_repeated_run_use_saved_choices) ... ok
+test_key_input_is_not_echoed_and_is_saved_privately (__main__.Onboarding.test_key_input_is_not_echoed_and_is_saved_privately) ... ok
+
+----------------------------------------------------------------------
+Ran 3 tests in 0.863s
+
+OK
+.
+----------------------------------------------------------------------
+Ran 1 test in 0.051s
+
+OK
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.08s
+test_reported_partial_zero_and_absent_usage (__main__.Usage.test_reported_partial_zero_and_absent_usage) ... ok
+
+----------------------------------------------------------------------
+Ran 1 test in 1.516s
+
+OK
+..
+----------------------------------------------------------------------
+Ran 2 tests in 2.063s
+
+OK
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s
+     Running unittests src/lib.rs (target/debug/deps/demoncoder-0911b3f9cf4c6c88)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.08s
+...
+----------------------------------------------------------------------
+Ran 3 tests in 3.238s
+
+OK
+..
+----------------------------------------------------------------------
+Ran 2 tests in 2.121s
+
+OK
+test_reported_partial_zero_and_absent_usage (__main__.Usage.test_reported_partial_zero_and_absent_usage) ... ok
+
+----------------------------------------------------------------------
+Ran 1 test in 1.559s
+
+OK
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s
+     Running tests/developer_access.rs (target/debug/deps/developer_access-e415e2d295764c97)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s
+     Running unittests src/lib.rs (target/debug/deps/demoncoder-0911b3f9cf4c6c88)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s
+     Running unittests src/lib.rs (target/debug/deps/demoncoder-0911b3f9cf4c6c88)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.09s
+....
+----------------------------------------------------------------------
+Ran 4 tests in 3.378s
+
+OK
+...
+----------------------------------------------------------------------
+Ran 3 tests in 3.213s
+
+OK
+..
+----------------------------------------------------------------------
+Ran 2 tests in 2.110s
+
+OK
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.25s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running unittests src/lib.rs (target/debug/deps/demoncoder-0911b3f9cf4c6c88)
+     Running unittests src/main.rs (target/debug/deps/demoncoder-bcc0b6ba3357676d)
+     Running tests/capabilities.rs (target/debug/deps/capabilities-7f54283b1116b50f)
+     Running tests/developer_access.rs (target/debug/deps/developer_access-e415e2d295764c97)
+     Running tests/host_guard.rs (target/debug/deps/host_guard-e7f3dd0871ba416f)
+     Running tests/inherited_fd_driver.rs (target/debug/deps/inherited_fd_driver-c1cd63ae90794f74)
+     Running tests/live_oracle.rs (target/debug/deps/live_oracle-3b7a3cc53ee1202a)
+     Running tests/orchestration_schedule.rs (target/debug/deps/orchestration_schedule-768c5fe93821465a)
+     Running tests/orchestration_state.rs (target/debug/deps/orchestration_state-d840f4f696d75a01)
+     Running tests/output_limits.rs (target/debug/deps/output_limits-5d168b2cfb44d1ad)
+     Running tests/queue_driver.rs (target/debug/deps/queue_driver-eaa976dcefdbcef4)
+     Running tests/queue_runtime.rs (target/debug/deps/queue_runtime-e01becbc162b8b6a)
+     Running tests/registry_driver.rs (target/debug/deps/registry_driver-c03f478d67e70982)
+     Running tests/reliability_streams.rs (target/debug/deps/reliability_streams-ec976d9032f0e21c)
+     Running tests/reliability_utf8.rs (target/debug/deps/reliability_utf8-f23f356348d99172)
+     Running tests/subagent_state.rs (target/debug/deps/subagent_state-59e657384e1ed8e3)
+     Running tests/subagent_worktrees.rs (target/debug/deps/subagent_worktrees-f0d5d1e9e4ff70d6)
+     Running tests/tool_extensions.rs (target/debug/deps/tool_extensions-443732b44a154366)
+     Running tests/tools.rs (target/debug/deps/tools-146f4d767211ea29)
+     Running tests/verification_workflow.rs (target/debug/deps/verification_workflow-c71caf6ee9a58ecd)
+     Running tests/workflow_store.rs (target/debug/deps/workflow_store-122ba78f04bb105f)
+     Running tests/workflow_workspace.rs (target/debug/deps/workflow_workspace-e6c91c68b90d3920)
+     Running tests/worktree_access.rs (target/debug/deps/worktree_access-c0cb51988bfe3430)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.09s
+...
+----------------------------------------------------------------------
+Ran 3 tests in 3.985s
+
+OK
+test_reported_partial_zero_and_absent_usage (__main__.Usage.test_reported_partial_zero_and_absent_usage) ... ok
+
+----------------------------------------------------------------------
+Ran 1 test in 1.556s
+
+OK
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.08s
+test_cancelled_key_input_restores_terminal_and_saves_nothing (__main__.Onboarding.test_cancelled_key_input_restores_terminal_and_saves_nothing) ... ok
+test_first_run_and_repeated_run_use_saved_choices (__main__.Onboarding.test_first_run_and_repeated_run_use_saved_choices) ... ok
+test_key_input_is_not_echoed_and_is_saved_privately (__main__.Onboarding.test_key_input_is_not_echoed_and_is_saved_privately) ... ok
+
+----------------------------------------------------------------------
+Ran 3 tests in 0.799s
+
+OK
+.
+----------------------------------------------------------------------
+Ran 1 test in 0.056s
+
+OK
+test_help_and_version_do_not_start_setup (__main__.Information.test_help_and_version_do_not_start_setup) ... ok
+
+----------------------------------------------------------------------
+Ran 1 test in 0.019s
+
+OK
+test_default_workspace_is_launch_directory_and_explicit_overrides (__main__.Workspace.test_default_workspace_is_launch_directory_and_explicit_overrides) ... ok
+
+----------------------------------------------------------------------
+Ran 1 test in 0.545s
+
+OK
+test_custom_shared_parent_is_rejected_without_chmod (__main__.Directory.test_custom_shared_parent_is_rejected_without_chmod) ... ok
+test_existing_default_directory_is_secured_without_losing_files (__main__.Directory.test_existing_default_directory_is_secured_without_losing_files) ... ok
+test_saved_connections_survive_directory_repair_and_new_project_trust (__main__.Directory.test_saved_connections_survive_directory_repair_and_new_project_trust) ... ok
+test_symlinked_default_directory_is_rejected_without_chmod (__main__.Directory.test_symlinked_default_directory_is_rejected_without_chmod) ... ok
+
+----------------------------------------------------------------------
+Ran 4 tests in 0.221s
+
+OK
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.12s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.11s
+     Running unittests src/lib.rs (target/debug/deps/demoncoder-0911b3f9cf4c6c88)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.08s
+..
+----------------------------------------------------------------------
+Ran 2 tests in 1.089s
+
+OK
+....
+----------------------------------------------------------------------
+Ran 4 tests in 3.269s
+
+OK
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s
+     Running tests/developer_access.rs (target/debug/deps/developer_access-e415e2d295764c97)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s
+     Running unittests src/lib.rs (target/debug/deps/demoncoder-0911b3f9cf4c6c88)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s
+     Running unittests src/lib.rs (target/debug/deps/demoncoder-0911b3f9cf4c6c88)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s
+     Running tests/host_guard.rs (target/debug/deps/host_guard-e7f3dd0871ba416f)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.09s
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.08s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s
+     Running tests/queue_runtime.rs (target/debug/deps/queue_runtime-e01becbc162b8b6a)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s
+     Running unittests src/lib.rs (target/debug/deps/demoncoder-0911b3f9cf4c6c88)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s
+     Running unittests src/lib.rs (target/debug/deps/demoncoder-0911b3f9cf4c6c88)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.09s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.09s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s
+     Running tests/reliability_streams.rs (target/debug/deps/reliability_streams-ec976d9032f0e21c)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.09s
+     Running tests/reliability_utf8.rs (target/debug/deps/reliability_utf8-f23f356348d99172)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s
+     Running unittests src/lib.rs (target/debug/deps/demoncoder-0911b3f9cf4c6c88)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.08s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s
+     Running tests/host_guard.rs (target/debug/deps/host_guard-e7f3dd0871ba416f)
+     Running tests/verification_workflow.rs (target/debug/deps/verification_workflow-c71caf6ee9a58ecd)
+     Running tests/workflow_store.rs (target/debug/deps/workflow_store-122ba78f04bb105f)
+     Running tests/workflow_workspace.rs (target/debug/deps/workflow_workspace-e6c91c68b90d3920)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s
+     Running unittests src/lib.rs (target/debug/deps/demoncoder-0911b3f9cf4c6c88)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.08s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s
+     Running unittests src/lib.rs (target/debug/deps/demoncoder-0911b3f9cf4c6c88)
+     Running tests/subagent_state.rs (target/debug/deps/subagent_state-59e657384e1ed8e3)
+     Running tests/subagent_worktrees.rs (target/debug/deps/subagent_worktrees-f0d5d1e9e4ff70d6)
+     Running tests/tool_extensions.rs (target/debug/deps/tool_extensions-443732b44a154366)
+     Running tests/worktree_access.rs (target/debug/deps/worktree_access-c0cb51988bfe3430)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.08s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s
+     Running unittests src/lib.rs (target/debug/deps/demoncoder-0911b3f9cf4c6c88)
+     Running tests/orchestration_schedule.rs (target/debug/deps/orchestration_schedule-768c5fe93821465a)
+     Running tests/orchestration_state.rs (target/debug/deps/orchestration_state-d840f4f696d75a01)
+     Running tests/subagent_state.rs (target/debug/deps/subagent_state-59e657384e1ed8e3)
+     Running tests/subagent_worktrees.rs (target/debug/deps/subagent_worktrees-f0d5d1e9e4ff70d6)
+     Running tests/tool_extensions.rs (target/debug/deps/tool_extensions-443732b44a154366)
+     Running tests/worktree_access.rs (target/debug/deps/worktree_access-c0cb51988bfe3430)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.09s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s
+     Running unittests src/lib.rs (target/debug/deps/demoncoder-0911b3f9cf4c6c88)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.15s
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.12s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s
+     Running unittests src/lib.rs (target/debug/deps/demoncoder-0911b3f9cf4c6c88)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s
+     Running tests/workflow_store.rs (target/debug/deps/workflow_store-122ba78f04bb105f)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.09s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s
+     Running unittests src/lib.rs (target/debug/deps/demoncoder-0911b3f9cf4c6c88)
+test_claude_status_is_a_managed_login_observation_and_aliases_are_labelled (__main__.ProviderSettings.test_claude_status_is_a_managed_login_observation_and_aliases_are_labelled) ... ok
+test_cli_presence_does_not_establish_subscription_login (__main__.ProviderSettings.test_cli_presence_does_not_establish_subscription_login) ... ok
+test_correcting_a_rejected_key_offers_only_checked_models (__main__.ProviderSettings.test_correcting_a_rejected_key_offers_only_checked_models) ... ok
+test_environment_key_controls_checks_without_replacing_saved_key (__main__.ProviderSettings.test_environment_key_controls_checks_without_replacing_saved_key) ... ok
+test_failed_model_discovery_cannot_contribute_choices (__main__.ProviderSettings.test_failed_model_discovery_cannot_contribute_choices) ... ok
+test_missing_key_and_rejected_key_never_appear_authenticated (__main__.ProviderSettings.test_missing_key_and_rejected_key_never_appear_authenticated) ... ok
+test_overlapping_model_ids_keep_provider_identity_and_request_route (__main__.ProviderSettings.test_overlapping_model_ids_keep_provider_identity_and_request_route) ... ok
+test_provider_checkboxes_precede_models (__main__.ProviderSettings.test_provider_checkboxes_precede_models) ... ok
+test_reflected_credential_is_not_rendered_as_a_model (__main__.ProviderSettings.test_reflected_credential_is_not_rendered_as_a_model) ... ok
+test_roles_default_override_cancel_and_creator_change_are_distinct (__main__.ProviderSettings.test_roles_default_override_cancel_and_creator_change_are_distinct) ... ok
+test_saved_unavailable_model_requires_an_explicit_replacement (__main__.ProviderSettings.test_saved_unavailable_model_requires_an_explicit_replacement) ... ok
+test_slow_check_can_be_cancelled_while_other_provider_completes (__main__.ProviderSettings.test_slow_check_can_be_cancelled_while_other_provider_completes) ... ok
+test_slow_subscription_check_times_out_without_authentication (__main__.ProviderSettings.test_slow_subscription_check_times_out_without_authentication) ... ok
+
+----------------------------------------------------------------------
+Ran 13 tests in 18.535s
+
+OK
+test_active_task_is_pinned_and_reviewer_resolves_after_correction (__main__.RoleSettings.test_active_task_is_pinned_and_reviewer_resolves_after_correction) ... ok
+test_explicit_child_connection_overrides_settings_worker (__main__.RoleSettings.test_explicit_child_connection_overrides_settings_worker) ... ok
+test_oracle_default_uses_its_assignment_without_tools (__main__.RoleSettings.test_oracle_default_uses_its_assignment_without_tools) ... ok
+test_queued_worker_captures_old_model_and_new_assignment_uses_new_default (__main__.RoleSettings.test_queued_worker_captures_old_model_and_new_assignment_uses_new_default) ... ok
+test_recovery_keeps_queued_identity_allocation_and_new_reviewer_default (__main__.RoleSettings.test_recovery_keeps_queued_identity_allocation_and_new_reviewer_default) ... ok
+test_role_overrides_and_inheritance_preserve_decision_authority (__main__.RoleSettings.test_role_overrides_and_inheritance_preserve_decision_authority) ... ok
+
+----------------------------------------------------------------------
+Ran 6 tests in 9.488s
+
+OK
+test_cancelling_live_slow_discovery_keeps_draft_and_scrolled_conversation (__main__.LiveSettings.test_cancelling_live_slow_discovery_keeps_draft_and_scrolled_conversation) ... ok
+test_conflicting_and_failed_saves_stay_open_and_keep_previous_runtime_model (__main__.LiveSettings.test_conflicting_and_failed_saves_stay_open_and_keep_previous_runtime_model) ... ok
+test_deselected_creator_blocks_admission_without_redirecting_or_losing_draft (__main__.LiveSettings.test_deselected_creator_blocks_admission_without_redirecting_or_losing_draft) ... ok
+test_explicit_launch_model_overrides_later_saved_creator_changes (__main__.LiveSettings.test_explicit_launch_model_overrides_later_saved_creator_changes) ... ok
+test_held_cli_turn_finishes_before_new_context_and_settings_command_is_not_a_prompt (__main__.LiveSettings.test_held_cli_turn_finishes_before_new_context_and_settings_command_is_not_a_prompt) ... ok
+test_held_native_turn_keeps_model_and_next_work_retains_history_and_draft (__main__.LiveSettings.test_held_native_turn_keeps_model_and_next_work_retains_history_and_draft) ... ok
+
+----------------------------------------------------------------------
+Ran 6 tests in 3.557s
+
+OK
+  Installing demoncoder v0.1.2 (/home/shawn/workspace2/demoncoder)
+    Updating crates.io index
+    Finished `release` profile [optimized] target(s) in 0.77s
+   Replacing /home/shawn/.cargo/bin/demoncoder
+    Replaced package `demoncoder v0.1.2 (/home/shawn/workspace2/demoncoder)` with `demoncoder v0.1.2 (/home/shawn/workspace2/demoncoder)` (executable `demoncoder`)
+test_claude_status_is_a_managed_login_observation_and_aliases_are_labelled (__main__.ProviderSettings.test_claude_status_is_a_managed_login_observation_and_aliases_are_labelled) ... ok
+test_cli_presence_does_not_establish_subscription_login (__main__.ProviderSettings.test_cli_presence_does_not_establish_subscription_login) ... ok
+test_correcting_a_rejected_key_offers_only_checked_models (__main__.ProviderSettings.test_correcting_a_rejected_key_offers_only_checked_models) ... ok
+test_environment_key_controls_checks_without_replacing_saved_key (__main__.ProviderSettings.test_environment_key_controls_checks_without_replacing_saved_key) ... ok
+test_failed_model_discovery_cannot_contribute_choices (__main__.ProviderSettings.test_failed_model_discovery_cannot_contribute_choices) ... ok
+test_missing_key_and_rejected_key_never_appear_authenticated (__main__.ProviderSettings.test_missing_key_and_rejected_key_never_appear_authenticated) ... ok
+test_overlapping_model_ids_keep_provider_identity_and_request_route (__main__.ProviderSettings.test_overlapping_model_ids_keep_provider_identity_and_request_route) ... ok
+test_provider_checkboxes_precede_models (__main__.ProviderSettings.test_provider_checkboxes_precede_models) ... ok
+test_reflected_credential_is_not_rendered_as_a_model (__main__.ProviderSettings.test_reflected_credential_is_not_rendered_as_a_model) ... ok
+test_roles_default_override_cancel_and_creator_change_are_distinct (__main__.ProviderSettings.test_roles_default_override_cancel_and_creator_change_are_distinct) ... ok
+test_saved_unavailable_model_requires_an_explicit_replacement (__main__.ProviderSettings.test_saved_unavailable_model_requires_an_explicit_replacement) ... ok
+test_slow_check_can_be_cancelled_while_other_provider_completes (__main__.ProviderSettings.test_slow_check_can_be_cancelled_while_other_provider_completes) ... ok
+test_slow_subscription_check_times_out_without_authentication (__main__.ProviderSettings.test_slow_subscription_check_times_out_without_authentication) ... ok
+
+----------------------------------------------------------------------
+Ran 13 tests in 17.906s
+
+OK
+test_cancelling_live_slow_discovery_keeps_draft_and_scrolled_conversation (__main__.LiveSettings.test_cancelling_live_slow_discovery_keeps_draft_and_scrolled_conversation) ... ok
+test_conflicting_and_failed_saves_stay_open_and_keep_previous_runtime_model (__main__.LiveSettings.test_conflicting_and_failed_saves_stay_open_and_keep_previous_runtime_model) ... ok
+test_deselected_creator_blocks_admission_without_redirecting_or_losing_draft (__main__.LiveSettings.test_deselected_creator_blocks_admission_without_redirecting_or_losing_draft) ... ok
+test_explicit_launch_model_overrides_later_saved_creator_changes (__main__.LiveSettings.test_explicit_launch_model_overrides_later_saved_creator_changes) ... ok
+test_held_cli_turn_finishes_before_new_context_and_settings_command_is_not_a_prompt (__main__.LiveSettings.test_held_cli_turn_finishes_before_new_context_and_settings_command_is_not_a_prompt) ... ok
+test_held_native_turn_keeps_model_and_next_work_retains_history_and_draft (__main__.LiveSettings.test_held_native_turn_keeps_model_and_next_work_retains_history_and_draft) ... ok
+
+----------------------------------------------------------------------
+Ran 6 tests in 3.498s
+
+OK
+test_active_task_is_pinned_and_reviewer_resolves_after_correction (__main__.RoleSettings.test_active_task_is_pinned_and_reviewer_resolves_after_correction) ... ok
+test_explicit_child_connection_overrides_settings_worker (__main__.RoleSettings.test_explicit_child_connection_overrides_settings_worker) ... ok
+test_oracle_default_uses_its_assignment_without_tools (__main__.RoleSettings.test_oracle_default_uses_its_assignment_without_tools) ... ok
+test_queued_worker_captures_old_model_and_new_assignment_uses_new_default (__main__.RoleSettings.test_queued_worker_captures_old_model_and_new_assignment_uses_new_default) ... ok
+test_recovery_keeps_queued_identity_allocation_and_new_reviewer_default (__main__.RoleSettings.test_recovery_keeps_queued_identity_allocation_and_new_reviewer_default) ... ok
+test_role_overrides_and_inheritance_preserve_decision_authority (__main__.RoleSettings.test_role_overrides_and_inheritance_preserve_decision_authority) ... ok
+
+----------------------------------------------------------------------
+Ran 6 tests in 6.988s
+
+OK
+  Installing demoncoder v0.1.2 (/home/shawn/workspace2/demoncoder)
+    Updating crates.io index
+    Finished `release` profile [optimized] target(s) in 0.46s
+   Replacing /home/shawn/.cargo/bin/demoncoder
+    Replaced package `demoncoder v0.1.2 (/home/shawn/workspace2/demoncoder)` with `demoncoder v0.1.2 (/home/shawn/workspace2/demoncoder)` (executable `demoncoder`)
