@@ -15,3 +15,7 @@ Retain launch-directory resolution of private roots and also resolve relative de
 ## Realized by
 
 (none yet: recorded, not built)
+
+## Realized by
+
+- 4904f37ca8505acc0f0f0a97912f9a07f1406979 Protect workspace-relative credential roots before source export
