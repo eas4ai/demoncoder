@@ -8,7 +8,7 @@ use seccompiler::{
     SeccompRule, sock_filter,
 };
 
-fn program() -> Result<BpfProgram> {
+fn program(allow_sequenced_pairs: bool) -> Result<BpfProgram> {
     let domain = || {
         SeccompCondition::new(
             0,
@@ -25,12 +25,18 @@ fn program() -> Result<BpfProgram> {
         libc::SOCK_CLOEXEC | libc::SOCK_NONBLOCK,
     ]
     .into_iter()
-    .map(|flags| {
+    .flat_map(|flags| {
+        [libc::SOCK_STREAM, libc::SOCK_SEQPACKET]
+            .into_iter()
+            .filter(move |kind| *kind == libc::SOCK_STREAM || allow_sequenced_pairs)
+            .map(move |kind| (kind, flags))
+    })
+    .map(|(kind, flags)| {
         SeccompCondition::new(
             1,
             SeccompCmpArgLen::Dword,
             SeccompCmpOp::Ne,
-            (libc::SOCK_STREAM | flags) as u64,
+            (kind | flags) as u64,
         )
     })
     .collect::<std::result::Result<Vec<_>, _>>()?;
@@ -84,6 +90,16 @@ fn program() -> Result<BpfProgram> {
 }
 
 pub(crate) fn file() -> Result<File> {
+    filter_file(false)
+}
+
+// Cargo uses anonymous sequenced-packet pairs for child coordination. These
+// create no pathname or abstract endpoint to reach a host service.
+pub(crate) fn language_server_file() -> Result<File> {
+    filter_file(true)
+}
+
+fn filter_file(allow_sequenced_pairs: bool) -> Result<File> {
     // No pathname remains for another command to rewrite between launches.
     let mut file = File::from(
         memfd_create(
@@ -92,7 +108,7 @@ pub(crate) fn file() -> Result<File> {
         )
         .context("create confined socket filter")?,
     );
-    for instruction in program().context("compile confined socket filter")? {
+    for instruction in program(allow_sequenced_pairs).context("compile confined socket filter")? {
         file.write_all(&instruction.code.to_ne_bytes())?;
         file.write_all(&[instruction.jt, instruction.jf])?;
         file.write_all(&instruction.k.to_ne_bytes())?;
@@ -135,14 +151,14 @@ mod tests {
 
     // Evaluate the actual emitted BPF, including its architecture guards and
     // jumps. These cases catch incorrect argument width and compiler defaults.
-    fn evaluate(arch: u32, syscall: u32, args: [u64; 6]) -> u32 {
+    fn evaluate_variant(arch: u32, syscall: u32, args: [u64; 6], sequenced: bool) -> u32 {
         let mut data = [0u8; 64];
         data[..4].copy_from_slice(&syscall.to_ne_bytes());
         data[4..8].copy_from_slice(&arch.to_ne_bytes());
         for (i, arg) in args.iter().enumerate() {
             data[16 + 8 * i..24 + 8 * i].copy_from_slice(&arg.to_ne_bytes());
         }
-        let program = program().unwrap();
+        let program = program(sequenced).unwrap();
         let (mut pc, mut value) = (0, 0);
         for _ in 0..4096 {
             let op = &program[pc];
@@ -168,6 +184,10 @@ mod tests {
             }
         }
         panic!("filter did not terminate")
+    }
+
+    fn evaluate(arch: u32, syscall: u32, args: [u64; 6]) -> u32 {
+        evaluate_variant(arch, syscall, args, false)
     }
 
     #[test]
@@ -196,6 +216,34 @@ mod tests {
                 assert_eq!(
                     evaluate(arch, libc::SYS_socketpair as u32, args),
                     if kind == libc::SOCK_STREAM {
+                        libc::SECCOMP_RET_ALLOW
+                    } else {
+                        denied
+                    }
+                );
+            }
+        }
+        for flags in [
+            0,
+            libc::SOCK_CLOEXEC,
+            libc::SOCK_NONBLOCK,
+            libc::SOCK_CLOEXEC | libc::SOCK_NONBLOCK,
+        ] {
+            for kind in [
+                libc::SOCK_STREAM,
+                libc::SOCK_SEQPACKET,
+                libc::SOCK_DGRAM,
+                0,
+                16,
+            ] {
+                let args = [libc::AF_UNIX as u64, (kind | flags) as u64, 0, 0, 0, 0];
+                assert_eq!(
+                    evaluate_variant(arch, libc::SYS_socket as u32, args, true),
+                    denied
+                );
+                assert_eq!(
+                    evaluate_variant(arch, libc::SYS_socketpair as u32, args, true),
+                    if matches!(kind, libc::SOCK_STREAM | libc::SOCK_SEQPACKET) {
                         libc::SECCOMP_RET_ALLOW
                     } else {
                         denied

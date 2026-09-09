@@ -38,6 +38,8 @@ pub struct AccessPolicy {
     pub supervisor: Option<PathBuf>,
     /// Trusted parent-only operations, attached by the session owner.
     pub extension: Option<Arc<dyn ToolExtension>>,
+    /// Explicit session configuration; repositories and models cannot enable servers.
+    pub language_servers: crate::language_services::LanguageServers,
 }
 
 impl Default for AccessPolicy {
@@ -50,6 +52,7 @@ impl Default for AccessPolicy {
             credential_paths: Vec::new(),
             supervisor: None,
             extension: None,
+            language_servers: crate::language_services::LanguageServers::default(),
         }
     }
 }
@@ -139,6 +142,7 @@ pub struct ToolExecutor {
     // during event delivery or a presentation error; never retain a full copy
     // of the session history here.
     completed: Mutex<Option<ToolResult>>,
+    language_services: Option<crate::language_services::Manager>,
 }
 
 impl ToolExecutor {
@@ -147,6 +151,11 @@ impl ToolExecutor {
     }
 
     pub fn with_policy(workspace: &Path, access: &AccessPolicy) -> Result<Self> {
+        access.language_servers.validate()?;
+        ensure!(
+            !access.language_servers.enabled() || (access.tools_enabled && !access.strict_worktree),
+            "language servers are unavailable for child and review-only policies"
+        );
         ensure!(cfg!(target_os = "linux"), "coding tools require Linux");
         ensure!(
             !(access.unrestricted && access.strict_worktree),
@@ -162,6 +171,7 @@ impl ToolExecutor {
                 "write".to_owned(),
                 "edit".to_owned(),
                 "bash".to_owned(),
+                "lsp".to_owned(),
             ]);
             let definitions = extension.definitions();
             ensure!(definitions.len() <= 16, "too many parent tool extensions");
@@ -193,9 +203,37 @@ impl ToolExecutor {
             RESOLVE,
         )
         .context("workspace requires Linux openat2")?;
+        let root = Arc::new(root);
+        let workspace = workspace.canonicalize().context("resolve tool workspace")?;
+        let developer = if !access.unrestricted && !access.strict_worktree && access.tools_enabled {
+            Some(Arc::new(crate::developer_access::DeveloperAccess::new(
+                &workspace,
+                &access.credential_paths,
+            )?))
+        } else {
+            None
+        };
+        let language_services = if access.language_servers.enabled() {
+            let confined = match &developer {
+                Some(access) => access.clone(),
+                None => Arc::new(crate::developer_access::DeveloperAccess::new(
+                    &workspace,
+                    &access.credential_paths,
+                )?),
+            };
+            Some(crate::language_services::Manager::new(
+                access.language_servers.clone(),
+                workspace.clone(),
+                root.clone(),
+                confined,
+            ))
+        } else {
+            None
+        };
         Ok(Self {
-            root: Arc::new(root),
-            workspace: workspace.canonicalize().context("resolve tool workspace")?,
+            root,
+            language_services,
+            workspace: workspace.clone(),
             scratch: if access.unrestricted && access.tools_enabled {
                 // Host tools may put valuable data here. Do not recursively delete
                 // it on session close; ordinary OS temporary-file policy applies.
@@ -210,16 +248,7 @@ impl ToolExecutor {
                 None
             },
             access: access.clone(),
-            developer: if !access.unrestricted && !access.strict_worktree && access.tools_enabled {
-                Some(Arc::new(crate::developer_access::DeveloperAccess::new(
-                    &workspace
-                        .canonicalize()
-                        .context("resolve developer workspace")?,
-                    &access.credential_paths,
-                )?))
-            } else {
-                None
-            },
+            developer,
             worktree: if access.strict_worktree && access.tools_enabled {
                 Some(Arc::new(crate::worktree_access::WorktreeAccess::new(
                     &workspace.canonicalize()?,
@@ -268,6 +297,9 @@ impl ToolExecutor {
         if let Some(extension) = &self.access.extension {
             tools.extend(extension.definitions());
         }
+        if self.language_services.is_some() {
+            tools.push(crate::language_services::definition());
+        }
         tools
     }
 
@@ -281,6 +313,13 @@ impl ToolExecutor {
 
     pub fn tools_enabled(&self) -> bool {
         self.access.tools_enabled
+    }
+
+    pub(crate) async fn stop_language_services(&mut self) -> Result<()> {
+        if let Some(manager) = &mut self.language_services {
+            manager.stop().await?;
+        }
+        Ok(())
     }
 
     pub fn add_hook(&mut self, hook: Box<dyn ToolHook>) {
@@ -362,6 +401,10 @@ impl ToolExecutor {
                     }
                     self.bash(&call.id, &args.command, events).await
                 }
+                "lsp" => {
+                    let args = serde_json::from_value(call.arguments.clone())?;
+                    Ok((self.language_query(args).await?, None))
+                }
                 _ => {
                     let extension = self
                         .access
@@ -383,7 +426,7 @@ impl ToolExecutor {
             }
         }
         .await;
-        let result = match execution {
+        let mut result = match execution {
             Ok((output, exit_code)) => ToolResult {
                 call_id: identity.0,
                 tool: call.name,
@@ -402,6 +445,27 @@ impl ToolExecutor {
         // No await separates completion from this receipt. The session can
         // recover it even if event delivery is cancelled or presentation fails.
         *self.completed.lock().expect("tool receipt lock poisoned") = Some(result.clone());
+        if result.success
+            && matches!(result.tool.as_str(), "write" | "edit")
+            && let Some(path) = call.arguments["path"].as_str()
+            && self
+                .language_services
+                .as_ref()
+                .is_some_and(|manager| manager.watches(path))
+        {
+            // The completed mutation is recoverable before any diagnostic await.
+            let feedback = self
+                .language_query(crate::language_services::Args::diagnostics(path))
+                .await;
+            result.output.push_str("\nLanguage diagnostics: ");
+            match feedback {
+                Ok(output) => result.output.push_str(&output),
+                Err(error) => result.output.push_str(&format!(
+                    "unavailable or pending: {error:#}; verification not run"
+                )),
+            }
+            *self.completed.lock().expect("tool receipt lock poisoned") = Some(result.clone());
+        }
         // The actual result is retained first. Presentation never replaces evidence.
         events
             .emit(Event::ToolFinished {
@@ -417,6 +481,61 @@ impl ToolExecutor {
                 .await?;
         }
         Ok(result)
+    }
+
+    async fn language_query(&self, args: crate::language_services::Args) -> Result<String> {
+        let manager = self
+            .language_services
+            .as_ref()
+            .context("language services are disabled for this session")?;
+        let source = if let Some(path) = &args.path {
+            Some(self.language_source(path).await?)
+        } else {
+            ensure!(args.is_status(), "language query requires a source path");
+            None
+        };
+        let path = args.path.clone();
+        let original = source.clone();
+        let output = manager.execute(args, source).await?;
+        if let (Some(path), Some(original)) = (path, original) {
+            ensure!(
+                self.language_source(&path).await? == original,
+                "language result is stale: source changed during the request; query again"
+            );
+        }
+        Ok(output)
+    }
+
+    async fn language_source(&self, path: &str) -> Result<String> {
+        validate_path(path)?;
+        ensure!(
+            !crate::export_policy::private_path(Path::new(path)),
+            "language services cannot read protected source"
+        );
+        let file = openat2(
+            &*self.root,
+            path,
+            OFlags::RDONLY | OFlags::CLOEXEC | OFlags::NONBLOCK,
+            Mode::empty(),
+            RESOLVE,
+        )?;
+        let mut file = File::from(file);
+        ensure!(
+            file.metadata()?.nlink() == 1,
+            "language source cannot be a hard link"
+        );
+        let resolved = descriptor_path(&file)?;
+        for protected in crate::export_policy::private_roots(
+            &self.workspace,
+            &self.access.credential_paths,
+            true,
+        ) {
+            ensure!(
+                !resolved.starts_with(protected),
+                "language source is protected"
+            );
+        }
+        read_text(&mut file)
     }
 
     fn open(&self, path: &str, flags: OFlags, create: bool) -> Result<File> {

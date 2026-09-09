@@ -7,6 +7,7 @@ pub mod events;
 mod export_policy;
 mod highlight;
 mod inspection;
+pub mod language_services;
 mod learning;
 pub mod native;
 pub mod oracle;

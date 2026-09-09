@@ -382,6 +382,7 @@ impl Session for Claude {
     }
 
     async fn close(&mut self) -> Result<()> {
+        self.tools.stop_language_services().await?;
         self.subscription_confirmed = false;
         if let Some(mut process) = self.process.take() {
             process.stop().await?;

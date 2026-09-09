@@ -1035,6 +1035,115 @@ edits, automatic parent-directory creation, or hash-anchored edits. Ask the mode
 to create directories with an admitted Bash command when needed. Failed edits do
 not silently choose a different match.
 
+## Optional language services
+
+Enable an installed server and its runtime files explicitly for an invocation.
+For a Rust toolchain installed with rustup, select the actual analyzer executable:
+
+```bash
+rust_analyzer="$(rustup which rust-analyzer)"
+rust_toolchain="$(dirname "$(dirname "$rust_analyzer")")"
+demoncoder --rust-language-server "$rust_analyzer" \
+  --language-server-read-root "$rust_toolchain/bin" \
+  --language-server-read-root "$rust_toolchain/lib" \
+  --language-server-read-root "$rust_toolchain/libexec"
+```
+
+For a conventional global TypeScript language-server installation:
+
+```bash
+ts_server="$(readlink -f "$(command -v typescript-language-server)")"
+ts_package="$(dirname "$(dirname "$ts_server")")"
+demoncoder --typescript-language-server "$ts_server" \
+  --language-server-read-root "$ts_package" \
+  --language-server-read-root "$(dirname "$ts_package")/typescript" \
+  --language-server-read-root "$(command -v node)"
+```
+
+Adjust these paths for your installation. Server options require absolute
+executable paths. They are optional and are not
+saved as project configuration. Opening a project does not discover or launch
+server commands. An enabled server starts when a language tool first needs it;
+a missing or failed server leaves ordinary coding tools available.
+
+Servers receive a filtered copy of the project and selected external read roots.
+They cannot directly read the original project or the rest of your home directory.
+Each server gets a disposable writable layer over its admitted project copy so
+Cargo can create lockfiles and tools can produce temporary project files. Those
+writes never update your real project. The layer is discarded when admitted
+inputs change; external runtime copies remain read-only.
+Add a sibling project or dependency directory with `--language-server-read-root`
+when its files are needed for analysis. External roots still exclude protected
+files; selecting a directory does not override credential protection. Missing
+runtime or dependency files produce an explicit limitation, never broader access.
+
+Known private paths and conservative filename rules exclude files before reading
+their contents. A bounded session cache retains deny decisions and their reasons;
+rule changes invalidate relevant decisions. Project `.gitignore` patterns,
+including nested rules, guide automatic inclusion regardless of Git tracking
+status. Global Git excludes and `.git/info/exclude` are not loaded. An explicit
+file query or selected read root can include an ignored file, but cannot override
+private-file protection. Filesystem observation batches permitted changes without
+model calls, and explicit queries synchronize the requested source immediately.
+Independent copy-on-write files are used when supported, with a bounded copy
+fallback. Initial preparation can therefore cost more than later updates.
+
+All four connections can use the shared `lsp` tool for `status`, `definition`,
+`references`, `hover` and `diagnostics`. For example:
+
+```json
+{"operation":"status","language":"rust"}
+{"operation":"definition","path":"src/main.rs","line":4,"character":12}
+{"operation":"diagnostics","path":"src/main.rs"}
+```
+
+Ask the agent to inspect language-server status or navigate a symbol; these are
+tool operations, not slash commands. Positions are zero-based UTF-16 code units.
+Source paths must be relative files inside the selected workspace. Returned
+locations outside that workspace are rejected explicitly. Unsupported server
+capabilities and unavailable results are distinct from a successful empty result.
+
+Results identify the source version and SHA-256 digest. Successful file writes
+and edits synchronize supported source files and include diagnostic feedback.
+Matching versioned notifications or a current pull response can report current
+diagnostics. Unversioned notifications report `freshness_unknown`; a missing
+response reports pending or unavailable. A server can publish more diagnostics
+while indexing, so a current report is its observed report for that revision,
+not a guarantee that indexing or a build has finished. Repeated errors remain
+errors. Empty diagnostics never establish that tests passed or work was accepted.
+When a server reports project health, loading reports remain `pending`, warnings
+remain `limited`, and failed project loading remains `unavailable`, even if the
+current diagnostic list is empty. Status distinguishes protocol initialization
+from project readiness. Recoverable indexing responses retry on the same server
+within a bounded budget so retries do not keep restarting a cold project.
+Pull reports retain separately pushed compiler diagnostics; an empty pull report
+does not erase a compiler error or establish freshness for an unversioned report.
+When an unversioned report follows a versioned one, the newer report is visible
+with unknown freshness and the last versioned items remain available separately.
+Cancellation or a diagnostic failure preserves the completed file operation.
+
+Language servers always use their filtered filesystem, including in a `--yolo`
+session. Their processes can run project code within that boundary. They cannot
+apply server-requested edits, execute protocol commands, or expand the workspace.
+The Rust server runs Cargo with compiler wrappers disabled, so host-socket caches
+such as sccache cannot suppress diagnostics. Ordinary Bash commands retain their
+existing environment. Language servers can create anonymous stream and sequenced
+socket pairs for tool coordination; host Unix endpoints remain blocked. Project
+checks remain the authority for verification.
+Child and review-only sessions do not enable language servers in this slice.
+Rename and code-action application are not implemented.
+
+View preparation and startup have a 150-second deadline, with at most 128 MiB
+of admitted project files plus 4 GiB of copied runtime inputs. Select narrower
+external roots if preparation exceeds these limits. Protocol requests have a
+20-second deadline. Push diagnostics wait up to two seconds for
+an initial response; retained reports are refreshed from newer notifications.
+Each protocol frame is limited to 1 MiB, model-facing language results to 512 KiB,
+and retained document records to 32 per server. Oversized results fail explicitly;
+they are not silently truncated. Cancellation stops active server requests, and
+session shutdown stops idle servers and their descendants. Later requests can
+initialize a fresh server after failure or cancellation.
+
 ## Project trust and execution modes
 
 The workspace is a directory you explicitly select. DemonCoder edits that

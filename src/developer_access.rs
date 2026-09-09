@@ -181,6 +181,10 @@ impl DeveloperAccess {
         })
     }
 
+    pub(crate) fn language_private_roots(&self) -> &[PathBuf] {
+        &self.private
+    }
+
     fn protected(&self, path: &Path) -> bool {
         if self.instructions.iter().any(|allowed| path == allowed)
             || self

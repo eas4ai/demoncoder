@@ -100,8 +100,15 @@ impl Session for NativeSession {
     ) -> Result<TurnEnd> {
         let outcome = self.run_turn(prompt, commands, events).await;
         self.settle_interruption()?;
+        if !matches!(outcome, Ok(TurnEnd::Complete)) {
+            self.tools.stop_language_services().await?;
+        }
         events.checkpoint(self.checkpoint())?;
         outcome
+    }
+
+    async fn close(&mut self) -> Result<()> {
+        self.tools.stop_language_services().await
     }
 }
 
@@ -364,6 +371,85 @@ mod tests {
     }
 
     struct FailedPresentation;
+
+    #[tokio::test]
+    async fn cancellation_during_language_feedback_preserves_the_completed_edit() {
+        use std::os::unix::fs::PermissionsExt;
+        let workspace = tempfile::tempdir().unwrap();
+        let binary = workspace.path().join("language-server");
+        std::fs::copy(
+            concat!(env!("CARGO_MANIFEST_DIR"), "/tests/lsp_fixture.py"),
+            &binary,
+        )
+        .unwrap();
+        std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o700)).unwrap();
+        std::fs::write(workspace.path().join(".fixture-mode"), "pending").unwrap();
+        let received = Arc::new(Mutex::new(Vec::new()));
+        let model = ScriptedModel {
+            responses: [vec![
+                call(
+                    "completed",
+                    "write",
+                    json!({"path":"main.rs","content":"fn main() {}"}),
+                ),
+                call(
+                    "unstarted",
+                    "write",
+                    json!({"path":"unstarted.rs","content":"must not run"}),
+                ),
+            ]]
+            .into(),
+            received: received.clone(),
+        };
+        let tools = ToolExecutor::with_policy(
+            workspace.path(),
+            &crate::tools::AccessPolicy {
+                language_servers: crate::language_services::LanguageServers {
+                    rust: Some(binary),
+                    typescript: None,
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let mut session = NativeSession::with_tools(Box::new(model), tools);
+        let (tx, _rx) = mpsc::channel(128);
+        let events = EventSink::new("language-cancel".into(), tx, None).unwrap();
+        let (commands, mut command_rx) = mpsc::channel(4);
+        let running =
+            tokio::spawn(
+                async move { session.turn("write".into(), &mut command_rx, &events).await },
+            );
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while !workspace.path().join("main.rs").exists() {
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .unwrap();
+        commands.send(Command::Cancel).await.unwrap();
+        assert!(matches!(
+            tokio::time::timeout(Duration::from_secs(2), running)
+                .await
+                .unwrap()
+                .unwrap()
+                .unwrap(),
+            TurnEnd::Cancelled
+        ));
+        let results = received.lock().unwrap();
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0].call_id, "completed");
+        assert!(results[0].success, "{}", results[0].output);
+        assert!(!results[0].output.contains("current"));
+        assert!(!results[1].success);
+        assert_eq!(
+            std::fs::read_to_string(workspace.path().join("main.rs")).unwrap(),
+            "fn main() {}"
+        );
+        assert!(!workspace.path().join("unstarted.rs").exists());
+    }
+
     impl ToolHook for FailedPresentation {
         fn before(&self, _call: &mut ToolCall) -> Result<()> {
             Ok(())

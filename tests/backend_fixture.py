@@ -145,7 +145,9 @@ def main():
                 assert message["params"]["approvalPolicy"] == "never"
                 if method == "thread/start":
                     assert message["params"]["environments"] == []
-                    assert {tool["name"] for tool in message["params"]["dynamicTools"]} == {"read", "write", "edit", "bash"}
+                    expected_tools = {"read", "write", "edit", "bash"}
+                    if Path("lsp-cycle").exists(): expected_tools.add("lsp")
+                    assert {tool["name"] for tool in message["params"]["dynamicTools"]} == expected_tools
                 else:
                     assert message["params"]["threadId"] == "fixture-thread"
                 result = {"thread": {"id": "fixture-thread"}}
@@ -171,6 +173,10 @@ def main():
                         assert time.monotonic() < deadline, "held settings prompt was not released"
                         time.sleep(0.01)
                     complete()
+                elif Path("lsp-cycle").exists():
+                    from lsp_cycle_fixture import Cycle as LanguageCycle
+                    cycle = LanguageCycle(prompt)
+                    request_call(cycle.next())
                 elif Path("tool-cycle").exists():
                     cycle = Cycle(prompt, Path("wrong-edit").exists())
                     request_call(cycle.next())
@@ -185,6 +191,10 @@ def main():
             send({"type": "system", "subtype": "init", "session_id": "fixture-session", "apiKeySource": "none"})
             if Path("cancellation").exists(): start_cancellation(prompt)
             elif Path("responsiveness").exists(): start_responsive(prompt)
+            elif Path("lsp-cycle").exists():
+                from lsp_cycle_fixture import Cycle as LanguageCycle
+                cycle = LanguageCycle(prompt, receipt_prefix="claude-mcp-")
+                request_call(cycle.next())
             elif Path("tool-cycle").exists():
                 cycle = Cycle(prompt, Path("wrong-edit").exists())
                 request_call(cycle.next())

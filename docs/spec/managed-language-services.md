@@ -49,6 +49,27 @@ Mechanism: Launch a harmless adversarial server under production confinement;
 exercise protected paths, outside URIs and server-initiated requests. Inspect
 actual canary effects, including child and review-only sessions.
 
+The developer approved a filtered language-server filesystem view after the
+late protected-file regression. Ordinary Bash and native read access retain
+their existing policy. Only admitted project files and explicitly selected
+external runtime/dependency files enter the view. Known private paths and
+conservative filename rules are checked before reading contents. Cached deny
+decisions retain their reason and policy version, contain no file contents and
+are bounded; renames, replacements and rule changes cannot bypass admission.
+Git ignore rules guide automatic inclusion but cannot override protected-path
+rules. Explicitly selected dependencies may include ignored files, subject to
+the same protected-file checks. Unsafe aliases must not disclose outside data.
+Neither the original project nor broad host data directories may remain directly
+readable as a fallback. Test private files present at startup and created later,
+including under external dependency roots.
+
+Filesystem observation coalesces changes and debounces background updates without
+model calls. A timer must flush a final batch even if no later event arrives.
+Explicit queries synchronize required source immediately. Reconciliation must
+handle deletions, renames, changed ignore rules and observer overflow without
+presenting old diagnostics as current. Copy-on-write may reduce copying, but it
+must produce independent admitted files; a live overlay is not an isolated view.
+
 [LSP-005] Server startup, requests, retained messages and shutdown MUST be
 bounded. Cancellation and session shutdown MUST stop owned execution and leave
 the terminal responsive. Protocol errors MUST produce actionable failures.
@@ -72,4 +93,3 @@ the file write and inspect both the mutation receipt and verification state.
 Rename, code-action application and multi-file edits follow in a separately
 specified slice after revision checks and mutation admission are established.
 This first slice never applies a server-supplied patch.
-

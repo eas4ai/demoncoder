@@ -26,6 +26,8 @@ unicode-segmentation = "1.13.3"
 syntect = { version = "5.3", default-features = false, features = ["default-fancy"] }
 seccompiler = "0.5.0"
 libc = "0.2"
+ignore = "0.4.33"
+notify = "8.2"
 
 [lints.rust]
 unsafe_code = "forbid"

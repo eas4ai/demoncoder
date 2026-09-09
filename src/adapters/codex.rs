@@ -399,6 +399,7 @@ impl Session for Codex {
     }
 
     async fn close(&mut self) -> Result<()> {
+        self.tools.stop_language_services().await?;
         if let Some(mut process) = self.process.take() {
             process.stop().await?;
         }

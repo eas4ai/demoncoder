@@ -44,6 +44,15 @@ pub struct Args {
     /// Run tools on the host without sandboxing or routine prompts. Outside access requires the Oracle.
     #[arg(long)]
     pub yolo: bool,
+    /// Explicitly enable an installed rust-analyzer executable (absolute path).
+    #[arg(long)]
+    pub rust_language_server: Option<PathBuf>,
+    /// Explicitly enable an installed typescript-language-server executable (absolute path).
+    #[arg(long)]
+    pub typescript_language_server: Option<PathBuf>,
+    /// Admit an external language-server runtime or dependency root; repeat as needed.
+    #[arg(long = "language-server-read-root")]
+    pub language_server_read_roots: Vec<PathBuf>,
     /// Explicitly authorize this invocation's workspace, without saving permanent trust.
     #[arg(long)]
     pub trust_workspace: bool,
@@ -509,6 +518,12 @@ impl Args {
             "project is not trusted; use guided setup or explicit --trust-workspace authorization"
         );
         connection.access.unrestricted = self.yolo;
+        connection.access.language_servers = crate::language_services::LanguageServers {
+            rust: self.rust_language_server.clone(),
+            typescript: self.typescript_language_server.clone(),
+            read_roots: self.language_server_read_roots.clone(),
+        };
+        connection.access.language_servers.validate()?;
         if self.yolo {
             connection.access.supervisor =
                 Some(std::env::current_exe().context("resolve host tool supervisor executable")?);
