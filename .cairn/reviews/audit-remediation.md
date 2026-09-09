@@ -1,7 +1,7 @@
 # Audit remediation review
 
 commitment: audit-remediation
-commit: a4557b70045e03cea81a044602582207445b0f03
+commit: 8abc99b7a0a8e84e397ccf128f11013d9a8c73b2
 examined:
   - CODE-007: final tool boundary, installed backend fixture, shared executor and mechanism runner.
 findings:
@@ -251,3 +251,61 @@ negative variant sets CODEX_HOME to the session container and requires refusal.
 Both cases pass. The complete generated-output terminal suite passes again,
 including the child that triggered the retained failure. Focused capture, worktree
 and developer-access suites also passed; cumulative committed checks follow.
+
+## Final corrected candidate examination
+
+Re-examined the complete accumulated implementation and test diff through
+8abc99b in the parent review (the full candidate commit is recorded in the
+header on final acceptance). The private-root correction and owned-child capture
+retain the same export exclusions, explicit source scopes, and tool confinement.
+The owner allowance removes only the default session-container prohibition for
+validated child source. Explicit environment credential roots still refuse that
+same child. Historical snapshots without current policy provenance refuse review.
+
+The refreshed AUD-001 through AUD-006 mechanisms pass. AUD-006 receipt
+20260909T011435001Z records exit 0 for the cumulative product gate, including
+all 21 completed drivers, the full Rust suite, formatting, Clippy and installed
+backend tools/results, privacy, generated outputs, bounded reviews and recovery.
+All 34 requirements selected by this commitment have current passing receipts;
+a final parent integrity check verified their captured stdout and stderr hashes.
+The ordinary coding-session and connection runners returned nonzero at their
+paid-live evidence validation, while their selected local requirements passed
+by explicit result lines. CODE-010 and CONN-001 remain unverified; the cumulative
+local-only gate does not report paid availability as passing.
+
+The installed executable and target/release/demoncoder both hash to
+ab8d9267250d54a6735fe3f0ec4c2064d6b35e9552ca9c21bd07d5a8f1f2cf2a.
+The installed version command reports 0.1.2.
+
+The final baseline-pinned Ripwire quality comparison returned exit 2: 59 flags,
+including 10 major gating suggestions and 15 minor suggestions. Reviewed capture
+branch complexity, formatter/CLI length, thin semantic capture wrappers and
+fixture helpers. Test-only and serde callback dead-code suggestions do not prove
+unused production behavior. The test gate returned exit 4 with static coverage
+obligations; executed Rust and terminal cases cover the local behavior, while paid
+live coverage remains unverified. Neither static result is claimed clean.
+
+The parent self-audit against production rules 1–14 found no further correction
+needed after the fresh committed verification. Requirements, compatibility,
+private boundaries, failure cases and documentation remain aligned. Historical
+records and Git objects are preserved. Temporary verification artifacts were
+removed after their processes stopped, reclaiming about 13 GiB in /tmp and clearing
+DemonCoder test artifacts from the designated scratch directory. Shared caches and
+other projects were preserved. Independent final acceptance follows below.
+
+## Fresh independent review: relative credential roots
+
+The fresh reviewer returned fix-first after an installed-terminal synthetic probe.
+DemonCoder launched outside the selected workspace with CODEX_HOME=runtime-secrets.
+The task, verification and review completed, and the canary from the workspace's
+runtime-secrets/auth.json appeared in retained state and the actual reviewer
+request. The shared private-root check resolves a relative declaration from the
+application launch directory, while the external backend starts in the selected
+workspace and inherits that declaration. Existing relocated-root regressions use
+absolute environment values and miss this disagreement.
+
+This is an unresolved AUD-001/AUD-002 boundary defect. Resolve environment-declared
+private paths for every relevant execution directory before exporting source,
+with direct parent and delegated regression cases. Preserve the launch-relative
+protection too. No implementation change was made during this review. The earlier
+parent no-further-correction assessment is superseded by this reproduced finding.
