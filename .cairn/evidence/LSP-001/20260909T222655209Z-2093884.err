@@ -1,0 +1,34 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.24s
+     Running tests/language_services.rs (target/debug/deps/language_services-4406d7fd356b8442)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.09s
+     Running unittests src/lib.rs (target/debug/deps/demoncoder-b84c158a175b14c4)
+    Checking demoncoder v0.1.2 (/home/shawn/workspace2/demoncoder)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.23s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.14s
+     Running unittests src/lib.rs (target/debug/deps/demoncoder-b84c158a175b14c4)
+     Running unittests src/main.rs (target/debug/deps/demoncoder-ce6cc29fa2683b5e)
+     Running tests/capabilities.rs (target/debug/deps/capabilities-9b761578bfe67b56)
+     Running tests/developer_access.rs (target/debug/deps/developer_access-b60723e8ade6beba)
+     Running tests/host_guard.rs (target/debug/deps/host_guard-f0100786cd8b2a0d)
+     Running tests/inherited_fd_driver.rs (target/debug/deps/inherited_fd_driver-4afe3e7ebc151279)
+     Running tests/language_services.rs (target/debug/deps/language_services-4406d7fd356b8442)
+     Running tests/live_oracle.rs (target/debug/deps/live_oracle-5854ab13db67ec0f)
+     Running tests/orchestration_schedule.rs (target/debug/deps/orchestration_schedule-b22f0541c90ed63f)
+     Running tests/orchestration_state.rs (target/debug/deps/orchestration_state-639981614cfc83a5)
+     Running tests/output_limits.rs (target/debug/deps/output_limits-7ecd118b5983c309)
+     Running tests/queue_driver.rs (target/debug/deps/queue_driver-63e795bb010dc0ac)
+     Running tests/queue_runtime.rs (target/debug/deps/queue_runtime-6571b1fd14f20834)
+     Running tests/registry_driver.rs (target/debug/deps/registry_driver-29b1d279ec7a60ed)
+     Running tests/reliability_streams.rs (target/debug/deps/reliability_streams-42224aa1de601f48)
+     Running tests/reliability_utf8.rs (target/debug/deps/reliability_utf8-f3e26954f5410d6c)
+     Running tests/subagent_state.rs (target/debug/deps/subagent_state-e419420e7f585c89)
+     Running tests/subagent_worktrees.rs (target/debug/deps/subagent_worktrees-4b009151f37638e4)
+     Running tests/tool_extensions.rs (target/debug/deps/tool_extensions-5ea3d9349163b0e0)
+     Running tests/tools.rs (target/debug/deps/tools-0b2ce2aa40fac5e4)
+     Running tests/verification_workflow.rs (target/debug/deps/verification_workflow-e29591e8309de7f5)
+     Running tests/workflow_store.rs (target/debug/deps/workflow_store-6f5ebb48ac2fc2cb)
+     Running tests/workflow_workspace.rs (target/debug/deps/workflow_workspace-bf8376279d81999b)
+     Running tests/worktree_access.rs (target/debug/deps/worktree_access-2760d6a664897701)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.26s
+     Running tests/language_services.rs (target/debug/deps/language_services-4406d7fd356b8442)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.09s
