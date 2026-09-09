@@ -1,0 +1,9 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.16s
+     Running tests/developer_access.rs (target/debug/deps/developer_access-e415e2d295764c97)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.16s
+     Running unittests src/lib.rs (target/debug/deps/demoncoder-0911b3f9cf4c6c88)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.14s
+     Running unittests src/lib.rs (target/debug/deps/demoncoder-0911b3f9cf4c6c88)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.15s
+     Running tests/host_guard.rs (target/debug/deps/host_guard-e7f3dd0871ba416f)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.15s
