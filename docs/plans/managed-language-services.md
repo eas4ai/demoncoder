@@ -19,7 +19,7 @@ rust-analyzer and typescript-language-server. No imported reference runtime.
   synchronization, revision-aware diagnostics and process cleanup.
 - [x] Add and run adversarial production-path tests, all-adapter fixtures and
   installed-server smoke checks; demonstrate each falsifier can fail.
-- [ ] In progress: complete documentation, record the decision implementation, commit, run
+- [x] Complete documentation, record the decision implementation, commit, run
   Cairn evidence, and review against the six requirements and production rules.
 
 ### Files and contracts

@@ -1,12 +1,13 @@
 # Managed language services review
 
 commitment: managed-language-services
+commit: c4ff9ad72916d42260d5859667cdd791eee3b75c
 findings:
   - resolved: LSP-004: Independent filtered filesystem copies close the late private-directory read; corrected startup, late-file, external-root and alias regressions pass.
   - resolved: LSP-003: Directory membership validation detects new public workspace and external dependencies during active queries.
-Status: incomplete
+Status: complete
 
-## Implementation review before acceptance
+## Initial review before the filtered-view correction
 
 Protocol review examined byte-length framing, UTF-8 splits, malformed headers,
 size limits and bounded writes. Integration review found and drove corrections
@@ -122,3 +123,53 @@ explicit external assessment case ignored), and formatting, Clippy and diff
 whitespace checks passed after that cleanup. No code-review finding remains.
 Cairn receipts, inherited completed-product checks and final commitment review
 remain pending; this paragraph is not an acceptance claim.
+
+
+## Final commitment examination
+
+All six current LSP requirements have passing Cairn receipts from the committed
+candidate. The shared mechanism exited zero. Its captured stdout and stderr
+hashes match every receipt. It ran formatting, Clippy with warnings denied,
+all-target tests, all 31 language-service integration cases including installed
+Rust/TypeScript, and the four controlled adapter cycles. The declaration includes
+shared runtime, protocol, adapters, tests, scripts, dependencies, specification
+and plan inputs. Its registration preflight rejects removed behavioral cases;
+its shell exits on a failed constituent before emitting requirement pass lines.
+
+The full `bash scripts/check-completed-product.sh` run also exited zero during
+this review. It covered the completed commitments and installed the release
+artifact, then exercised installed backend, privacy, generated-output, bounded
+review and six verification workflows. This supporting regression output is
+retained beside this review; it is not a newly issued AUD-006 Cairn receipt.
+
+- stdout: managed-language-services-completed-product.out
+  sha256:f3811c1087a771fd4c6a07bfdd088172a84d5f18becca7444bf318f18743c69b
+- stderr: managed-language-services-completed-product.err
+  sha256:979c725f99005161111090b5ca9a0b78ec9471fd01d23236205141a09bd9f113
+- installed `/home/shawn/.cargo/bin/demoncoder` matches `target/release/demoncoder`:
+  sha256:41da299ad980314361cfafed8110b67c790be76301bc4ccd1a6c375c42b8bb9f
+  Its actual help includes both server flags and the external read-root flag.
+
+Re-examined the boundaries that simple successful navigation would miss:
+startup and late private files, external dependency roots and aliases, policy
+revocation during blocked scans, new public directory entries during active
+queries, mixed pull/push freshness, recoverable server cancellation, and ownership
+of descendants and completed writes. The negative and corrected cases above
+establish those failures and repairs. No code changed during this final review.
+Only the finished plan checklist and this review/evidence record are updated.
+
+Real language-server checks used installed rust-analyzer and
+TypeScript-language-server. The four LSP adapter cycles used controlled model
+and backend peers and inspected actual tool receipts. They do not establish new
+paid-provider authentication evidence. Empty language diagnostics continue to
+mean an observed report, never successful project verification or acceptance.
+
+Production self-audit against rules 1–14: the implementation follows the selected
+scope and approved access decision; modules preserve clear ownership; source and
+protocol boundaries validate inputs; failures are explicit; private content is
+excluded before server admission; disposable state and monotonic revisions handle
+replacement and cancellation; memory, copying and execution remain bounded.
+The implementation checklist, documentation, decisions, negative tests, installed checks and independent
+reviews are complete. The manual states the explicit enablement, dependency and
+freshness limits. Ordinary Bash retains its original launch and socket policy.
+No unresolved finding or needed production revision remains.
