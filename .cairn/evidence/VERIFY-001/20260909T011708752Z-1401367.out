@@ -1,0 +1,107 @@
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.09s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s
+     Running tests/host_guard.rs (target/debug/deps/host_guard-e7f3dd0871ba416f)
+
+running 10 tests
+test host_supervisor_stops_detached_grandchildren_after_owner_is_killed ... ok
+test reliability_explicit_host_mode_retains_unix_sockets ... ok
+test hooks_are_reviewed_and_owned_scratch_needs_no_review ... ok
+test cancelled_review_has_no_effect_and_stops_its_backend ... ok
+test target_swaps_during_review_cannot_change_the_effect ... ok
+test subscription_oracles_have_no_tools_and_fail_closed ... ok
+test host_children_stop_on_exit_closed_stdio_and_cancellation ... ok
+test host_supervisor_stops_deep_fork_chain_within_two_seconds ... ok
+test host_supervisor_handshake_deadline_exits_with_pipe_still_open ... ok
+test oracle_deadline_fails_closed has been running for over 60 seconds
+test oracle_deadline_fails_closed ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 60.00s
+
+     Running tests/verification_workflow.rs (target/debug/deps/verification_workflow-c71caf6ee9a58ecd)
+
+running 5 tests
+test correction_is_bounded_and_preserves_original_evidence ... ok
+test review_cannot_bypass_checks_or_reuse_a_previous_check_run ... ok
+test review_retention_refusal_preserves_current_findings_and_accepted_tasks ... ok
+test interrupted_reverification_cannot_bypass_correction_limit ... ok
+test absent_failed_and_stale_checks_cannot_accept ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/workflow_store.rs (target/debug/deps/workflow_store-122ba78f04bb105f)
+
+running 16 tests
+test crash_lock_child ... ok
+test refuses_missing_record_and_unsafe_paths ... ok
+test changing_lock_name_does_not_allow_two_owners ... ok
+test process_death_releases_lock ... ok
+test private_parent_rejects_links_without_changing_target_permissions ... ok
+test pinned_directory_survives_path_replacement_and_ignores_uncommitted_temps ... ok
+test published_snapshot_is_readable_during_live_writer_and_rejects_damage ... ok
+test rejects_unreadable_nesting_before_replacing_previous_record ... ok
+test rejects_state_links_and_preserves_outside_file ... ok
+test roundtrip_private_and_exclusive ... ok
+test store::durability_tests::directory_sync_failure_reports_uncertainty_with_valid_replacement ... ok
+test refuses_broken_records_without_echoing_contents ... ok
+test rejects_independently_mutated_valid_envelopes ... ok
+test rejects_nonregular_and_oversized_records ... ok
+test rejects_unsafe_lock_files ... ok
+test failed_oversized_write_preserves_previous_record ... ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.74s
+
+     Running tests/workflow_workspace.rs (target/debug/deps/workflow_workspace-e6c91c68b90d3920)
+
+running 15 tests
+test generated_output_scope_is_explicit_bounded_and_cannot_name_the_root_or_private_paths ... ok
+test hardlinks_and_symlink_roots_are_rejected ... ok
+test evidence_contains_actual_old_new_preexisting_and_untracked_text ... ok
+test changed_binary_blocks_review_but_unchanged_binary_is_identified ... ok
+test edits_additions_removals_modes_and_symlink_targets_change_identity ... ok
+test private_source_never_enters_capture_or_review_even_from_older_snapshots ... ok
+test special_files_are_rejected_without_opening_or_waiting ... ok
+test unchanged_capture_and_serialization_are_deterministic ... ok
+test review_context_is_validated_and_changes_snapshot_identity ... ok
+test declared_outputs_skip_large_artifacts_but_scope_and_source_changes_invalidate_identity ... ok
+test symlink_targets_are_never_read_and_only_root_git_is_excluded ... ok
+test depth_is_bounded_and_replaced_roots_cannot_share_review ... ok
+test concurrent_symlink_replacement_cannot_read_outside_content ... ok
+test oversized_file_and_evidence_are_explicit_refusals ... ok
+test bounded_review_keeps_changed_source_selected_context_and_omitted_identities ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.23s
+
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.08s
+     Running unittests src/lib.rs (target/debug/deps/demoncoder-0911b3f9cf4c6c88)
+
+running 15 tests
+test workflow::review::tests::supervision_prompt_has_exact_role_header_and_evidence_boundary ... ok
+test workflow::allocation::tests::serialized_allocation_does_not_reset_consumption ... ok
+test workflow::allocation::tests::rollback_and_monotonic_elapsed_cannot_extend_allocation ... ok
+test workflow::allocation::tests::incomplete_usage_remains_unknown_after_known_reports ... ok
+test workflow::runtime::tests::recovery_identity_freezes_authority_without_retaining_credentials ... ok
+test workflow::workspace::tests::cancelled_capture_stops_at_the_scanner_checkpoint ... ok
+test workflow::runtime::delegation::tests::orchestration_identity_rejects_a_nonfixed_correction_limit ... ok
+test workflow::runtime::delegation::tests::validation_admission_rechecks_capacity_in_the_durable_transition ... ok
+test workflow::workspace::tests::symlink_targets_share_the_total_content_budget ... ok
+test workflow::runtime::tests::inspection_never_waits_for_a_writer_or_claims_failed_persistence_is_current ... ok
+test workflow::store::durability_tests::directory_sync_failure_reports_uncertainty_with_valid_replacement ... ok
+test workflow::runtime::tests::clock_failure_during_admission_is_persisted_without_granting_execution ... ok
+test workflow::runtime::tests::inspection_recovers_authoritative_counts_when_live_notices_are_dropped ... ok
+test workflow::runtime::delegation::tests::backend_invocations_have_a_durable_separate_limit_and_do_not_reset ... ok
+test workflow::workspace::tests::omitted_identities_must_also_fit_the_review_limit ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 90 filtered out; finished in 0.05s
+
+VERIFY-001: production terminal cases passed
+cairn: VERIFY-001: pass
+VERIFY-002: production terminal cases passed
+cairn: VERIFY-002: pass
+VERIFY-003: production terminal cases passed
+cairn: VERIFY-003: pass
+VERIFY-004: production terminal cases passed
+cairn: VERIFY-004: pass
+VERIFY-005: production terminal cases passed
+cairn: VERIFY-005: pass
+VERIFY-006: production terminal cases passed
+cairn: VERIFY-006: pass
