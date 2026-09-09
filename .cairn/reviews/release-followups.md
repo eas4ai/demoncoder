@@ -1,11 +1,11 @@
 # Release follow-up review
 
 commitment: release-followups
-commit: 182208a95c45251564eb34e61f57781bf0ad629e
+commit: 7e5417b57e1ef6b3db3f402cb6a694bd5cf3978a
 findings:
   - resolved: OUTPUT-001: Both live-driver overrides and the distinction between model quota and authentication failure are documented.
   - resolved: OUTPUT-001: The manual now agrees with discovered/default output limits and saved/CLI overrides; current output-limit checks pass.
-Status: in progress
+Status: complete
 
 ## OUTPUT-002 mechanism review
 
@@ -107,3 +107,9 @@ response. Both drivers support explicit model selection; saved settings remained
 unchanged during the recorded live checks. The troubleshooting entry distinguishes
 reachability from completed work and states that model selection is explicit.
 No runtime or test code changed. git diff --check passed.
+
+Final manual-only review: checked the diff for unintended edits and compared the
+quota advice with the no-automatic-substitution contract. OUTPUT-001 through
+OUTPUT-003 and REL-001 have refreshed passing evidence; live runtime inputs did
+not change. Production rules 1–14 reviewed: no further revisions or unresolved
+findings. These documentation changes require no new paid provider calls.
