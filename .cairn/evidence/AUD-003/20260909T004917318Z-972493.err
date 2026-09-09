@@ -1,0 +1,18 @@
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.10s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.10s
+     Running tests/subagent_worktrees.rs (target/debug/deps/subagent_worktrees-f0d5d1e9e4ff70d6)
+     Running tests/workflow_store.rs (target/debug/deps/workflow_store-122ba78f04bb105f)
+     Running tests/workflow_workspace.rs (target/debug/deps/workflow_workspace-e6c91c68b90d3920)
+Traceback (most recent call last):
+  File "/home/shawn/workspace2/demoncoder/tests/generated_outputs.py", line 118, in <module>
+    main()
+    ~~~~^^
+  File "/home/shawn/workspace2/demoncoder/tests/generated_outputs.py", line 113, in main
+    delegated_outputs()
+    ~~~~~~~~~~~~~~~~~^^
+  File "/home/shawn/workspace2/demoncoder/tests/generated_outputs.py", line 85, in delegated_outputs
+    record = children.stopped(app, children.delegate(app, server, "anthropic-api", calls))
+  File "/home/shawn/workspace2/demoncoder/tests/assignable_subagents.py", line 116, in stopped
+    assert record["status"] == "stopped", record
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: {'activity': [], 'checkpoint': None, 'checkpoint_cursor': 0, 'checks': [], 'commands': ['test -s greeting'], 'completed': False, 'decisions': [], 'id': 1, 'identity': {'adapter': 'anthropic-api', 'binary': None, 'credential_paths': ['/home/shawn/workspace2/scratchpads/demoncoder-generated-child-kegrp0mm/settings.toml'], 'credential_revision': 'ab0ceeea0438be21dfe448b7f09d2c18b6fcb6d04a50ea6f5679da5cf638138b', 'effort': None, 'endpoint': '71388ce9f5ea40f5f27bb0050b9080715e043cc053f39c83d3ba4d769909bc7f', 'max_output_tokens': None, 'model': 'child-anthropic-api', 'oracle': None, 'strict_worktree': True, 'tools_enabled': True, 'unrestricted': False}, 'integration': None, 'orchestration': None, 'origin': 'parent_agent', 'outcome': 'workspace overlaps a private credential or runtime root; select a project directory outside those roots', 'parent_task': None, 'planned_root': '/home/shawn/workspace2/scratchpads/demoncoder-generated-child-kegrp0mm/.demoncoder/sessions/1788914961940-975987/agents/1', 'request': {'connection': 'anthropic-api', 'context': '{"fixture_calls": [{"name": "bash", "arguments": {"command": "test ! -e build && mkdir build && truncate -s 9437184 build/artifact"}}, {"name": "write", "arguments": {"path": "greeting", "content": "scoped child source\\n"}}]}', 'objective': 'write child result', 'owned_paths': ['greeting']}, 'review': None, 'reviewer': {'adapter': 'anthropic-api', 'binary': None, 'credential_paths': [], 'credential_revision': 'ab0ceeea0438be21dfe448b7f09d2c18b6fcb6d04a50ea6f5679da5cf638138b', 'effort': None, 'endpoint': '71388ce9f5ea40f5f27bb0050b9080715e043cc053f39c83d3ba4d769909bc7f', 'max_output_tokens': None, 'model': 'fixture-model', 'oracle': None, 'strict_worktree': False, 'tools_enabled': False, 'unrestricted': False}, 'status': 'uncertain', 'validation_generation': 0, 'validation_snapshot': None, 'worktree': None}
