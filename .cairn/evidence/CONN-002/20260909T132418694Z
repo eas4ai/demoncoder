@@ -1,0 +1,21 @@
+requirement: CONN-002
+requirement_digest: sha256:ae1368259c318091392f134e0433dacf93c55ce7cdcd2d602d02ac94dade5705
+sequence: 15
+history_digest: sha256:83994589e95c5bf9cf189fff764dacc1729ca396d99cc148ac2214b441b7c6b1
+mechanism: connections
+commit: 80ae3e7
+inputs_digest: sha256:74f529307d2a2b7dac420fcd608ec643fbf805e65464304763bb49eb472b0021
+mechanism_digest: sha256:6171755149628917d0920166aea16c22d867204daccebf4f37327f03fe5e24aa
+inputs_detail: .cairn/evidence/CONN-001/20260909T132405630Z-2302815.inputs.json
+command: bash scripts/check-connections.sh
+cwd: .
+exit: 0
+output_digest: sha256:5dcca2f753742267e089eeea17d379af3b3519d5bcbf229f5c5e0b7291d2c3d1
+output: .cairn/evidence/CONN-001/20260909T132405630Z-2302815.out
+stderr_output: .cairn/evidence/CONN-001/20260909T132405630Z-2302815.err
+stderr_digest: sha256:4a8dd35c775e0e028db98eb35ad71812ffbc8f692b1e7deae7de12d608f6730d
+signal: none
+execution_error: null
+result: pass
+source: line
+recorded: 2026-09-09T13:24:18.693Z
