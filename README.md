@@ -765,10 +765,12 @@ as DemonCoder extensions.
 
 The native OpenAI adapter uses streaming Responses with `store: false` and retains
 returned encrypted reasoning items in its in-memory conversation for subsequent
-requests. The native Anthropic adapter streams Messages and currently requests
-`max_tokens: 4096` per response. Neither setting has a CLI override. Both native
-adapters preserve model conversation in memory across turns; DemonCoder does not
-provide automatic context compaction.
+requests. The native Anthropic adapter streams Messages and defaults to the selected
+model's provider-reported maximum output tokens. Native OpenAI retains provider
+output defaults. For either native adapter, a positive `max_output_tokens` setting
+selects an explicit limit, and `--max-output-tokens` overrides that setting for the
+invocation. Both native adapters preserve model conversation in memory across
+turns; DemonCoder does not provide automatic context compaction.
 
 Named connections let you save several assignments, including multiple entries
 for the same adapter. For example, `everyday` and `reviewer` may select different
