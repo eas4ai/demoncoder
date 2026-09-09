@@ -13,3 +13,6 @@ requirements:
   - OUTPUT-001
   - OUTPUT-002
   - OUTPUT-003
+
+reviewed:
+  - OUTPUT-002 sha256:5e1154d55f0955cbdd2979c36cdde8722a4d09724272e51898b2fd8f3b2be384
