@@ -13,4 +13,6 @@ Share HOME-relative and environment-declared private roots with the tool boundar
 
 ## Realized by
 
-(none yet: recorded, not built)
+- 7a58899e1d2c4236bfdc5c7a9038254c7fe00fcf Reject private-root capture and unsafe historical review baselines
+
+The shared private-root collector protects developer tools and the lower capture entry. Parent and delegated capture refuse overlapping roots before export; review rejects unsafe older versions. Focused production tests and terminal cases prove refusal and continued public review/integration.
