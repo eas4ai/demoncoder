@@ -9,8 +9,6 @@ inputs:
   - docs/spec/
   - docs/plans/
   - docs/commitments/skills-plugins-hooks.md
-  - packages/
-  - backend-integrations/
 requirements:
   - EXT-001
   - EXT-002
