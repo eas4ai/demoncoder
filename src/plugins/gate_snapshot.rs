@@ -25,6 +25,8 @@ pub const FORMAT_VERSION: u8 = 1;
 pub struct GateWorkspace {
     root: PathBuf,
     pinned: File,
+    credentials: Vec<PathBuf>,
+    protected: Result<Vec<PathBuf>, CaptureError>,
 }
 impl std::fmt::Debug for GateWorkspace {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -49,15 +51,70 @@ impl std::error::Error for CaptureError {}
 
 impl GateWorkspace {
     pub fn open(root: &Path) -> Result<Self, CaptureError> {
+        Self::open_with_credentials(root, &[])
+    }
+    pub(crate) fn open_with_credentials(
+        root: &Path,
+        credentials: &[PathBuf],
+    ) -> Result<Self, CaptureError> {
         let root = std::path::absolute(root).map_err(|_| CaptureError::Unavailable)?;
         let pinned = workspace::open_gate_root(&root).map_err(|_| CaptureError::Unavailable)?;
-        Ok(Self { root, pinned })
+        if credentials.len() > 128 {
+            return Err(CaptureError::Unavailable);
+        }
+        let configured = credentials
+            .iter()
+            .map(|path| {
+                if path
+                    .components()
+                    .any(|c| matches!(c, std::path::Component::ParentDir))
+                {
+                    return Err(CaptureError::Unavailable);
+                }
+                std::path::absolute(path).map_err(|_| CaptureError::Unavailable)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        // Preserve explicit-credential constructor validation. Default host roots
+        // have historically held capture, not construction of ordinary executors.
+        protected_paths(&root, &configured)?;
+        // Expand BOTH launch-CWD and workspace-relative meanings before making
+        // paths absolute. Freeze once; invocation must not reinterpret host policy.
+        let mut credentials = crate::export_policy::private_roots(&root, credentials, true)
+            .into_iter()
+            .map(std::path::absolute)
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|_| CaptureError::Unavailable)?;
+        credentials.sort();
+        credentials.dedup();
+        let protected = protected_paths(&root, &credentials);
+        Ok(Self {
+            root,
+            pinned,
+            credentials,
+            protected,
+        })
+    }
+    pub(crate) fn frozen_credentials(&self) -> Vec<PathBuf> {
+        let mut roots = self.credentials.clone();
+        if let Ok(protected) = &self.protected {
+            // Retain the physical targets captured with the policy as well as its
+            // lexical aliases. A later alias remap cannot expose an old target
+            // when a live parent grant overlays the retained snapshot.
+            roots.extend(protected.iter().map(|path| self.root.join(path)));
+        }
+        roots.sort();
+        roots.dedup();
+        roots
     }
     pub fn capture(
         &self,
         read_set: &GateReadSet,
         cancelled: &AtomicBool,
     ) -> Result<GateSnapshot, CaptureError> {
+        let protected = self.protected.as_ref().map_err(Clone::clone)?;
+        if &protected_paths(&self.root, &self.credentials)? != protected {
+            return Err(CaptureError::Unavailable);
+        }
         let started = Instant::now();
         let checkpoint = || -> anyhow::Result<()> {
             anyhow::ensure!(
@@ -67,8 +124,8 @@ impl GateWorkspace {
             Ok(())
         };
         let (snapshot, mut raw) =
-            workspace::capture_gate(&self.root, &self.pinned, read_set, cancelled).map_err(
-                |error| {
+            workspace::capture_gate(&self.root, &self.pinned, read_set, protected, cancelled)
+                .map_err(|error| {
                     if cancelled.load(Ordering::Relaxed) {
                         CaptureError::Cancelled
                     } else if let Some(error) =
@@ -78,8 +135,7 @@ impl GateWorkspace {
                     } else {
                         CaptureError::Unavailable
                     }
-                },
-            )?;
+                })?;
         let mut entries = BTreeMap::new();
         let matches = read_set
             .matches(&snapshot.entries, &checkpoint)
@@ -123,6 +179,9 @@ impl GateWorkspace {
                 CaptureError::Unavailable
             }
         })?;
+        if &protected_paths(&self.root, &self.credentials)? != protected {
+            return Err(CaptureError::Unavailable);
+        }
         Ok(GateSnapshot {
             revision,
             root_identity,
@@ -145,6 +204,53 @@ impl GateWorkspace {
                 && snapshot.revision == current.revision,
         )
     }
+}
+
+// Resolve even an absent credential through its nearest existing ancestor. Keep
+// its lexical exclusion as well, and repeat this mapping around every capture.
+pub(crate) fn protected_paths(
+    root: &Path,
+    credentials: &[PathBuf],
+) -> Result<Vec<PathBuf>, CaptureError> {
+    if credentials.len() > 512 {
+        return Err(CaptureError::Unavailable);
+    }
+    let mut protected = Vec::new();
+    for credential in credentials {
+        let mut ancestor = credential.as_path();
+        let mut missing = Vec::new();
+        let mut physical = loop {
+            match ancestor.canonicalize() {
+                Ok(path) => break path,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                    // A dangling symlink is not an absent lexical component:
+                    // discarding it would lose its missing credential target.
+                    // Also hold a path that changed between these observations.
+                    if !matches!(ancestor.symlink_metadata(), Err(error) if error.kind() == std::io::ErrorKind::NotFound)
+                    {
+                        return Err(CaptureError::Unavailable);
+                    }
+                    missing.push(ancestor.file_name().ok_or(CaptureError::Unavailable)?);
+                    ancestor = ancestor.parent().ok_or(CaptureError::Unavailable)?;
+                }
+                Err(_) => return Err(CaptureError::Unavailable),
+            }
+        };
+        for component in missing.into_iter().rev() {
+            physical.push(component);
+        }
+        for path in [credential, &physical] {
+            if root.starts_with(path) {
+                return Err(CaptureError::Unavailable);
+            }
+            if let Ok(relative) = path.strip_prefix(root) {
+                protected.push(Path::new(".").join(relative));
+            }
+        }
+    }
+    protected.sort();
+    protected.dedup();
+    Ok(protected)
 }
 
 /// Fresh captures only: no deserializer can turn historical metadata or supplied

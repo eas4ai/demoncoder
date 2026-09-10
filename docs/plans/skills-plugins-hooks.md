@@ -10,9 +10,9 @@
 
 ## Status and execution rules
 
-- Complete: Immutable import foundation, backend compaction qualification probes, wire validation, model-result interpretation and event-specific command/HTTP/MCP result decoding.
-- **In progress:** Integrate final-candidate admission and durable lifecycle dispatch.
-- Pending: Integrate every confined runner.
+- Complete: Immutable import foundation, backend compaction qualification probes, wire validation, result decoding, gate snapshots, durable tool receipts, pre-tool final-candidate admission, and the confined command-runner/snapshot-materialization prerequisite.
+- **In progress:** Integrate prompt and agent runners with snapshot inspection and owning allowances.
+- Pending: Integrate remaining runners and complete lifecycle dispatch.
 - Pending: Integrate state, recovery, services and all package components.
 - Pending: Exercise the complete public management and coding workflows.
 - Pending: Run full conformance, installed/live cases, adversarial review and Cairn checks.
@@ -162,9 +162,45 @@ Runner integration constraints from the existing production paths:
   execution and closure, but need their own response schema and owning allowance.
   Agent runners need snapshot inspection tools. Neither runner may substitute a
   different configured model or recover authority from response-supplied identity.
+- `begin_model_as` permits ordinary sessions without an allocation. Model hooks
+  must explicitly require the owning task or configured session allowance before
+  opening a model request. External backend admissions currently use a separate
+  delegation invocation limit; hook integration must account for that path too.
+- External backend admission currently records a backend invocation without
+  admitting a model call against the ordinary task allocation. Model-hook
+  integration must require and charge its owning allowance atomically on that
+  path too; a preflight balance check alone is insufficient. Preserve ordinary
+  sessions while making hook authority explicit in the host event context.
+- Usage attaches to an incomplete operation by phase. Give concurrent hook model
+  invocations distinct causal phases, retaining any `agent:<id>` owner prefix.
+  Do not reuse a generic reviewer phase or forward usage twice when presenting it.
+- Generic workspace capture applies the static export exclusions, while an
+  executor can also have custom credential paths. Model-hook evidence must apply
+  those actual host exclusions before exposing captured contents. Command mount
+  masks alone do not protect a prompt assembled from snapshot bytes. Revalidate
+  credential aliases before model input delivery too; a final freshness hold
+  after sending the prompt cannot undo an earlier disclosure.
+- Snapshot-backed agent tools must keep logical workspace paths bound to the
+  retained snapshot, including absolute in-workspace symlinks. Both direct reads
+  and confined commands must use that view; opening the live workspace through
+  an ordinary executor would invalidate the inspection guarantee.
 - The provider HTTP client disables redirects, but its response helper discards
   non-success bodies. Hook HTTP runners must retain bounded source-protocol
   responses and check endpoint and credential authority before any redirect.
+
+
+The [command-runner prerequisite](../reviews/plugin-command-runners.md) is
+implemented and independently approved. Review closed private-file exclusions,
+relative and changing credential aliases, and descriptor growth during snapshot
+and package staging. The final broad suite passed 533 tests with sixteen explicit
+ignores; independent specification and quality controls passed. The complete
+runner family and lifecycle integration below remain pending.
+
+The initial command prerequisite covers PreToolUse with network denied. Complete
+command integration still includes declared network grants, every applicable
+lifecycle input and source-configured timeout policies. Replace prerequisite
+deadline constants with admitted handler deadlines bounded by the owning
+allowance, while retaining cleanup time and unknown-outcome handling.
 
 - [ ] Command: JSON stdin, explicit argv/shell, declared environment/access, bounded output/deadlines and owned descendants. Literal event values never enter executable shell source.
 - [ ] Prompt: selected model, no tools, schema-validated verdict, cumulative admission and usage. Agent: immutable admitted snapshot, bounded read-only inspection, retained evidence and the same ledger.

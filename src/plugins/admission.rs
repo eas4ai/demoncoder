@@ -270,6 +270,38 @@ impl Admission<'_> {
         inputs: &[(String, Arc<GateSnapshot>)],
         revalidate: bool,
     ) -> Result<Option<serde_json::Value>> {
+        // Reserve a whole source group atomically so its concurrent startup can
+        // never wait for a slot held by another member of the same group.
+        let runner_lease = Arc::new(
+            tokio::time::timeout(
+                self.runtime.remaining()?,
+                self.plan
+                    .runners
+                    .clone()
+                    .acquire_many_owned(indices.len() as u32),
+            )
+            .await??,
+        );
+        self.runtime.plugin_owner(self.operation)?;
+        let mutating = !revalidate
+            && indices.iter().any(|index| {
+                self.plan.handlers[*index]
+                    .registration
+                    .runner
+                    .mutates_workspace()
+            });
+        let mutation_guard = if mutating {
+            let boundary = self
+                .events
+                .mutation_boundary(self.expected_workspace)?
+                .ok_or_else(|| anyhow::anyhow!("hook mutation boundary unavailable"))?;
+            let guard =
+                tokio::time::timeout(self.runtime.remaining()?, boundary.lock_owned()).await?;
+            self.runtime.plugin_owner(self.operation)?;
+            Some(Arc::new(guard))
+        } else {
+            None
+        };
         let mut jobs = Vec::new();
         for index in indices {
             let handler = &self.plan.handlers[*index].registration;
@@ -320,6 +352,14 @@ impl Admission<'_> {
                 candidate: call.clone(),
                 snapshot,
                 events: self.events.clone(),
+                host: self.executor.hook_host(),
+                class: receipt.class,
+                runner_lease: runner_lease.clone(),
+                mutation_guard: if !revalidate && handler.runner.mutates_workspace() {
+                    mutation_guard.clone()
+                } else {
+                    None
+                },
             };
             let runner = if revalidate {
                 handler

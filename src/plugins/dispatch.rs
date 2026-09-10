@@ -46,9 +46,17 @@ pub struct HookInvocation {
     pub candidate: ToolCall,
     pub snapshot: Arc<GateSnapshot>,
     pub(crate) events: crate::events::EventSink,
+    pub(crate) host: super::runners::HookHost,
+    pub(crate) runner_lease: Arc<tokio::sync::OwnedSemaphorePermit>,
+    pub(crate) mutation_guard: Option<Arc<tokio::sync::OwnedMutexGuard<()>>>,
+    pub(crate) class: HandlerClass,
 }
 #[async_trait::async_trait]
 pub trait HookRunner: Send + Sync {
+    /// Host implementation capability, never a flag supplied by hook output.
+    fn mutates_workspace(&self) -> bool {
+        false
+    }
     async fn run(&self, invocation: &HookInvocation) -> Result<RawOutcome>;
 }
 pub(crate) struct Handler {
@@ -60,6 +68,7 @@ pub struct PreToolPlan {
     pub(crate) digest: String,
     pub(crate) profile: CompatibilityProfile,
     pub(crate) captures: Arc<tokio::sync::Semaphore>,
+    pub(crate) runners: Arc<tokio::sync::Semaphore>,
 }
 impl PreToolPlan {
     pub fn new(mut registrations: Vec<Registration>) -> Result<Self> {
@@ -184,6 +193,7 @@ impl PreToolPlan {
             digest,
             profile,
             captures: Arc::new(tokio::sync::Semaphore::new(1)),
+            runners: Arc::new(tokio::sync::Semaphore::new(32)),
         })
     }
 }
@@ -207,6 +217,14 @@ impl RawOutcome {
             Self::Command { stdout, stderr, .. } => {
                 stdout.len().saturating_add(stderr.len()).saturating_mul(4)
             }
+            Self::CommandFailure {
+                reason,
+                stdout,
+                stderr,
+            } => reason
+                .len()
+                .saturating_mul(6)
+                .saturating_add(stdout.len().saturating_add(stderr.len()).saturating_mul(4)),
             Self::Http { body, .. } => body.len().saturating_mul(4),
             Self::Mcp {
                 structured, text, ..
@@ -258,7 +276,9 @@ impl RawOutcome {
                 }
             }
             Self::Callback { value } => HookResponse::Callback(value),
-            Self::Failure { .. } => HookResponse::Failure(results::TransportFailure::Execution),
+            Self::Failure { .. } | Self::CommandFailure { .. } => {
+                HookResponse::Failure(results::TransportFailure::Execution)
+            }
         };
         results::decode_response(
             profile,

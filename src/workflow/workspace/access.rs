@@ -292,6 +292,96 @@ fn query(source: &Source<'_>, name: &str, allow_absent: bool) -> Result<Option<V
     }
 }
 
+/// Restore a private materialized object and compare every retained policy input.
+/// Ownership precedes mode and capabilities because chown can clear those bits.
+pub(crate) fn restore_and_verify(
+    file: &File,
+    link: Option<(&File, &OsStr)>,
+    mode: u32,
+    expected: &AccessMetadata,
+    checkpoint: &dyn Fn() -> Result<()>,
+) -> Result<()> {
+    use anyhow::Context;
+    use rustix::process::{Gid, Uid};
+    checkpoint()?;
+    let before = file.metadata()?;
+    if before.uid() != expected.uid || before.gid() != expected.gid {
+        let owner = Some(Uid::from_raw(expected.uid));
+        let group = Some(Gid::from_raw(expected.gid));
+        match link {
+            Some((parent, leaf)) => {
+                rustix::fs::chownat(parent, leaf, owner, group, AtFlags::SYMLINK_NOFOLLOW)
+            }
+            None => rustix::fs::fchown(file, owner, group),
+        }
+        .context("snapshot ownership cannot be reproduced")?;
+    }
+    if link.is_none() {
+        rustix::fs::fchmod(file, Mode::from_raw_mode(mode))
+            .context("snapshot mode cannot be reproduced")?;
+    }
+    let source = match link {
+        Some((parent, leaf)) => Source::Symlink { parent, leaf },
+        None => Source::Descriptor(file),
+    };
+    let mut attributes = expected.extended.clone();
+    if let AclMetadata::Posix { access, default } = &expected.acl {
+        for (name, bytes) in [
+            ("system.posix_acl_access", access),
+            ("system.posix_acl_default", default),
+        ] {
+            if let Some(bytes) = bytes {
+                attributes.insert(name.into(), bytes.clone());
+            }
+        }
+    }
+    // Remove inherited policy attributes not present in the retained object.
+    let names = source.list()?;
+    for name in names
+        .split(|b| *b == 0)
+        .filter(|name| !name.is_empty() && !name.starts_with(b"user."))
+    {
+        checkpoint()?;
+        let name = std::str::from_utf8(name)?;
+        if !attributes.contains_key(name) {
+            match &source {
+                Source::Descriptor(file) => rustix::fs::fremovexattr(file, name),
+                Source::Symlink { .. } => rustix::fs::lremovexattr(source.leaf_path(), name),
+            }
+            .context("inherited snapshot access attribute cannot be removed")?;
+        }
+    }
+    for (name, bytes) in attributes {
+        checkpoint()?;
+        match &source {
+            Source::Descriptor(file) => {
+                rustix::fs::fsetxattr(file, name.as_str(), &bytes, rustix::fs::XattrFlags::empty())
+            }
+            Source::Symlink { .. } => rustix::fs::lsetxattr(
+                source.leaf_path(),
+                name.as_str(),
+                &bytes,
+                rustix::fs::XattrFlags::empty(),
+            ),
+        }
+        .context("snapshot ACL or access attribute cannot be reproduced")?;
+    }
+    let metadata = file.metadata()?;
+    let actual = match link {
+        Some((parent, leaf)) => capture_symlink(file, &metadata, parent, leaf, checkpoint)?,
+        None => capture(file, &metadata, checkpoint)?,
+    };
+    ensure!(
+        metadata.mode() & 0o7777 == mode & 0o7777,
+        "snapshot mode cannot be reproduced"
+    );
+    ensure!(
+        actual == *expected,
+        "snapshot access metadata or statx semantics cannot be reproduced"
+    );
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

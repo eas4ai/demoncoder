@@ -19,6 +19,61 @@ const POLL: Duration = Duration::from_millis(10);
 /// Only the runtime holds the lifetime pipe's writer. Nonblocking reads avoid
 /// Tokio stdin's uncancellable blocking thread when the handshake times out.
 pub async fn run(script: &str) -> Result<i32> {
+    let mut command = Command::new("/bin/bash");
+    command
+        .args(["--noprofile", "--norc", "-c", script])
+        .stdin(Stdio::null());
+    supervise(command).await
+}
+
+/// Bounded host-created launch description. Stdin belongs to the event JSON;
+/// the supervisor alone reads the separate lifetime lease on its own fd 0.
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct HookLaunch {
+    pub(crate) arguments: Vec<String>,
+    pub(crate) input: String,
+}
+pub async fn run_hook(encoded: &str) -> Result<i32> {
+    ensure!(
+        encoded.len() <= 128 * 1024,
+        "hook launch description exceeds bound"
+    );
+    let spec: HookLaunch =
+        serde_json::from_str(encoded).context("invalid hook launch description")?;
+    ensure!(
+        spec.arguments.len() <= 1024
+            && spec
+                .arguments
+                .iter()
+                .all(|v| v.len() <= 65536 && !v.contains('\0')),
+        "invalid hook launch arguments"
+    );
+    let parts = spec.input.split('/').collect::<Vec<_>>();
+    ensure!(
+        parts.len() == 5
+            && parts[0].is_empty()
+            && parts[1] == "proc"
+            && parts[3] == "fd"
+            && [parts[2], parts[4]]
+                .iter()
+                .all(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit())),
+        "hook input requires an owned descriptor"
+    );
+    let input = std::fs::File::open(&spec.input).context("open owned hook event input")?;
+    ensure!(
+        input.metadata()?.is_file() && input.metadata()?.len() <= 65536,
+        "hook input exceeds bound or is not a regular file"
+    );
+    let mut command = Command::new("/bin/bash");
+    command
+        .args(spec.arguments)
+        .stdin(Stdio::from(input))
+        .env_clear();
+    supervise(command).await
+}
+
+async fn supervise(mut command: Command) -> Result<i32> {
     let lifetime = open(
         "/proc/self/fd/0",
         OFlags::RDONLY | OFlags::NONBLOCK | OFlags::CLOEXEC,
@@ -48,9 +103,7 @@ pub async fn run(script: &str) -> Result<i32> {
     // than escaping to init. This changes parentage, not host permissions.
     set_child_subreaper(Some(getpid())).context("own orphaned host descendants")?;
     direct_children().context("inspect host supervisor child ownership")?;
-    let mut child = Command::new("/bin/bash")
-        .args(["--noprofile", "--norc", "-c", script])
-        .stdin(Stdio::null())
+    let mut child = command
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
         .process_group(0)

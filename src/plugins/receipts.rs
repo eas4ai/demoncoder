@@ -69,6 +69,11 @@ pub enum RawOutcome {
         stdout: Vec<u8>,
         stderr: Vec<u8>,
     },
+    CommandFailure {
+        reason: String,
+        stdout: Vec<u8>,
+        stderr: Vec<u8>,
+    },
     Http {
         status: u16,
         body: Vec<u8>,

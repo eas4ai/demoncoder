@@ -55,6 +55,7 @@ fn metadata_budget_cannot_be_exceeded_by_actual_capture() {
         scope: &scope,
         bytes: 0,
         selection: None,
+        protected: &[],
         memberships: BTreeMap::new(),
         examined: 0,
         metadata_bytes: MAX_METADATA_BYTES,

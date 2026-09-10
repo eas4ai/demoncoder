@@ -14,6 +14,9 @@ pub struct Args {
     /// Internal host-tool process lifetime protocol.
     #[arg(long, hide = true, allow_hyphen_values = true)]
     pub supervise_bash: Option<String>,
+    /// Internal confined plugin command lifetime protocol.
+    #[arg(long, hide = true, allow_hyphen_values = true)]
+    pub supervise_hook: Option<String>,
     /// Internal backend stdin lifetime lease.
     #[arg(long, hide = true)]
     pub supervise_backend: Option<String>,

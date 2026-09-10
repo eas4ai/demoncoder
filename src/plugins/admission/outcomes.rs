@@ -18,7 +18,10 @@ pub(super) fn decode(
         });
         receipt.hold = Some("handler output exceeded retention bound".into());
     }
-    receipt.uncertain_effects = matches!(receipt.outcome, Some(RawOutcome::Failure { .. }));
+    receipt.uncertain_effects = matches!(
+        receipt.outcome,
+        Some(RawOutcome::Failure { .. } | RawOutcome::CommandFailure { .. })
+    );
     let decoded = receipt
         .outcome
         .as_ref()

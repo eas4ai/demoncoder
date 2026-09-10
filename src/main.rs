@@ -22,6 +22,9 @@ async fn main() -> Result<()> {
     if let Some(script) = &args.supervise_bash {
         std::process::exit(demoncoder::supervisor::run(script).await?);
     }
+    if let Some(spec) = &args.supervise_hook {
+        std::process::exit(demoncoder::supervisor::run_hook(spec).await?);
+    }
     startup::prepare(&args).await?;
     let live_settings = demoncoder::settings::Handle::open(&args)?;
     let mut selection = args.selection()?;

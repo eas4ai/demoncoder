@@ -22,7 +22,7 @@ use rustix::fs::{Dir, Mode, OFlags, ResolveFlags, openat2, readlinkat};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-mod access;
+pub(crate) mod access;
 mod gate_selection;
 #[cfg(test)]
 mod gate_tests;
@@ -147,6 +147,7 @@ fn stamp(file: &File) -> Result<Stamp> {
 
 struct Scan<'a> {
     selection: Option<&'a GateReadSet>,
+    protected: &'a [std::path::PathBuf],
     memberships: BTreeMap<String, Vec<String>>,
     examined: usize,
     metadata_bytes: usize,
@@ -211,7 +212,13 @@ impl Scan<'_> {
             let child = std::str::from_utf8(bytes)
                 .context("workspace contains a non-UTF-8 path; rename it before verification")?;
             let child_path = path.join(child);
-            if crate::export_policy::private_path(&child_path) || (depth == 0 && bytes == b".git") {
+            if crate::export_policy::private_path(&child_path)
+                || (depth == 0 && bytes == b".git")
+                || self
+                    .protected
+                    .iter()
+                    .any(|private| child_path.starts_with(private))
+            {
                 ensure!(
                     !self
                         .selection
@@ -434,10 +441,20 @@ fn capture_inner(
     cancelled: Option<&AtomicBool>,
     scope: &CaptureScope,
     kind: CaptureRoot,
-    selection: Option<&GateReadSet>,
+    gate: Option<(&GateReadSet, &[std::path::PathBuf])>,
     pinned: Option<&File>,
 ) -> Result<(Snapshot, BTreeMap<String, Vec<u8>>)> {
     scope.validate()?;
+    let selection = gate.map(|(selection, _)| selection);
+    let protected = gate.map_or(&[][..], |(_, protected)| protected);
+    if let Some(selection) = selection {
+        for path in protected {
+            ensure!(
+                !selection.requires_protected(path.parent().unwrap_or(Path::new(".")), path),
+                "explicit gate selection requires protected content"
+            );
+        }
+    }
     ensure!(
         !crate::export_policy::contains_declared_private(
             &root.canonicalize()?,
@@ -462,6 +479,7 @@ fn capture_inner(
         let mut scan = Scan {
             root: &root_fd,
             selection,
+            protected,
             memberships: BTreeMap::new(),
             examined: 0,
             metadata_bytes: 0,
@@ -696,6 +714,7 @@ pub(crate) fn capture_gate(
     root: &Path,
     pinned: &File,
     selection: &GateReadSet,
+    protected: &[std::path::PathBuf],
     cancelled: &AtomicBool,
 ) -> Result<(Snapshot, BTreeMap<String, Vec<u8>>)> {
     capture_inner(
@@ -704,7 +723,7 @@ pub(crate) fn capture_gate(
         Some(cancelled),
         &CaptureScope::default(),
         CaptureRoot::Workspace,
-        Some(selection),
+        Some((selection, protected)),
         Some(pinned),
     )
 }
@@ -774,6 +793,7 @@ mod tests {
         let mut scan = Scan {
             root: &root_fd,
             selection: None,
+            protected: &[],
             memberships: BTreeMap::new(),
             examined: 0,
             metadata_bytes: 0,

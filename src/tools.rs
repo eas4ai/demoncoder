@@ -217,6 +217,15 @@ pub struct ToolExecutor {
 }
 
 impl ToolExecutor {
+    pub(crate) fn hook_host(&self) -> crate::plugins::runners::HookHost {
+        crate::plugins::runners::HookHost::new(
+            self.root.clone(),
+            self.workspace.clone(),
+            self.gate_workspace.frozen_credentials(),
+            self.access.supervisor.clone(),
+        )
+    }
+
     pub fn new(workspace: &Path) -> Result<Self> {
         Self::with_policy(workspace, &AccessPolicy::default())
     }
@@ -331,9 +340,12 @@ impl ToolExecutor {
             intent: Mutex::new(String::new()),
             hooks: Vec::new(),
             plugin_plan: None,
-            gate_workspace: Arc::new(crate::plugins::gate_snapshot::GateWorkspace::open(
-                &workspace,
-            )?),
+            gate_workspace: Arc::new(
+                crate::plugins::gate_snapshot::GateWorkspace::open_with_credentials(
+                    &workspace,
+                    &access.credential_paths,
+                )?,
+            ),
             completed: Mutex::new(None),
         })
     }
