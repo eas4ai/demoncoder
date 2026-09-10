@@ -1,7 +1,7 @@
 # Managed language services review
 
 commitment: managed-language-services
-commit: c9558bf
+commit: 6590fb9
 findings:
   - resolved: LSP-004: Independent filtered filesystem copies close the late private-directory read; corrected startup, late-file, external-root and alias regressions pass.
   - resolved: LSP-003: Directory membership validation detects new public workspace and external dependencies during active queries.
@@ -263,3 +263,45 @@ change's validation. Production rules 1–14 were reviewed: scoped work, explici
 failure history, stronger restart coverage, current documentation and retained
 evidence are complete. No unresolved LSP finding remains. No code changed during
 this review.
+
+## Review after the second plugin specification remediation
+
+Reviewed candidate 6590fb9 on 2026-09-09 local time. Compared it with 1f40f69:
+application source, tests, check scripts, dependencies, README and the agreed
+LSP specification/commitment are unchanged. The draft plugin commitment remains
+unselected and retains its complete 41-requirement scope.
+
+Examined the three corrections for renewed false-coverage or recovery gaps.
+The wire inventory retains nesting, inherited references and alternative branches;
+its parser rejects unknown constructs and source drift. Independently reconstructed
+types agree with the pinned SDK on ten targeted probes, and nested-field/branch
+deletions are detected. Full Codex/portable schemas retain source constraints.
+The applicability lookup covers 510 cells; model outcomes distinguish ignored
+responses, corrections and stopping with an unmet gate. Missing-cell rejection,
+four response-schema checks and fourteen outcome cases pass. These checks assess
+the documentary contract, not implemented plugin execution.
+
+The replacement-task recovery keeps one admission owner, fresh instructions and
+gate decisions, the same cumulative allocation ledger and settled effect history.
+Children, uncertain effects, state preparation and interrupted activation have
+explicit outcomes. The old task is superseded rather than accepted; neither
+ordinary reload nor an agent message initiates replacement. The original R03
+counterexample is resolved without mixing generations in one task.
+
+Specification lint, 41-requirement coverage, local links/anchors and all 316
+field pointers pass. All four documentary check commands pass with the recorded
+source and parser versions. Scoped Ripwire quality-delta/test-gate on the committed
+compatibility directory report no additional uncommitted changes; they are not
+evidence that the new specification has an implemented runtime.
+
+The full managed-language-services mechanism exited zero against 7046eff and
+issued six passing receipts at 20260910T000904737Z through 20260910T000904739Z.
+It ran formatting, Clippy, all-target tests, installed Rust/TypeScript cases and
+the four controlled adapter cycles. Every receipt's captured stdout/stderr hash
+was verified. No new live-provider or plugin backend-qualification claim is made.
+
+Self-audit against production rules 1–14: the changes stay within the requested
+specification remediation, use bounded explicit source inputs, retain reproducible
+negative checks and document proof limits. No new LSP finding or unresolved
+R01–R03 specification correction remains. Runtime plugin conformance is still
+required by the draft commitment. No code changed during this review.
