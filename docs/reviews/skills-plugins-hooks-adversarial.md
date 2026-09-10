@@ -4,8 +4,9 @@ Date: 2026-09-09
 Reviewed commit: 1ee77cb31d4ba2d3921c99274f47da3fbb077e73
 Original verdict: Not ready for implementation planning.
 Remediation: All ten specification findings addressed below on 2026-09-09.
-Follow-up: [Second review](skills-plugins-hooks-second-pass.md) identifies three
-remaining gaps; the closure assessment below is superseded by that review.
+Follow-up: [Second review](skills-plugins-hooks-second-pass.md) records three
+additional gaps and their subsequent remediation; it supersedes the closure
+assessment below.
 
 The complete scope remains required. None of these findings recommends an MVP,
 deferring a component, or calling an unsupported feature complete. The problem is

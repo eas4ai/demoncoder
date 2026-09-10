@@ -122,6 +122,11 @@ quarantine control always stops admissions, even if ConfigChange is broken. Old 
 no task references them. Removal explains retained snapshots instead of deleting
 files still needed for recovery.
 
+Repair does not change an existing task's generation. The explicit developer
+recovery action creates a linked replacement with fresh instructions and gates,
+retained effect history and the same cumulative allowance. It atomically replaces
+admission ownership; old tasks remain historical rather than being falsely completed.
+
 ## Lifecycle event matrix
 
 These are native semantic boundaries. An upstream spelling maps here only when

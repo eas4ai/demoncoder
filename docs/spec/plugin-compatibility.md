@@ -73,8 +73,8 @@ every replacement, addition, conflict and deliberate host-policy difference.
 
 Profile v1 includes all 33 Claude SDK event names plus native/Codex Interrupt.
 It includes Elicitation and ElicitationResult; the earlier overview omitted them.
-The profile records complete input/output type field inventories and immutable
-upstream source locations. For Codex, the generated schemas describe accepted
+The profile records complete input/output type graphs and immutable
+upstream source locations. For Codex, the retained full schemas describe accepted
 shape, while event behavior below determines whether a parsed field has an effect.
 A parsed but ignored upstream field must remain identified as such; parsing alone
 does not promote it into a permission or state change.
@@ -87,6 +87,57 @@ native prompt/agent runner for them. Native declarations support all five types.
 That explicit semantic selection is recorded with the package; the functionality
 is delivered rather than deferred.
 
+### Wire graph and coverage identity
+
+Profile v1 revision 2 replaces the flattened Claude declaration list with a
+TypeScript-parser-derived graph. Object properties remain nested; intersections
+retain inherited references; unions retain each alternative with a content-based
+branch ID. A required field is required inside its containing object, not at the
+root of every event. `field_paths` are declaration-site JSON pointers. Coverage
+must follow references and every branch from each recorded event/control root;
+counting field names is insufficient.
+
+The graph includes only the 77 types reachable from its recorded hook/control
+roots. General SDK Settings and session-store APIs accidentally captured by the
+earlier extractor are not plugin execution requirements. Their removal does not
+remove any plugin component, configuration field or feature family. Callback
+wrappers and the four named external types have explicit meanings in the graph;
+they are not fictitious JSON fields.
+
+Full Codex and portable JSON schemas preserve their original constraints and
+reference structure. A selected Codex configuration definition includes its
+reference closure. Legacy flat field lists are discovery indices only; they do
+not supersede these schemas. Structural keywords such as `oneOf`, `allOf` and
+required fields must remain effective in runtime validation.
+
+The [inventory checks](compatibility/README.md) regenerate these records from
+hash-verified sources. Positive and negative TypeScript probes compare the pinned
+SDK with types reconstructed from the graph. Deleting a nested field or a union
+branch must break those probes. These checks establish inventory fidelity only;
+the implementation still needs production-path parsing, effect and deletion tests.
+
+### Exact event and handler applicability
+
+`hook_applicability` in the inventory is the complete finite lookup for all
+34 events, five handler types and three dialects: 510 cells. Resolve an event's
+explicit group, then the handler's explicit status. No default or inference from
+a neighboring event is permitted. A missing cell fails inventory validation.
+
+Claude's model-capable events use all five runners; its service-only group uses
+command, HTTP and MCP; SessionStart and Setup use command and MCP only. Codex's
+12 recorded events use command/MCP; its model tags are nonexecuting source forms.
+Native declarations support every listed type, with effects constrained by the
+event. The inventory enumerates membership, including events absent from each
+source profile. It also specifies the activation and negative tests for every cell.
+
+An unsupported source pair cannot silently execute under another dialect.
+**Convert to native** creates a separately validated native declaration after
+the developer inspects its changed behavior and supplies required runner settings.
+It is not an import fallback or a source-compatibility pass. Source rejection and
+working native functionality are both required evidence where that cell names
+conversion. A source handler whose result has no decision effect cannot be
+registered as a required policy gate; that requires an explicit native declaration.
+
 | Handler type | Input delivery | Result decoding |
 |---|---|---|
 | command | One bounded event JSON on stdin; declared argv or shell, environment and cwd | Exit status plus dialect/event stdout parser; stderr retained with secret-safe bounds |
@@ -94,6 +145,40 @@ is delivered rather than deferred.
 | mcp_tool | Resolve declared input placeholders as data; call an already admitted managed server/tool | Structured or text result decoded under the event profile; `isError` is a handler failure |
 | prompt | Literal event expansion into a bounded tool-free request | Validated Boolean/verdict response becomes an event-appropriate decision |
 | agent | Snapshot-bound isolated read-only assignment | Validated final verdict after retained inspection evidence; no candidate mutation |
+
+### Model responses and task outcomes
+
+`model_response_schemas` defines model responses separately from SDK callback
+JSON. `ok` is required, and a false result requires `reason`. Only prompt responses
+admit `impossible`. `continueOnBlock` is a prompt configuration field, not an agent
+field or a response field. Invalid output leaves a required gate held; an invalid
+observer result remains visible without reversing the observed operation.
+
+The frozen `model_result_rules` table gives both prompt and agent outcomes for
+every applicable Claude event, plus every native event. It includes source
+results that are intentionally ignored. The
+[source response rules](https://code.claude.com/docs/en/hooks#response-schema)
+establish these distinctions: PermissionRequest/PermissionDenied model results
+have no decision effect; Stop/SubagentStop prompt `impossible` can end a turn;
+PreToolUse/PostToolUse and teammate transitions distinguish prompt continuation
+settings from agent behavior. The explicit inventory lookup, not a generic Boolean
+conversion, governs dispatch. TaskCompleted's owner records whether the boundary
+is a task-tool transition or a teammate stopping; payload text cannot choose it.
+
+In every dialect, ending a turn or stopping a teammate is distinct from satisfying
+a task's completion policy. An `impossible` result stops without another correction
+but leaves the required gate unmet. A false result never becomes approval merely
+because correction is impossible. A true result removes only that handler's
+objection for the exact candidate; ordinary access, other gates, verification,
+review and developer acceptance remain necessary.
+
+Requested follow-up uses the existing cumulative allocation. Cancellation,
+expired time or exhausted corrections stops work with unmet gates; no source
+continuation setting creates a new allowance. Native observation-only events
+cannot carry required gates. Native prompt/agent WorktreeCreate handlers may
+judge creation, but a Boolean result supplies no path: the admitted host operation
+or typed creator must still create and validate the worktree. The equivalent
+rule applies to special elicitation and display results.
 
 Hook server startup is a separate admitted dependency operation before dispatch,
 not a recursive hook call that waits on itself. Detect dependency cycles such as

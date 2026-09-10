@@ -47,6 +47,9 @@ to each admitted task and child. Reload MUST activate a complete new generation
 atomically at an idle boundary. Disable MUST stop new admissions and cancel owned
 background activity. An interrupted required gate MUST leave affected work blocked
 until the developer explicitly removes or replaces that policy.
+Repair uses the linked replacement-task transition in PRUN-003. It MUST NOT
+replace the generation inside an existing task, replay settled effects or reset
+its cumulative allowance. Ordinary reload cannot initiate that transition.
 Falsifier: A task mixes old instructions with a new handler, a failed reload loses
 the working generation, or disabling a gate silently authorizes blocked work.
 Mechanism: Reload during a running task, fail validation, disable a stalled gate,

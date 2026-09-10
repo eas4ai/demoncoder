@@ -2,7 +2,8 @@
 
 Date: 2026-09-09
 Reviewed commit: 037ae76
-Verdict: Three unresolved specification findings; revise before implementation planning.
+Original verdict: Three unresolved specification findings; revise before implementation planning.
+Remediation: R01–R03 specification corrections completed below on 2026-09-09.
 
 The first remediation improves admission, state isolation, quarantine and delivery
 recovery. The earlier statement that all ten findings were closed was too broad:
@@ -140,3 +141,23 @@ claiming that a relay is already proven to fail closed.
 
 This review changes only review records. The existing LSP regression evidence
 does not establish plugin compatibility or close these specification findings.
+
+## Remediation of R01–R03
+
+The developer requested remediation after this review. Profile v1 revision 2
+replaces the defective flattened representation and makes the missing runtime
+choices explicit. The commitment retains all 41 requirements and its complete
+feature scope. Plugin implementation remains unselected.
+
+| Finding | Correction | Verification performed |
+|---|---|---|
+| R01 | A pinned TypeScript parser preserves 77 related types, nested properties, inherited references and content-identified union branches. Full Codex/portable schemas retain constraints. General unrelated SDK APIs are excluded from the hook-root closure without removing plugin feature families. | Exact regeneration against hash-verified sources passes. Ten positive/negative probes agree between the actual SDK and reconstructed graph types. Removing `effort.level` or the allow branch changes the results and is detected. |
+| R02 | The frozen lookup defines all 510 dialect/event/handler cells. Separate model schemas and conditional outcome records specify ignored results, continuation settings, impossible conditions and native conversions. Stopping with unmet policy never means accepted completion. | Coverage and missing-cell rejection pass. All model branches resolve; fourteen concrete outcome cases and four model-response schemas pass. These are specification-table tests, not executed model/plugin runners. |
+| R03 | Repair creates an explicitly authorized linked replacement task with fresh instructions and a coherent tuple. The old task remains historical. Atomic owner transfer, shared cumulative allocation, retained effects, child handling and crash recovery are specified. | Walked the original completed-mutation/quarantine/repair trace and interrupted each documented boundary. Before activation neither task can resume; afterward only the replacement owns admissions. The same ledger and settled operation receipts remain attached. This is a design walkthrough, not runtime evidence. |
+
+The repeatable commands and their limits are in the
+[inventory README](../spec/compatibility/README.md). They ran with TypeScript
+5.9.2 and Ajv 8.17.1. Source schemas and the SDK file match recorded SHA256 values.
+The new checks do not claim real backend barrier, connector authentication or
+plugin execution evidence. Those remain required by the unchanged complete
+deliverable. Runtime application code did not change during remediation.

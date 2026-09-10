@@ -27,3 +27,9 @@ scope decision if they cannot be resolved. They do not authorize silent deferral
 The runtime and compatibility contracts close the recorded adversarial failure
 cases. Their 41 requirements, fixed source/fixture inventory and real backend
 barrier qualification all belong to this same commitment.
+
+Profile v1 revision 2 includes the structured wire graph, full source schemas,
+all 510 dialect/event/handler applicability cells and explicit model outcomes.
+Source-reconstruction and deletion probes must pass alongside runtime conformance.
+Policy repair must exercise the linked replacement-task transaction, preserving
+completed effects, generation coherence and the original cumulative allowance.

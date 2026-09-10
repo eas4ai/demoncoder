@@ -30,6 +30,8 @@ Falsifier: A crashing ConfigChange gate prevents quarantine, plugin text invokes
 the recovery control, or removing a gate silently marks the blocked action allowed.
 Mechanism: Quarantine a perpetually failing configuration handler from developer
 controls; attempt the same from every agent/tool/channel origin and test managed policy.
+Recover a task with a settled mutation and active children through the replacement
+transaction below; interrupt every boundary and verify generation and allowance ownership.
 
 [PRUN-004] Plugin state MUST use the versioned storage and activation transaction
 below. Activation, migration and rollback MUST preserve referenced old state.
@@ -139,8 +141,66 @@ can inspect/export the hold and exit; quarantine does not grant a bypass.
 The host control channel authenticates its local developer origin. A tool invoking
 a lookalike command, a model message, hook output or a channel message cannot use
 it. Repair loads a replacement in a code-free validation mode; the authorized
-policy change names the old and replacement digests. A successful repair creates
-fresh decisions against affected work. It never reuses an old approval by omission.
+policy change names the old and replacement digests. Installing repaired code
+does not resume tasks pinned to the old generation. Recovery requires the separate
+developer action **Continue in a replacement task**, defined below. It never
+reuses an old approval by omission.
+
+### Replacement after policy repair
+
+The old task keeps its generation, instructions and records. It remains held
+until the developer selects a validated replacement code/state/policy tuple and
+confirms the recovery preview. The preview identifies the old task and children,
+completed effects, uncertain operations, retained worktrees, invalidated decisions
+and the remaining allowance. This is not the ordinary reload action and cannot
+be invoked by model text, a hook, a channel or an automatic retry.
+
+Recovery uses one durable transaction ID and these transitions:
+
+1. `prepared`: stop new admissions in the affected task tree; cancel and join
+   owned runners. Reconcile every operation with uncertain effects before
+   proceeding. A failed reconciliation keeps recovery held. Capture the current
+   candidate and completed operation receipts; do not revert completed writes.
+2. `validated`: stage the replacement task with a fresh instruction assembly
+   and one coherent generation tuple. Carry the developer's task objective,
+   current authorized workspace and cited effect history. Do not copy the old
+   model context as active instructions. No old approval or gate pass discharges
+   a new transition. Verification/review records remain inspectable but satisfy
+   new completion only after the existing freshness and policy checks accept them.
+3. `activated`: atomically mark the old task `superseded-by:<new-task>` and make
+   the new task the sole owner of future admissions. If the transaction has not
+   activated, the old task remains held and the staged task cannot execute. A
+   crash after activation restores that same new owner; replaying the developer
+   request returns the existing transaction result rather than creating a third task.
+
+The replacement shares the original cumulative allocation ledger, including
+costs, corrections and time already spent. It does not receive a fresh allowance.
+An expired deadline or exhausted ledger leaves it held; only a separate explicit
+developer allocation change can extend it. Charge recovery work to that ledger.
+Settled operation IDs and receipts transfer as history, never as a replay queue.
+Only remaining work can create new operation IDs, under fresh admission.
+
+Each affected child is cancelled and retained as a historical assignment. A child
+with unfinished work may receive a linked replacement through the same protocol,
+with its existing ownership and remaining child/parent allocations. Keep its
+worktree and completed effects isolated; do not auto-integrate them. Replace
+task/child ownership atomically so the old and new owners cannot write the same
+worktree concurrently. Background services restart or reuse only under the
+ordinary complete-identity rules. Retain referenced old code and state for
+inspection; PRUN-004 supplies the replacement state generation and migration.
+
+If recovery requires a state migration, the preview names its command digest
+and staged state destination. The developer-authorized recovery operation may
+run that migration under host confinement without the quarantined package's
+gates. Its grant covers staged plugin state only, not task workspace writes,
+network effects or credentials. It consumes the remaining recovery allowance;
+insufficient allowance leaves it held. This exception cannot admit ordinary
+task work or execute an unreviewed migration.
+
+Fresh plugin decisions apply to the replacement task only. Removing a policy
+instead of repairing it uses the same developer-authorized transition and the
+managed-authority rule. No task ever mixes its old instruction generation with
+a new handler. The original task is superseded, not accepted or falsely completed.
 
 ## Mutable state and activation
 
