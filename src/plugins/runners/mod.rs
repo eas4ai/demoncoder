@@ -1,5 +1,7 @@
 //! Explicit host-selected runners; package inspection is not activation.
 mod command;
+mod event;
+mod http;
 mod inspection;
 mod launch;
 mod model;
@@ -8,6 +10,7 @@ mod process;
 pub(crate) mod snapshot;
 mod staging;
 pub use command::{CommandConfig, CommandProgram, CommandRunner, NetworkGrant};
+pub use http::{HttpConfig, HttpCredential, HttpRunner};
 pub use inspection::SnapshotInspection;
 pub use model::{ModelConfig, ModelRunner};
 

@@ -10,9 +10,9 @@
 
 ## Status and execution rules
 
-- Complete: Immutable import foundation, backend compaction qualification probes, wire validation, result decoding, gate snapshots, durable tool receipts, pre-tool final-candidate admission, the confined command-runner/snapshot-materialization prerequisite, and bounded PreToolUse prompt/agent runners.
-- **In progress:** Integrate the HTTP runner with admitted endpoint, header and credential authority.
-- Pending: Integrate MCP runners and complete lifecycle dispatch.
+- Complete: Immutable import foundation, backend compaction qualification probes, wire validation, result decoding, gate snapshots, durable tool receipts, pre-tool final-candidate admission, the confined command-runner/snapshot-materialization prerequisite, bounded PreToolUse prompt/agent runners, and the admitted HTTP runner prerequisite.
+- **In progress:** Integrate MCP runners with managed service admission.
+- Pending: Complete lifecycle dispatch.
 - Pending: Integrate state, recovery, services and all package components.
 - Pending: Exercise the complete public management and coding workflows.
 - Pending: Run full conformance, installed/live cases, adversarial review and Cairn checks.
@@ -213,6 +213,15 @@ affected regression controls passed; both external backends have actual local
 isolation and compaction evidence. Independent adversarial probes verified
 verdict/inspection rejection and failure when managed isolation is removed.
 Other lifecycle events and public activation remain pending.
+
+The [HTTP prerequisite](../reviews/plugin-http-runners.md) is implemented and
+independently approved for Native and Claude PreToolUse. HTTP24, the unchanged
+external authority probe, three additional quality controls, affected runner
+regressions and the actual registry terminal case passed. Review found and fixed
+empty written URL authority normalization. The runner binds endpoint/header/
+credential authority, preserves uncertain exchanges, and uses a separately admitted
+read-only revalidation endpoint without repeating the primary POST. Public source
+configuration, remaining lifecycle events and MCP integration remain pending.
 
 - [ ] Command: JSON stdin, explicit argv/shell, declared environment/access, bounded output/deadlines and owned descendants. Literal event values never enter executable shell source.
 - [ ] Prompt: selected model, no tools, schema-validated verdict, cumulative admission and usage. Agent: immutable admitted snapshot, bounded read-only inspection, retained evidence and the same ledger.
