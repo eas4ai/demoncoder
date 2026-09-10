@@ -10,12 +10,12 @@ use std::{
     sync::atomic::{AtomicBool, Ordering},
 };
 
-pub(super) struct PackageMount {
+pub(crate) struct PackageMount {
     _directory: StagingDirectory,
-    pub(super) root: File,
+    pub(crate) root: File,
 }
 impl PackageMount {
-    pub(super) fn materialize(package: &Package, cancelled: &AtomicBool) -> Result<Self> {
+    pub(crate) fn materialize(package: &Package, cancelled: &AtomicBool) -> Result<Self> {
         let directory = StagingDirectory::new()?;
         let root = directory.root.try_clone()?;
         let mut mount = Self {

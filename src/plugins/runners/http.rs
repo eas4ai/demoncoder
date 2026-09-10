@@ -56,7 +56,7 @@ impl HttpConfig {
             transcript_path: None,
         }
     }
-    fn validate(&self) -> Result<(Url, HeaderMap)> {
+    pub(crate) fn validate(&self) -> Result<(Url, HeaderMap)> {
         ensure!(
             (1..=20_000).contains(&self.timeout_ms)
                 && (1..=65536).contains(&self.max_input_bytes)

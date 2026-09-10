@@ -11,6 +11,19 @@ pub enum HostInvocation {
     Model,
     Backend,
     Commands,
+    PluginService {
+        owner: u64,
+        service: String,
+        outcome: PluginServiceOutcome,
+    },
+}
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum PluginServiceOutcome {
+    Pending,
+    Ready,
+    Failed,
+    Uncertain,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -116,7 +129,7 @@ impl SharedRuntime {
         let admission = self.update(|record| {
             let source = record.operations.iter().find(|operation| operation.id == invocation)
                 .context("tool requires a durable host invocation")?;
-            ensure!(source.phase == phase && source.call.is_none() && source.host_invocation.is_some(), "tool invocation belongs to another owner or phase, or lacks host identity");
+            ensure!(source.phase == phase && source.call.is_none() && matches!(source.host_invocation, Some(HostInvocation::Model | HostInvocation::Backend | HostInvocation::Commands)), "tool invocation belongs to another owner or phase, or lacks host identity");
             if let Some(operation) = record.operations.iter().find(|operation| {
                 operation.tool_receipt.as_ref().is_some_and(|receipt| receipt.invocation == invocation && receipt.original_call.id == call.id)
             }) {

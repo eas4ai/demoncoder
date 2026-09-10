@@ -11,18 +11,18 @@ use std::{
 };
 const POLL: Duration = Duration::from_millis(5);
 
-struct OwnedProcess {
-    child: Child,
-    lease: Option<ChildStdin>,
-    status: Option<ExitStatus>,
-    launch: Launch,
+pub(crate) struct OwnedProcess {
+    pub(crate) child: Child,
+    pub(crate) lease: Option<ChildStdin>,
+    pub(crate) status: Option<ExitStatus>,
+    pub(crate) launch: Launch,
 }
 impl OwnedProcess {
-    fn revoke(&mut self) {
+    pub(crate) fn revoke(&mut self) {
         self.lease.take();
         self.launch.stop();
     }
-    fn observe(&mut self) -> Result<()> {
+    pub(crate) fn observe(&mut self) -> Result<()> {
         if self.status.is_none() {
             self.status = self
                 .child
@@ -66,6 +66,7 @@ pub(super) fn run(
         return failure("cannot write bounded hook event input");
     }
     let encoded = match serde_json::to_string(&HookLaunch {
+        duplex: false,
         arguments: command.launch_arguments(&launch.status_writer, &launch.gate_reader),
         input: format!(
             "/proc/{}/fd/{}",

@@ -53,6 +53,10 @@ pub struct HookInvocation {
 }
 #[async_trait::async_trait]
 pub trait HookRunner: Send + Sync {
+    /// Host-only dependency admission, completed before any group hook is dispatched.
+    async fn prepare(&self, _invocation: &HookInvocation) -> Result<()> {
+        Ok(())
+    }
     /// Host implementation capability, never a flag supplied by hook output.
     fn mutates_workspace(&self) -> bool {
         false

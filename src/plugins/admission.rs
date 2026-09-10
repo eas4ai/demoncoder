@@ -270,8 +270,9 @@ impl Admission<'_> {
         inputs: &[(String, Arc<GateSnapshot>)],
         revalidate: bool,
     ) -> Result<Option<serde_json::Value>> {
-        // Reserve a whole source group atomically so its concurrent startup can
-        // never wait for a slot held by another member of the same group.
+        // Reserve transient work capacity for dependency bootstrap and dispatch
+        // together, so members cannot deadlock waiting for one another's slot.
+        // This is not a durable hook invocation or a new task allowance.
         let runner_lease = Arc::new(
             tokio::time::timeout(
                 self.runtime.remaining()?,
@@ -321,7 +322,7 @@ impl Admission<'_> {
                 .expect("captured read set")
                 .1
                 .clone();
-            let mut receipt = HookReceipt {
+            let receipt = HookReceipt {
                 invocation: 0,
                 declaration: d.identity.clone(),
                 class: if revalidate {
@@ -341,9 +342,6 @@ impl Admission<'_> {
                 questions: Vec::new(),
                 pending_proposals: Vec::new(),
             };
-            receipt.invocation =
-                self.runtime
-                    .begin_plugin_hook(self.operation, receipt.clone(), call)?;
             let invocation = HookInvocation {
                 invocation: receipt.invocation,
                 key: key.clone(),
@@ -370,6 +368,25 @@ impl Admission<'_> {
                 handler.runner.clone()
             };
             jobs.push((*index, receipt, invocation, runner));
+        }
+        // Service initialization is a separately recorded dependency operation.
+        // Finish every dependency before reserving durable hook invocations or
+        // dispatching this group's hooks. Bootstrap shares the transient lease above.
+        for (_, _, invocation, runner) in &jobs {
+            self.runtime.plugin_owner(self.operation)?;
+            tokio::time::timeout(
+                self.runtime
+                    .remaining()?
+                    .min(std::time::Duration::from_secs(30)),
+                runner.prepare(invocation),
+            )
+            .await??;
+        }
+        for (_, receipt, invocation, _) in &mut jobs {
+            receipt.invocation =
+                self.runtime
+                    .begin_plugin_hook(self.operation, receipt.clone(), call)?;
+            invocation.invocation = receipt.invocation;
         }
         let outcomes = futures_util::future::join_all(jobs.into_iter().map(
             |(index, mut receipt, invocation, runner)| async move {

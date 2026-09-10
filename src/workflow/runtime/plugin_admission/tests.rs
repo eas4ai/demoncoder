@@ -117,6 +117,7 @@ fn same_workspace_sessions_cannot_reuse_keys_and_resume_preserves_identity() {
         failed: false,
         learning_view: None,
         mutation_boundaries: Default::default(),
+        service_slots: Arc::new(tokio::sync::Semaphore::new(8)),
     })));
     assert_eq!(resumed.plugin_session().unwrap(), key_a.session);
     resumed.admit_tool(id_a, &call_a).unwrap();
@@ -289,4 +290,36 @@ fn result_settlement_rejects_changed_reserved_identity_without_partial_mutation(
         serde_json::to_value(runtime.record().unwrap()).unwrap(),
         before
     );
+}
+
+#[test]
+fn service_bootstrap_cannot_authorize_tools_or_be_settled_as_a_model_call() {
+    let root = tempfile::tempdir().unwrap();
+    let (runtime, owner, call) = fixture(root.path());
+    let startup = runtime
+        .begin_plugin_service(owner, &"a".repeat(64))
+        .unwrap();
+    assert!(runtime.begin_tool("worker", startup, &call).is_err());
+    runtime.settle_hook_models("worker").unwrap();
+    let record = runtime.record().unwrap();
+    let op = record.operations.iter().find(|o| o.id == startup).unwrap();
+    assert!(!op.complete);
+    assert!(matches!(
+        op.host_invocation,
+        Some(super::super::HostInvocation::PluginService {
+            outcome: super::super::PluginServiceOutcome::Pending,
+            ..
+        })
+    ));
+    runtime.complete_plugin_service(startup).unwrap();
+    assert!(runtime.begin_tool("worker", startup, &call).is_err());
+    let serialized = serde_json::to_vec(&runtime.record().unwrap()).unwrap();
+    let recovered: Record = serde_json::from_slice(&serialized).unwrap();
+    assert!(matches!(
+        recovered.operations.last().unwrap().host_invocation,
+        Some(super::super::HostInvocation::PluginService {
+            outcome: super::super::PluginServiceOutcome::Ready,
+            ..
+        })
+    ));
 }

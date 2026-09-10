@@ -10,9 +10,8 @@
 
 ## Status and execution rules
 
-- Complete: Immutable import foundation, backend compaction qualification probes, wire validation, result decoding, gate snapshots, durable tool receipts, pre-tool final-candidate admission, the confined command-runner/snapshot-materialization prerequisite, bounded PreToolUse prompt/agent runners, and the admitted HTTP runner prerequisite.
-- **In progress:** Integrate MCP runners with managed service admission.
-- Pending: Complete lifecycle dispatch.
+- Complete: Immutable import foundation, backend compaction qualification probes, wire validation, result decoding, gate snapshots, durable tool receipts, pre-tool final-candidate admission, the confined command-runner/snapshot-materialization prerequisite, bounded PreToolUse prompt/agent runners, the admitted HTTP runner prerequisite, and managed MCP service/hook admission.
+- **In progress:** Complete lifecycle dispatch.
 - Pending: Integrate state, recovery, services and all package components.
 - Pending: Exercise the complete public management and coding workflows.
 - Pending: Run full conformance, installed/live cases, adversarial review and Cairn checks.
@@ -223,6 +222,18 @@ credential authority, preserves uncertain exchanges, and uses a separately admit
 read-only revalidation endpoint without repeating the primary POST. Public source
 configuration, remaining lifecycle events and MCP integration remain pending.
 
+The [managed MCP prerequisite](../reviews/plugin-mcp-runners.md) is implemented
+and independently approved for PreToolUse. It binds stdio and Streamable HTTP
+services to complete immutable authority, the original runtime owner and bounded
+capacity. Discovery and schema validation precede hook calls; uncertain calls
+never replay. Review found and fixed missing output-schema enforcement, buffered
+duplicate-response release, and a traffic observer that missed bodyless GETs.
+The final production suites passed 200 library, 23 MCP and 336 other integration
+cases; sixteen installed/live/subprocess entries remained explicitly ignored.
+Independent hostile-response controls and specification/quality reviews passed.
+Public service/configuration/authentication and full lifecycle work below remain
+part of the same incomplete commitment.
+
 - [ ] Command: JSON stdin, explicit argv/shell, declared environment/access, bounded output/deadlines and owned descendants. Literal event values never enter executable shell source.
 - [ ] Prompt: selected model, no tools, schema-validated verdict, cumulative admission and usage. Agent: immutable admitted snapshot, bounded read-only inspection, retained evidence and the same ledger.
 - [ ] HTTP: explicitly bound endpoint/headers/credentials, redirects checked before disclosure, bounded response and cancellation. MCP: admitted service/tool and structured/text response handling, with `isError` as failure.
@@ -318,6 +329,7 @@ the busy-control rejection or through plugin/channel text interpreted as prompts
 
 - [ ] Build a requirement-to-production-case manifest whose keys cover all 41 IDs, every profile field/branch, every applicability cell and five pinned real packages. Require actual case results, not source-name presence or empty test filters.
 - [ ] Run source reconstruction and negative mutation probes, runtime conformance, all four adapter workflows, actual backend barriers and authorized live connector cases. Keep controlled/live labels distinct.
+- [ ] Include `tests/plugin_mcp_source_inputs.py --claude <qualified-2.1.267-binary>` in source qualification. Require the pinned executable and a successful actual run; this source check does not replace MCP production tests. Its expected values are retained in `tests/fixtures/plugins/claude-mcp-input-source.json`.
 - [ ] Run formatting, clippy, all existing regression tests, installed language services and the complete plugin gate. Commit implementation before Cairn; commit receipts and captured outputs afterward.
 - [ ] Perform specification and quality reviews followed by an adversarial whole-commitment review. Resolve findings as separate implementation actions and rerun affected evidence.
 - [ ] Install and verify the final executable. Follow Cairn until Done; only then integrate the feature branch with `git merge --no-ff` and report the complete commitment.

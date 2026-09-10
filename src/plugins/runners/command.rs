@@ -65,7 +65,7 @@ impl CommandConfig {
             transcript_path: None,
         }
     }
-    fn validate(&self, class: HandlerClass, dialect: HookDialect) -> Result<()> {
+    pub(crate) fn validate(&self, class: HandlerClass, dialect: HookDialect) -> Result<()> {
         ensure!(
             self.network == NetworkGrant::None,
             "hook network grants beyond None are not integrated"
@@ -422,12 +422,12 @@ impl HookRunner for CommandRunner {
         Ok(outcome.unwrap_or_else(|_| failure("command owner failed; effects may be unknown")))
     }
 }
-fn expand_root(value: &str) -> String {
+pub(crate) fn expand_root(value: &str) -> String {
     value
         .replace("${CLAUDE_PLUGIN_ROOT}", CODE_ROOT)
         .replace("${CODEX_PLUGIN_ROOT}", CODE_ROOT)
 }
-fn environment(config: &CommandConfig) -> BTreeMap<String, String> {
+pub(crate) fn environment(config: &CommandConfig) -> BTreeMap<String, String> {
     let mut environment: BTreeMap<_, _> = config
         .environment
         .iter()

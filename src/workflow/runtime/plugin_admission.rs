@@ -4,6 +4,53 @@ use crate::plugins::receipts::*;
 use anyhow::{Context, Result, ensure};
 use std::sync::Arc;
 
+/// Ephemeral capability derived from the existing task allocation, never a new allowance.
+#[derive(Clone)]
+pub(crate) struct ServiceOwner {
+    fingerprint: String,
+    pub(crate) role: String,
+    deadline: std::time::Instant,
+    _capacity: Arc<tokio::sync::OwnedSemaphorePermit>,
+}
+
+fn service_fingerprint(record: &Record, session: &std::path::Path, role: &str) -> Result<String> {
+    let allocation = record
+        .allocation
+        .as_ref()
+        .context("MCP service requires an owning allowance")?;
+    ensure!(
+        !record.recovery_pending
+            && record
+                .task
+                .as_ref()
+                .is_none_or(|t| !t.stopped && t.accepted.is_none()),
+        "MCP service owner is held or stopped"
+    );
+    delegation::ensure_agent_active(record, role)?;
+    let assignment =
+        delegation::agent_id(role).and_then(|id| record.agents.iter().find(|a| a.id == id));
+    crate::plugins::admission::digest(&(
+        session,
+        &record.workspace,
+        &record.identity,
+        record.task.as_ref().map(|t| t.id),
+        allocation.started_ms,
+        allocation.deadline_ms,
+        &allocation.limits,
+        role,
+        assignment.map(|a| {
+            (
+                &a.id,
+                &a.parent_task,
+                &a.identity,
+                &a.request,
+                &a.worktree,
+                &a.planned_root,
+            )
+        }),
+    ))
+}
+
 /// A host-marked hook model request. Package/model data cannot create this value.
 #[derive(Clone)]
 pub(crate) struct ModelAdmission {
@@ -41,7 +88,11 @@ pub(super) fn validate_model_admission(
         record
             .operations
             .iter()
-            .filter(|op| op.phase == phase && op.host_invocation.is_some())
+            .filter(|op| op.phase == phase
+                && matches!(
+                    op.host_invocation,
+                    Some(super::HostInvocation::Model | super::HostInvocation::Backend)
+                ))
             .count()
             < hook.maximum as usize,
         "hook model/backend invocation allowance exhausted"
@@ -50,12 +101,152 @@ pub(super) fn validate_model_admission(
 }
 
 impl SharedRuntime {
+    pub(crate) fn begin_plugin_service(&self, owner: u64, service: &str) -> Result<u64> {
+        ensure!(
+            service.len() == 64 && service.bytes().all(|b| b.is_ascii_hexdigit()),
+            "MCP service operation identity is invalid"
+        );
+        self.admission(|record| {
+            active(record,owner)?;
+            ensure!(record.operations.len() < 4096, "session operation history is full");
+            ensure!(!record.operations.iter().any(|o| !o.complete && !o.reconciled && matches!(&o.host_invocation,
+                Some(super::HostInvocation::PluginService {service: existing,..}) if existing == service)), "MCP startup is unresolved; reconcile before readmission");
+            let phase = record.operations.iter().find(|o|o.id == owner).context("MCP owner missing")?.phase.clone();
+            let id = record.operations.len() as u64 + 1;
+            record.operations.push(super::Operation {id,phase,verification:None,call:None,result:None,tool_receipt:None,
+                host_invocation:Some(super::HostInvocation::PluginService {owner,service:service.into(),outcome:super::PluginServiceOutcome::Pending}),complete:false,reconciled:false,
+                usage_reported:true,identity:Some(record.identity.clone())});
+            Ok(id)
+        })
+    }
+    pub(crate) fn complete_plugin_service(&self, id: u64) -> Result<()> {
+        self.update(|record| {
+            let operation = record
+                .operations
+                .iter_mut()
+                .find(|o| o.id == id)
+                .context("MCP startup operation missing")?;
+            ensure!(
+                matches!(
+                    operation.host_invocation,
+                    Some(super::HostInvocation::PluginService { .. })
+                ) && !operation.complete,
+                "MCP startup operation is not pending"
+            );
+            operation.complete = true;
+            if let Some(super::HostInvocation::PluginService { outcome, .. }) =
+                &mut operation.host_invocation
+            {
+                *outcome = super::PluginServiceOutcome::Ready;
+            }
+            Ok(())
+        })
+    }
+    pub(crate) fn fail_plugin_service(&self, id: u64, known_local_teardown: bool) -> Result<()> {
+        self.update(|record| {
+            let operation = record
+                .operations
+                .iter_mut()
+                .find(|o| o.id == id)
+                .context("MCP startup operation missing")?;
+            let Some(super::HostInvocation::PluginService { outcome, .. }) =
+                &mut operation.host_invocation
+            else {
+                anyhow::bail!("MCP startup operation has different authority");
+            };
+            if *outcome == super::PluginServiceOutcome::Ready
+                || *outcome == super::PluginServiceOutcome::Failed
+            {
+                return Ok(());
+            }
+            *outcome = if known_local_teardown {
+                super::PluginServiceOutcome::Failed
+            } else {
+                super::PluginServiceOutcome::Uncertain
+            };
+            operation.complete = known_local_teardown;
+            if !known_local_teardown {
+                record.recovery_pending = true;
+            }
+            Ok(())
+        })
+    }
+    pub(crate) fn admit_plugin_service(&self, operation: u64) -> Result<ServiceOwner> {
+        let runtime = self
+            .0
+            .lock()
+            .map_err(|_| anyhow::anyhow!("runtime lock failed"))?;
+        ensure!(!runtime.failed, "session persistence failed");
+        active(&runtime.record, operation)?;
+        let role = runtime
+            .record
+            .operations
+            .iter()
+            .find(|o| o.id == operation)
+            .context("MCP operation missing")?
+            .phase
+            .clone();
+        let fingerprint = service_fingerprint(&runtime.record, runtime.store.directory(), &role)?;
+        let remaining = runtime
+            .record
+            .allocation
+            .as_ref()
+            .context("MCP allocation missing")?
+            .remaining_ms()?;
+        ensure!(remaining > 0, "MCP owner expired");
+        let capacity = runtime
+            .service_slots
+            .clone()
+            .try_acquire_owned()
+            .map_err(|_| {
+                anyhow::anyhow!("MCP service capacity exhausted (8); stop an existing service")
+            })?;
+        Ok(ServiceOwner {
+            fingerprint,
+            role,
+            deadline: std::time::Instant::now() + std::time::Duration::from_millis(remaining),
+            _capacity: Arc::new(capacity),
+        })
+    }
+    pub(crate) fn validate_plugin_service(
+        &self,
+        owner: &ServiceOwner,
+    ) -> Result<std::time::Duration> {
+        let runtime = self
+            .0
+            .lock()
+            .map_err(|_| anyhow::anyhow!("runtime lock failed"))?;
+        ensure!(!runtime.failed, "session persistence failed");
+        ensure!(
+            service_fingerprint(&runtime.record, runtime.store.directory(), &owner.role)?
+                == owner.fingerprint,
+            "MCP service owner changed"
+        );
+        let remaining = std::time::Duration::from_millis(
+            runtime
+                .record
+                .allocation
+                .as_ref()
+                .context("MCP allocation missing")?
+                .remaining_ms()?,
+        )
+        .min(
+            owner
+                .deadline
+                .saturating_duration_since(std::time::Instant::now()),
+        );
+        ensure!(!remaining.is_zero(), "MCP service owner expired");
+        Ok(remaining)
+    }
     pub(crate) fn settle_hook_models(&self, phase: &str) -> Result<()> {
         self.update(|record| {
             let mut uncertain = false;
             for operation in &mut record.operations {
                 if operation.phase == phase
-                    && operation.host_invocation.is_some()
+                    && matches!(
+                        operation.host_invocation,
+                        Some(super::HostInvocation::Model | super::HostInvocation::Backend)
+                    )
                     && !operation.complete
                 {
                     operation.complete = true;
@@ -422,6 +613,26 @@ impl SharedRuntime {
             plan.hold = hold;
             Ok(())
         })
+    }
+    pub(crate) fn cancel_plugin_hook(&self, owner: u64, invocation: u32) -> Result<()> {
+        let record = self.record()?;
+        let mut hook = record
+            .operations
+            .iter()
+            .find(|o| o.id == owner)
+            .and_then(|o| o.tool_receipt.as_ref())
+            .and_then(|r| r.plugin_admission.as_ref())
+            .and_then(|p| p.hooks.get(invocation as usize))
+            .context("cancelled hook receipt missing")?
+            .clone();
+        if hook.outcome.is_some() {
+            return Ok(());
+        }
+        hook.outcome = Some(RawOutcome::Failure {
+            reason: "MCP hook cancelled; effects may be unknown".into(),
+        });
+        hook.uncertain_effects = true;
+        self.finish_plugin_hook(owner, hook)
     }
     pub(crate) fn hold_plugin(&self, id: u64, reason: &str) -> Result<()> {
         self.update(|record| {

@@ -6,7 +6,7 @@ use std::{
     os::fd::OwnedFd,
 };
 
-pub(super) struct Launch {
+pub(crate) struct Launch {
     status: File,
     pub status_writer: File,
     pub gate_reader: File,

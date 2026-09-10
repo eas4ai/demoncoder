@@ -2,9 +2,9 @@
 mod delegation;
 pub(crate) mod plugin_admission;
 mod tool_operations;
-pub use tool_operations::HostInvocation;
 pub(crate) use tool_operations::ToolAdmission;
 pub use tool_operations::ToolReceipt;
+pub use tool_operations::{HostInvocation, PluginServiceOutcome};
 
 use std::{
     path::{Path, PathBuf},
@@ -215,12 +215,28 @@ struct Runtime {
     failed: bool,
     learning_view: Option<Arc<crate::learning::control::View>>,
     mutation_boundaries: std::collections::BTreeMap<(u64, u64), Arc<tokio::sync::Mutex<()>>>,
+    service_slots: Arc<tokio::sync::Semaphore>,
 }
 
 #[derive(Clone)]
 pub struct SharedRuntime(Arc<Mutex<Runtime>>);
 
+/// Managed resources observe an owner; they cannot keep that owner alive themselves.
+#[derive(Clone)]
+pub(crate) struct RuntimeReference(std::sync::Weak<Mutex<Runtime>>);
+impl RuntimeReference {
+    pub(crate) fn upgrade(&self) -> Result<SharedRuntime> {
+        self.0
+            .upgrade()
+            .map(SharedRuntime)
+            .context("managed service runtime owner ended")
+    }
+}
+
 impl SharedRuntime {
+    pub(crate) fn downgrade(&self) -> RuntimeReference {
+        RuntimeReference(Arc::downgrade(&self.0))
+    }
     pub(crate) fn inspection(
         &self,
         request: Option<crate::inspection::Request>,
@@ -287,6 +303,7 @@ impl SharedRuntime {
             failed: false,
             learning_view: None,
             mutation_boundaries: Default::default(),
+            service_slots: Arc::new(tokio::sync::Semaphore::new(8)),
         }))))
     }
 
@@ -406,6 +423,7 @@ impl SharedRuntime {
                 failed: false,
                 learning_view: None,
                 mutation_boundaries: Default::default(),
+                service_slots: Arc::new(tokio::sync::Semaphore::new(8)),
             }))),
             resumed,
         ))
@@ -962,6 +980,7 @@ mod tests {
             failed: false,
             learning_view: None,
             mutation_boundaries: Default::default(),
+            service_slots: Arc::new(tokio::sync::Semaphore::new(8)),
         })));
         let result = runtime.admission(|record| {
             let allocation = record.allocation.as_mut().unwrap();

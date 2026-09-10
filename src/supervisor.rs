@@ -33,6 +33,8 @@ pub async fn run(script: &str) -> Result<i32> {
 pub(crate) struct HookLaunch {
     pub(crate) arguments: Vec<String>,
     pub(crate) input: String,
+    #[serde(default)]
+    pub(crate) duplex: bool,
 }
 pub async fn run_hook(encoded: &str) -> Result<i32> {
     ensure!(
@@ -62,8 +64,12 @@ pub async fn run_hook(encoded: &str) -> Result<i32> {
     );
     let input = std::fs::File::open(&spec.input).context("open owned hook event input")?;
     ensure!(
-        input.metadata()?.is_file() && input.metadata()?.len() <= 65536,
-        "hook input exceeds bound or is not a regular file"
+        if spec.duplex {
+            FileType::from_raw_mode(fstat(&input)?.st_mode) == FileType::Fifo
+        } else {
+            input.metadata()?.is_file() && input.metadata()?.len() <= 65536
+        },
+        "hook input has a different admitted descriptor type or exceeds bound"
     );
     let mut command = Command::new("/bin/bash");
     command
