@@ -1,0 +1,21 @@
+requirement: HOOK-001
+requirement_digest: sha256:684cd78e0c7ec1ef21ed4413d719bcd51c6e4ce654b4566c1fc61c3e6a2675ab
+sequence: 1
+history_digest: sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+mechanism: skills-plugins-hooks
+commit: 73afea1
+inputs_digest: sha256:c374fda2ba765cd637be103947143bf39d67ed360bfc4366b1d6709a722ce499
+mechanism_digest: sha256:5be34f6e6ee0f4b12b242efd38d25b779716019a3686441fbc87e10de87c24d4
+inputs_detail: .cairn/evidence/EXT-001/20260910T002545662Z-3932826.inputs.json
+command: bash scripts/check-skills-plugins-hooks.sh
+cwd: .
+exit: 127
+output_digest: sha256:6f03dc176756b07c17b311c57e1f596f7d5e21a6ca358321a5df37a6384ce0e6
+output: .cairn/evidence/EXT-001/20260910T002545662Z-3932826.out
+stderr_output: .cairn/evidence/EXT-001/20260910T002545662Z-3932826.err
+stderr_digest: sha256:6f03dc176756b07c17b311c57e1f596f7d5e21a6ca358321a5df37a6384ce0e6
+signal: none
+execution_error: null
+result: fail
+source: exit
+recorded: 2026-09-10T00:25:45.760Z
