@@ -842,7 +842,9 @@ impl Manager {
         let connection = self.connection_for(id)?;
         let executor = ToolExecutor::with_policy(&identity.root, &connection.access)?;
         executor.set_intent(&agent.request.objective);
-        let check_events = events.for_phase(&format!("agent:{id}:checking"));
+        let check_events = events
+            .for_phase(&format!("agent:{id}:checking"))
+            .for_commands()?;
         for (index, command) in agent.commands.iter().enumerate() {
             let result = executor
                 .execute(
@@ -1072,6 +1074,8 @@ impl Manager {
     }
 
     async fn validate(&self, id: u64, events: &EventSink) -> Result<()> {
+        let command_events = events.for_commands()?;
+        let events = &command_events;
         let agent = self.record(id)?;
         let identity = agent.worktree.as_ref().context("agent has no worktree")?;
         let before = worktree::inspect(identity).await?;

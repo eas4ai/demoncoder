@@ -117,7 +117,7 @@ impl WorkflowSession {
                 .operations
                 .iter()
                 .filter(|o| o.id > record.checkpoint_cursor && o.phase == "worker")
-                .filter_map(|o| o.result.clone())
+                .filter_map(|o| o.model_result().cloned())
                 .collect();
             inner.restore(checkpoint, &results)?;
         }
@@ -527,7 +527,7 @@ impl WorkflowSession {
         self.runtime
             .save_task(&self.task, self.next_id, Some(&before.digest))?;
         self.runtime.begin_phase("verification", None)?;
-        let events = events.for_phase("verification");
+        let events = events.for_phase("verification").for_commands()?;
         for (index, command) in check_commands.into_iter().enumerate() {
             let call = ToolCall {
                 id: format!("verify-{task_id}-{generation}-{index}"),
@@ -716,11 +716,11 @@ impl Session for WorkflowSession {
                     .operations
                     .iter()
                     .filter(|operation| !operation.phase.starts_with("agent:"))
-                    .filter_map(|o| o.result.clone())
+                    .filter_map(|o| o.model_result().cloned())
                     .map(|result| Event::RetainedTool { result }),
             );
             if record.recovery_pending {
-                events.push(Event::Error {message:"Interrupted work has uncertain results. Inspect the workspace and use /reconcile EXPLANATION before continuing. Nothing was replayed.".into()});
+                events.push(Event::Error {message:"Interrupted work needs inspection. Completed tool results are retained. Nothing was replayed. Inspect the workspace and use /reconcile EXPLANATION before continuing.".into()});
             }
         }
         Ok(events)

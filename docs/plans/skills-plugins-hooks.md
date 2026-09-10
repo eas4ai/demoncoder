@@ -94,9 +94,11 @@ Integration constraints from the existing production paths:
 - `workflow::workspace::capture_scoped_cancellable` already captures bounded dirty and untracked bytes using two descriptor-relative scans. Extend its revision with ownership and ACL identity, preserving historical snapshot decoding. Snapshot materialization currently lives in `subagents::worktree`, not `workflow::review`.
 - Verification's `CaptureScope` excludes declared generated outputs during capture. A gate read set must be resolved from its own policy; do not silently inherit those review exclusions for the legacy whole-workspace default. Protected source exclusions still apply, and an oversized required snapshot holds the gate.
 - The executor currently relies on sequential execution and has no shared mutation lock. Add a host-owned serialized boundary for final freshness checks and mutation, shared by relevant executors. A host lock cannot provide atomicity against external writers; stronger policies need a supported transaction or a hold.
+- Bind that boundary to the admitted workspace identity. Isolated child worktrees must retain independent execution; a long Bash operation in one child must not hold a process-wide lock over every other child's workspace. Run gate inspection before acquiring the mutation boundary so a gate's read-only tools cannot deadlock behind their caller.
 - `ToolStarted` currently allocates another operation for every event; it does not deduplicate a repeated backend call ID. Plugin admission needs a durable operation identity and replay lookup before effects, with backend IDs retained as scoped correlation data. Duplicate UI publication must not allocate another invocation or overwrite the original result.
 - Native restore currently feeds `Operation.result` directly back to the model for operations after the checkpoint cursor. Retain the original tool receipt and any admitted model-facing replacement separately, and restore the same admitted presentation without rerunning observers. Historical records without a replacement retain their existing result behavior.
 - Scope backend call IDs to a durable host invocation, not merely the `worker` phase. Native model admissions already have IDs, but `EventSink::begin_backend` records an admission only for delegated sessions. Ordinary external turns need an explicit identity too; a reused source call ID in a later turn must not select an earlier turn's receipt.
+- Verification and both subagent validation paths call `ToolExecutor` directly. Give these command groups host invocation identity while retaining their check attribution and existing allowance rules; they are not model invocations.
 
 - [ ] Persist invocation identity and causal source before effects. Implement transformer, decision, observer and legacy-combined classes. Native priority and source concurrent groups retain their specified ordering.
 - [ ] Freeze the candidate after at most four revisions; recompute applicable matchers, retain every deny and reject conflicting concurrent rewrites. A stale combined decision requires a declared read-only endpoint or a visible hold; never rerun its effects.
@@ -110,6 +112,15 @@ tests pass. Review exposed and corrected retained ACL-buffer allocation beyond t
 metadata allowance. Gate runners, metadata-preserving materialization, final
 admission and mutation-boundary comparisons remain integration work, so the gate
 capture obligation above is not yet complete.
+
+The [durable tool receipt prerequisite](../reviews/plugin-tool-receipts.md) is
+implemented and independently reviewed. Actual host invocation IDs now scope
+retries across all four adapter paths and direct verification commands. Original
+results precede observer awaits; known denials, unknown effects and settled
+model-facing output remain distinct. Review corrected access-denied observers,
+budget-denial compatibility and a post-persistence clock gap. Final affected
+checks passed; plugin handler admission and the full final-candidate protocol
+remain to be integrated.
 
 ## 5. Five confined runner types
 

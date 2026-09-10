@@ -136,20 +136,19 @@ impl SharedRuntime {
                 "uncertain work needs reconciliation before backend admission"
             );
             ensure_agent_active(record, phase)?;
-            let limit = record
-                .delegation
-                .as_ref()
-                .context("backend admission requires a delegation allocation")?
-                .backend_limit;
-            ensure!(
-                record.backend_invocations < limit,
-                "cumulative backend invocation allowance exhausted"
-            );
+            if let Some(delegation) = &record.delegation {
+                ensure!(
+                    record.backend_invocations < delegation.backend_limit,
+                    "cumulative backend invocation allowance exhausted"
+                );
+            }
             ensure!(
                 record.operations.len() < 4096,
                 "session operation history is full"
             );
-            record.backend_invocations += 1;
+            if record.delegation.is_some() {
+                record.backend_invocations += 1;
+            }
             let id = record.operations.len() as u64 + 1;
             record.operations.push(Operation {
                 id,
@@ -157,6 +156,8 @@ impl SharedRuntime {
                 verification: None,
                 call: None,
                 result: None,
+                tool_receipt: None,
+                host_invocation: Some(super::HostInvocation::Backend),
                 complete: false,
                 reconciled: false,
                 usage_reported: false,

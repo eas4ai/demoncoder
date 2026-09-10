@@ -125,6 +125,7 @@ impl NativeSession {
         loop {
             let mut corrections = Vec::new();
             let admission = events.begin_model()?;
+            let invocation_events = events.for_invocation(admission);
             let calls = {
                 let response = self.model.response(events);
                 tokio::pin!(response);
@@ -165,7 +166,7 @@ impl NativeSession {
                     self.pending.pop_front();
                     continue;
                 }
-                let operation = self.tools.execute(call, events);
+                let operation = self.tools.execute(call, &invocation_events);
                 tokio::pin!(operation);
                 let result = loop {
                     tokio::select! {

@@ -1,5 +1,9 @@
 //! Durable admissions and results shared by worker, checks, Oracle and reviewer.
 mod delegation;
+mod tool_operations;
+pub use tool_operations::HostInvocation;
+pub(crate) use tool_operations::ToolAdmission;
+pub use tool_operations::ToolReceipt;
 
 use std::{
     path::{Path, PathBuf},
@@ -136,6 +140,10 @@ pub struct Operation {
     pub verification: Option<VerificationAttribution>,
     pub call: Option<ToolCall>,
     pub result: Option<ToolResult>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_receipt: Option<ToolReceipt>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host_invocation: Option<HostInvocation>,
     pub complete: bool,
     pub reconciled: bool,
     pub usage_reported: bool,
@@ -377,7 +385,7 @@ impl SharedRuntime {
                 || record
                     .operations
                     .iter()
-                    .any(|o| !o.complete && !o.reconciled))
+                    .any(Operation::needs_reconciliation))
         {
             record.recovery_pending = true;
             if let Some(allocation) = &mut record.allocation {
@@ -546,7 +554,7 @@ impl SharedRuntime {
             // billing. The developer reconciles every incomplete admission.
             if r.operations
                 .iter()
-                .any(|o| !o.complete && !o.reconciled && delegation::agent_id(&o.phase).is_none())
+                .any(|o| o.needs_reconciliation() && delegation::agent_id(&o.phase).is_none())
             {
                 r.recovery_pending = true;
                 if let Some(a) = &mut r.allocation {
@@ -581,7 +589,7 @@ impl SharedRuntime {
                 digest.unwrap_or("ordinary conversation; no acceptance snapshot")
             ));
             for operation in &mut r.operations {
-                if !operation.complete {
+                if operation.needs_reconciliation() {
                     operation.reconciled = true;
                 }
             }
@@ -632,6 +640,8 @@ impl SharedRuntime {
                 verification: None,
                 call: None,
                 result: None,
+                tool_receipt: None,
+                host_invocation: Some(HostInvocation::Model),
                 complete: false,
                 reconciled: false,
                 usage_reported: false,
@@ -674,6 +684,19 @@ impl SharedRuntime {
                 Ok(())
             }),
             Event::ToolStarted { call } => self.admission(|r| {
+                if let Some(operation) = r.operations.iter().rev().find(|operation| {
+                    operation.phase == phase
+                        && operation
+                            .call
+                            .as_ref()
+                            .is_some_and(|saved| saved.id == call.id)
+                }) {
+                    ensure!(
+                        operation.call.as_ref() == Some(call),
+                        "tool notice changed an existing request"
+                    );
+                    return Ok(());
+                }
                 delegation::ensure_agent_active(r, phase)?;
                 ensure!(
                     !r.recovery_pending,
@@ -694,6 +717,8 @@ impl SharedRuntime {
                     identity: None,
                     call: Some(call.clone()),
                     result: None,
+                    tool_receipt: None,
+                    host_invocation: None,
                     complete: false,
                     reconciled: false,
                     usage_reported: false,
@@ -701,6 +726,20 @@ impl SharedRuntime {
                 Ok(())
             }),
             Event::ToolFinished { result } => self.update(|r| {
+                if let Some(operation) = r.operations.iter().rev().find(|operation| {
+                    operation.phase == phase
+                        && operation
+                            .call
+                            .as_ref()
+                            .is_some_and(|call| call.id == result.call_id)
+                }) && (operation.complete || operation.tool_receipt.is_some())
+                {
+                    ensure!(
+                        operation.result.as_ref() == Some(result),
+                        "late tool event cannot replace the original receipt"
+                    );
+                    return Ok(());
+                }
                 if let Some(operation) = r.operations.iter_mut().rev().find(|o| {
                     !o.complete
                         && o.phase == phase
@@ -728,6 +767,8 @@ impl SharedRuntime {
                             arguments: Value::Null,
                         }),
                         result: Some(result.clone()),
+                        tool_receipt: None,
+                        host_invocation: None,
                         complete: true,
                         reconciled: false,
                         usage_reported: false,

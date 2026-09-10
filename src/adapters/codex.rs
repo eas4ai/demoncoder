@@ -239,6 +239,8 @@ impl Codex {
             self.next_id += 1;
             let process = self.process.as_mut().context("Codex process unavailable")?;
             let admission = events.begin_backend()?;
+            let invocation_events = events.for_invocation(admission);
+            let events = &invocation_events;
             let request = if prompt == "/compact" {
                 json!({"id":id,"method":"thread/compact/start","params":{"threadId":self.thread}})
             } else {

@@ -146,6 +146,8 @@ pub struct EventSink {
     runtime: Option<crate::workflow::runtime::SharedRuntime>,
     phase: String,
     identity: Option<crate::workflow::runtime::Identity>,
+    invocation: Option<u64>,
+    tool_operation: Option<u64>,
 }
 
 impl EventSink {
@@ -176,6 +178,8 @@ impl EventSink {
             runtime: None,
             phase: "worker".into(),
             identity: None,
+            invocation: None,
+            tool_operation: None,
         })
     }
 
@@ -187,6 +191,8 @@ impl EventSink {
     pub(crate) fn for_connection(&self, connection: &str) -> Self {
         Self {
             connection: connection.into(),
+            invocation: None,
+            tool_operation: None,
             ..self.clone()
         }
     }
@@ -201,6 +207,8 @@ impl EventSink {
     pub(crate) fn for_phase(&self, phase: &str) -> Self {
         Self {
             phase: phase.into(),
+            invocation: None,
+            tool_operation: None,
             ..self.clone()
         }
     }
@@ -212,6 +220,8 @@ impl EventSink {
             log: None,
             runtime: self.runtime.clone(),
             identity: None,
+            invocation: None,
+            tool_operation: None,
             phase: if self.phase.starts_with("agent:") {
                 format!("{}:{phase}", self.phase)
             } else {
@@ -228,12 +238,108 @@ impl EventSink {
     }
 
     pub(crate) fn begin_backend(&self) -> Result<Option<u64>> {
-        match &self.runtime {
-            Some(runtime) if runtime.record()?.delegation.is_some() => Ok(Some(
-                runtime.begin_backend_as(&self.phase, self.identity.as_ref())?,
-            )),
-            _ => Ok(None),
+        self.runtime
+            .as_ref()
+            .map(|runtime| runtime.begin_backend_as(&self.phase, self.identity.as_ref()))
+            .transpose()
+    }
+
+    pub(crate) fn for_invocation(&self, invocation: Option<u64>) -> Self {
+        Self {
+            invocation,
+            tool_operation: None,
+            ..self.clone()
         }
+    }
+
+    pub(crate) fn for_commands(&self) -> Result<Self> {
+        let invocation = self
+            .runtime
+            .as_ref()
+            .map(|runtime| runtime.begin_commands(&self.phase, self.identity.as_ref()))
+            .transpose()?;
+        Ok(self.for_invocation(invocation))
+    }
+
+    pub(crate) fn begin_tool(
+        &self,
+        call: &crate::tools::ToolCall,
+    ) -> Result<(Self, Option<crate::tools::ToolResult>)> {
+        let Some(runtime) = &self.runtime else {
+            return Ok((self.clone(), None));
+        };
+        let invocation = self
+            .invocation
+            .context("durable tool execution requires a host invocation")?;
+        match runtime.begin_tool(&self.phase, invocation, call)? {
+            crate::workflow::runtime::ToolAdmission::Fresh(id) => Ok((
+                Self {
+                    tool_operation: Some(id),
+                    ..self.clone()
+                },
+                None,
+            )),
+            crate::workflow::runtime::ToolAdmission::Replay(result) => {
+                Ok((self.clone(), Some(result)))
+            }
+            crate::workflow::runtime::ToolAdmission::Denied(id, result) => {
+                let scoped = Self {
+                    tool_operation: Some(id),
+                    ..self.clone()
+                };
+                scoped.emit_advisory(Event::ToolFinished {
+                    result: result.clone(),
+                })?;
+                Ok((scoped, Some(result)))
+            }
+            crate::workflow::runtime::ToolAdmission::Held(reason) => anyhow::bail!(reason),
+        }
+    }
+
+    pub(crate) fn admit_tool(&self, call: &crate::tools::ToolCall) -> Result<()> {
+        if let (Some(runtime), Some(id)) = (&self.runtime, self.tool_operation) {
+            runtime.admit_tool(id, call)?;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn tool_effect(&self) -> Result<()> {
+        if let (Some(runtime), Some(id)) = (&self.runtime, self.tool_operation) {
+            runtime.tool_effect(id)?;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn original_tool_result(&self, result: &crate::tools::ToolResult) -> Result<()> {
+        if let (Some(runtime), Some(id)) = (&self.runtime, self.tool_operation) {
+            runtime.original_tool_result(id, result)?;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn model_tool_result(&self, result: &crate::tools::ToolResult) -> Result<()> {
+        if let (Some(runtime), Some(id)) = (&self.runtime, self.tool_operation) {
+            runtime.model_tool_result(id, result)?;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn tool_observer(
+        &self,
+        index: usize,
+        outcome: Option<Result<&str, &str>>,
+    ) -> Result<()> {
+        if let (Some(runtime), Some(id)) = (&self.runtime, self.tool_operation) {
+            runtime.tool_observer(id, index, outcome)?;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn settle_tool(&self) -> Result<()> {
+        if let (Some(runtime), Some(id)) = (&self.runtime, self.tool_operation) {
+            runtime.settle_tool(id)?;
+        }
+        Ok(())
     }
 
     pub(crate) fn finish_model(&self, id: Option<u64>) -> Result<()> {
@@ -285,7 +391,18 @@ impl EventSink {
 
     fn retain(&self, envelope: &Envelope) -> Result<()> {
         if let Some(runtime) = &self.runtime {
-            runtime.observe(&envelope.event, &self.phase)?;
+            // Scoped tools publish state synchronously at the effect boundary.
+            // Live delivery and duplicate notices cannot allocate or replace it.
+            if self.tool_operation.is_none()
+                || !matches!(
+                    envelope.event,
+                    Event::ToolStarted { .. }
+                        | Event::ToolFinished { .. }
+                        | Event::ToolPresentation { .. }
+                )
+            {
+                runtime.observe(&envelope.event, &self.phase)?;
+            }
         }
         if let Some(log) = &self.log {
             let mut log = log

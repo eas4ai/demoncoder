@@ -168,6 +168,8 @@ impl Claude {
                 .await?;
             self.tools.set_intent(&prompt);
             let admission = events.begin_backend()?;
+            let invocation_events = events.for_invocation(admission);
+            let events = &invocation_events;
             process.send(json!({"type":"user","message":{"role":"user","content":prompt},"parent_tool_use_id":null,"session_id":self.session.as_deref().unwrap_or("")})).await?;
             let mut context_usage = crate::context::MessageContext::default();
             let mut corrections = Vec::new();

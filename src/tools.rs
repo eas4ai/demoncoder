@@ -77,14 +77,14 @@ impl AccessPolicy {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 pub struct ToolCall {
     pub id: String,
     pub name: String,
     pub arguments: Value,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 pub struct ToolResult {
     pub call_id: String,
     pub tool: String,
@@ -130,6 +130,19 @@ pub trait ToolHook: Send + Sync {
 pub trait ToolExtension: Send + Sync {
     fn definitions(&self) -> Vec<Value>;
     async fn execute(&self, call: &ToolCall, events: &EventSink) -> Result<String>;
+}
+
+struct ToolEffect<'a> {
+    events: &'a EventSink,
+    started: bool,
+}
+
+impl ToolEffect<'_> {
+    fn start(&mut self) -> Result<()> {
+        self.events.tool_effect()?;
+        self.started = true;
+        Ok(())
+    }
 }
 
 pub struct ToolExecutor {
@@ -337,16 +350,26 @@ impl ToolExecutor {
     }
 
     pub async fn execute(&self, mut call: ToolCall, events: &EventSink) -> Result<ToolResult> {
+        ensure!(self.hooks.len() <= 32, "too many tool hooks");
+        let (scoped_events, replay) = events.begin_tool(&call)?;
+        if let Some(result) = replay {
+            return Ok(result);
+        }
+        let events = &scoped_events;
         self.take_completed();
         let identity = (call.id.clone(), call.name.clone());
+        let mut effect = ToolEffect {
+            events,
+            started: false,
+        };
         let execution = async {
             ensure!(self.access.tools_enabled, "the Oracle cannot execute tools");
             for hook in &self.hooks {
                 hook.before(&mut call)?;
             }
             ensure!(
-                call.id == identity.0,
-                "hooks cannot change tool call identity"
+                call.id == identity.0 && call.name == identity.1,
+                "hooks cannot change tool identity"
             );
             ensure!(
                 !call.id.is_empty() && call.id.len() <= 256,
@@ -356,6 +379,7 @@ impl ToolExecutor {
                 serde_json::to_vec(&call.arguments)?.len() <= MAX_BYTES,
                 "tool arguments exceed 1 MiB"
             );
+            events.admit_tool(&call)?;
             events
                 .emit(Event::ToolStarted { call: call.clone() })
                 .await?;
@@ -363,15 +387,17 @@ impl ToolExecutor {
                 "read" => {
                     let args: ReadArgs = serde_json::from_value(call.arguments.clone())?;
                     let mut file = self
-                        .admitted_file(&call, &args.path, OFlags::RDONLY, false, events)
+                        .admitted_file(&call, &args.path, OFlags::RDONLY, false, &mut effect)
                         .await?;
+                    effect.start()?;
                     Ok((read_text(&mut file)?, None))
                 }
                 "write" => {
                     let args: WriteArgs = serde_json::from_value(call.arguments.clone())?;
                     let mut file = self
-                        .admitted_file(&call, &args.path, OFlags::WRONLY, true, events)
+                        .admitted_file(&call, &args.path, OFlags::WRONLY, true, &mut effect)
                         .await?;
+                    effect.start()?;
                     write_text(&mut file, &args.content)?;
                     Ok((
                         format!("Wrote {} bytes to {}", args.content.len(), args.path),
@@ -382,7 +408,7 @@ impl ToolExecutor {
                     let args: EditArgs = serde_json::from_value(call.arguments.clone())?;
                     ensure!(!args.old_text.is_empty(), "old_text must not be empty");
                     let mut file = self
-                        .admitted_file(&call, &args.path, OFlags::RDWR, false, events)
+                        .admitted_file(&call, &args.path, OFlags::RDWR, false, &mut effect)
                         .await?;
                     let old = read_text(&mut file)?;
                     ensure!(
@@ -390,6 +416,7 @@ impl ToolExecutor {
                         "edit requires exactly one matching old_text"
                     );
                     let new = old.replacen(&args.old_text, &args.new_text, 1);
+                    effect.start()?;
                     write_text(&mut file, &new)?;
                     Ok((format!("Edited {}", args.path), None))
                 }
@@ -402,11 +429,11 @@ impl ToolExecutor {
                     if self.access.unrestricted {
                         self.review(&call, None, None, events).await?;
                     }
-                    self.bash(&call.id, &args.command, events).await
+                    self.bash(&call.id, &args.command, &mut effect).await
                 }
                 "lsp" => {
                     let args = serde_json::from_value(call.arguments.clone())?;
-                    Ok((self.language_query(args).await?, None))
+                    Ok((self.language_query(args, Some(&mut effect)).await?, None))
                 }
                 _ => {
                     let extension = self
@@ -422,6 +449,7 @@ impl ToolExecutor {
                         "tool is not authorized: {}",
                         call.name
                     );
+                    effect.start()?;
                     let output = extension.execute(&call, events).await?;
                     ensure!(output.len() <= MAX_BYTES, "parent tool result exceeds 1 MiB; inspect the retained agent record with /agent ID");
                     Ok((output, None))
@@ -432,14 +460,14 @@ impl ToolExecutor {
         let mut result = match execution {
             Ok((output, exit_code)) => ToolResult {
                 call_id: identity.0,
-                tool: call.name,
+                tool: identity.1,
                 success: exit_code.is_none_or(|v| v == 0),
                 output,
                 exit_code,
             },
             Err(error) => ToolResult {
                 call_id: identity.0,
-                tool: call.name,
+                tool: identity.1,
                 success: false,
                 output: format!("{error:#}"),
                 exit_code: None,
@@ -448,6 +476,7 @@ impl ToolExecutor {
         // No await separates completion from this receipt. The session can
         // recover it even if event delivery is cancelled or presentation fails.
         *self.completed.lock().expect("tool receipt lock poisoned") = Some(result.clone());
+        events.original_tool_result(&result)?;
         if result.success
             && matches!(result.tool.as_str(), "write" | "edit")
             && let Some(path) = call.arguments["path"].as_str()
@@ -458,7 +487,7 @@ impl ToolExecutor {
         {
             // The completed mutation is recoverable before any diagnostic await.
             let feedback = self
-                .language_query(crate::language_services::Args::diagnostics(path))
+                .language_query(crate::language_services::Args::diagnostics(path), None)
                 .await;
             result.output.push_str("\nLanguage diagnostics: ");
             match feedback {
@@ -467,26 +496,51 @@ impl ToolExecutor {
                     "unavailable or pending: {error:#}; verification not run"
                 )),
             }
-            *self.completed.lock().expect("tool receipt lock poisoned") = Some(result.clone());
         }
-        // The actual result is retained first. Presentation never replaces evidence.
+        events.model_tool_result(&result)?;
+        *self.completed.lock().expect("tool receipt lock poisoned") = Some(result.clone());
+        if self.hooks.is_empty() || !effect.started {
+            events.settle_tool()?;
+        }
+        // Presentation never replaces the original evidence.
         events
             .emit(Event::ToolFinished {
                 result: result.clone(),
             })
             .await?;
-        for hook in &self.hooks {
+        if !effect.started {
+            return Ok(result);
+        }
+        for (index, hook) in self.hooks.iter().enumerate() {
+            events.tool_observer(index, None)?;
+            let text = match hook.present(&result) {
+                Ok(text) => {
+                    events.tool_observer(index, Some(Ok(&text)))?;
+                    text
+                }
+                Err(error) => {
+                    events.tool_observer(index, Some(Err(&format!("{error:#}"))))?;
+                    return Err(error);
+                }
+            };
+            if index + 1 == self.hooks.len() {
+                events.settle_tool()?;
+            }
             events
                 .emit(Event::ToolPresentation {
                     call_id: result.call_id.clone(),
-                    text: hook.present(&result)?,
+                    text,
                 })
                 .await?;
         }
         Ok(result)
     }
 
-    async fn language_query(&self, args: crate::language_services::Args) -> Result<String> {
+    async fn language_query(
+        &self,
+        args: crate::language_services::Args,
+        effect: Option<&mut ToolEffect<'_>>,
+    ) -> Result<String> {
         let manager = self
             .language_services
             .as_ref()
@@ -499,6 +553,9 @@ impl ToolExecutor {
         };
         let path = args.path.clone();
         let original = source.clone();
+        if let Some(effect) = effect {
+            effect.start()?;
+        }
         let output = manager.execute(args, source).await?;
         if let (Some(path), Some(original)) = (path, original) {
             ensure!(
@@ -541,7 +598,13 @@ impl ToolExecutor {
         read_text(&mut file)
     }
 
-    fn open(&self, path: &str, flags: OFlags, create: bool) -> Result<File> {
+    fn open(
+        &self,
+        path: &str,
+        flags: OFlags,
+        create: bool,
+        effect: &mut ToolEffect<'_>,
+    ) -> Result<File> {
         validate_path(path)?;
         if let Some(worktree) = &self.worktree {
             worktree.check_path(&self.workspace.join(path))?;
@@ -561,16 +624,19 @@ impl ToolExecutor {
         let fd = openat2(&*self.root, path, flags, Mode::empty(), resolve);
         let file = match fd {
             Ok(fd) => File::from(fd),
-            Err(rustix::io::Errno::NOENT) if create => File::from(
-                openat2(
-                    &*self.root,
-                    path,
-                    flags | OFlags::CREATE | OFlags::EXCL,
-                    Mode::RUSR | Mode::WUSR,
-                    resolve,
+            Err(rustix::io::Errno::NOENT) if create => {
+                effect.start()?;
+                File::from(
+                    openat2(
+                        &*self.root,
+                        path,
+                        flags | OFlags::CREATE | OFlags::EXCL,
+                        Mode::RUSR | Mode::WUSR,
+                        resolve,
+                    )
+                    .context("create file beneath workspace; parent directory must exist")?,
                 )
-                .context("create file beneath workspace; parent directory must exist")?,
-            ),
+            }
             Err(error) => {
                 return Err(error).context("open file beneath workspace without symlinks");
             }
@@ -590,10 +656,11 @@ impl ToolExecutor {
         path: &str,
         flags: OFlags,
         create: bool,
-        events: &EventSink,
+        effect: &mut ToolEffect<'_>,
     ) -> Result<File> {
+        let events = effect.events;
         if self.access.strict_worktree {
-            return self.open(path, flags, create);
+            return self.open(path, flags, create, effect);
         }
         if !self.access.unrestricted {
             if flags == OFlags::RDONLY {
@@ -604,7 +671,7 @@ impl ToolExecutor {
                     .read(self.root.clone(), path.to_owned())
                     .await;
             }
-            return self.open(path, flags, create);
+            return self.open(path, flags, create, effect);
         }
         ensure!(!path.is_empty() && path.len() <= 4096, "invalid tool path");
         let flags = flags | OFlags::CLOEXEC | OFlags::NONBLOCK;
@@ -663,6 +730,7 @@ impl ToolExecutor {
                 );
                 // No file is created before review. A concurrently created leaf
                 // or symlink fails rather than changing the admitted target.
+                effect.start()?;
                 Ok(File::from(
                     openat2(
                         &directory,
@@ -772,8 +840,9 @@ impl ToolExecutor {
         &self,
         id: &str,
         script: &str,
-        events: &EventSink,
+        effect: &mut ToolEffect<'_>,
     ) -> Result<(String, Option<i32>)> {
+        let events = effect.events;
         // Both modes start in the pinned project. Only explicit host access
         // takes this branch; a confined launch never falls back to it.
         let root_path = format!("/proc/{}/fd/{}", std::process::id(), self.root.as_raw_fd());
@@ -821,6 +890,7 @@ impl ToolExecutor {
                 .kill_on_drop(true);
             command
         };
+        effect.start()?;
         let mut child = command.spawn().with_context(|| {
             if self.access.unrestricted {
                 "start host Bash"
