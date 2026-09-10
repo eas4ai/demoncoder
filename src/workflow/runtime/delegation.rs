@@ -309,6 +309,7 @@ mod tests {
             record,
             failed: false,
             learning_view: None,
+            mutation_boundaries: Default::default(),
         })));
         let mut judge = connection.clone();
         judge.model = Some("judge-a".into());
@@ -371,6 +372,7 @@ mod tests {
             record,
             failed: false,
             learning_view: None,
+            mutation_boundaries: Default::default(),
         })));
         let identity = DelegationIdentity {
             default_roles: Vec::new(),
@@ -411,6 +413,7 @@ mod tests {
             record,
             failed: false,
             learning_view: None,
+            mutation_boundaries: Default::default(),
         })));
 
         let error = runtime.admit_agent_validation(1, 1).unwrap_err();

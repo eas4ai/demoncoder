@@ -17,6 +17,8 @@ pub enum HostInvocation {
 #[serde(deny_unknown_fields)]
 pub struct ToolReceipt {
     pub invocation: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plugin_admission: Option<crate::plugins::receipts::AdmissionReceipt>,
     pub original_call: ToolCall,
     pub attempt_admitted: bool,
     pub admitted: bool,
@@ -42,10 +44,12 @@ impl Operation {
     pub(super) fn needs_reconciliation(&self) -> bool {
         !self.reconciled
             && (!self.complete
-                || self
-                    .tool_receipt
-                    .as_ref()
-                    .is_some_and(|receipt| !receipt.observers_complete))
+                || self.tool_receipt.as_ref().is_some_and(|receipt| {
+                    !receipt.observers_complete
+                        || receipt.plugin_admission.as_ref().is_some_and(|plan| {
+                            plan.hooks.iter().any(|hook| hook.uncertain_effects)
+                        })
+                }))
     }
     pub fn model_result(&self) -> Option<&ToolResult> {
         self.tool_receipt
@@ -155,7 +159,7 @@ impl SharedRuntime {
                 reconciled: false, usage_reported: false,
                 host_invocation: None,
                 tool_receipt: Some(ToolReceipt {
-                    invocation, original_call: call.clone(), attempt_admitted: denied.is_none(), admitted: false,
+                    invocation, plugin_admission: None, original_call: call.clone(), attempt_admitted: denied.is_none(), admitted: false,
                     effect_started: false, observers_complete: denied.is_some(),
                     observer_pending: None, observer_error: None, presentations: Vec::new(), model_result: None,
                     model_result_settled: denied.is_some(),
@@ -174,6 +178,7 @@ impl SharedRuntime {
     }
 
     pub(crate) fn admit_tool(&self, id: u64, call: &ToolCall) -> Result<()> {
+        let session = self.plugin_session()?;
         self.admission(|record| {
             let operation = record
                 .operations
@@ -197,6 +202,7 @@ impl SharedRuntime {
                 "uncertain work needs reconciliation before tool admission"
             );
             delegation::ensure_agent_active(record, &operation.phase)?;
+            super::plugin_admission::validate_final_key(operation, call, &session)?;
             let operation = record
                 .operations
                 .iter_mut()
@@ -213,6 +219,7 @@ impl SharedRuntime {
     }
 
     pub(crate) fn tool_effect(&self, id: u64) -> Result<()> {
+        let session = self.plugin_session()?;
         self.admission(|record| {
             let operation = record
                 .operations
@@ -232,6 +239,14 @@ impl SharedRuntime {
                 "uncertain work needs reconciliation before tool effect"
             );
             delegation::ensure_agent_active(record, &operation.phase)?;
+            super::plugin_admission::validate_final_key(
+                operation,
+                operation
+                    .call
+                    .as_ref()
+                    .context("admitted tool call missing")?,
+                &session,
+            )?;
             if let Some(allocation) = &record.allocation {
                 ensure!(
                     allocation.remaining_ms()? > 0,

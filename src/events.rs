@@ -296,6 +296,26 @@ impl EventSink {
         }
     }
 
+    pub(crate) fn plugin_context(&self) -> Result<(crate::workflow::runtime::SharedRuntime, u64)> {
+        Ok((
+            self.runtime
+                .clone()
+                .context("plugin admission requires a durable runtime")?,
+            self.tool_operation
+                .context("plugin admission requires a correlated tool operation")?,
+        ))
+    }
+
+    pub(crate) fn mutation_boundary(
+        &self,
+        identity: (u64, u64),
+    ) -> Result<Option<Arc<tokio::sync::Mutex<()>>>> {
+        self.runtime
+            .as_ref()
+            .map(|r| r.mutation_boundary(identity))
+            .transpose()
+    }
+
     pub(crate) fn admit_tool(&self, call: &crate::tools::ToolCall) -> Result<()> {
         if let (Some(runtime), Some(id)) = (&self.runtime, self.tool_operation) {
             runtime.admit_tool(id, call)?;

@@ -1,5 +1,6 @@
 //! Durable admissions and results shared by worker, checks, Oracle and reviewer.
 mod delegation;
+mod plugin_admission;
 mod tool_operations;
 pub use tool_operations::HostInvocation;
 pub(crate) use tool_operations::ToolAdmission;
@@ -213,6 +214,7 @@ struct Runtime {
     record: Record,
     failed: bool,
     learning_view: Option<Arc<crate::learning::control::View>>,
+    mutation_boundaries: std::collections::BTreeMap<(u64, u64), Arc<tokio::sync::Mutex<()>>>,
 }
 
 #[derive(Clone)]
@@ -284,6 +286,7 @@ impl SharedRuntime {
             record,
             failed: false,
             learning_view: None,
+            mutation_boundaries: Default::default(),
         }))))
     }
 
@@ -402,6 +405,7 @@ impl SharedRuntime {
                 record,
                 failed: false,
                 learning_view: None,
+                mutation_boundaries: Default::default(),
             }))),
             resumed,
         ))
@@ -945,6 +949,7 @@ mod tests {
             record,
             failed: false,
             learning_view: None,
+            mutation_boundaries: Default::default(),
         })));
         let result = runtime.admission(|record| {
             let allocation = record.allocation.as_mut().unwrap();

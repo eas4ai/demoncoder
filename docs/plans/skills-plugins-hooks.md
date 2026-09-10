@@ -119,8 +119,19 @@ retries across all four adapter paths and direct verification commands. Original
 results precede observer awaits; known denials, unknown effects and settled
 model-facing output remain distinct. Review corrected access-denied observers,
 budget-denial compatibility and a post-persistence clock gap. Final affected
-checks passed; plugin handler admission and the full final-candidate protocol
-remain to be integrated.
+checks passed.
+
+The [final-candidate admission prerequisite](../reviews/plugin-final-candidate-admission.md)
+is implemented and independently reviewed. Host-selected pre-tool plans now run
+the bounded rewrite, decision and concurrent-group protocol through ToolExecutor,
+retain hook receipts, and validate frozen inputs inside the shared workspace
+mutation boundary. Review corrected equivalent-path matcher bypasses and lost
+completed outcomes after sibling uncertainty. The corrected candidate passed
+250 tests, with one explicitly ignored external-assessment case; independent
+specification and quality checks also passed. Controlled runners exercise this
+path. The five production runners, activation, developer answers, extension/LSP
+integration and remaining lifecycle events still need integration, so section 4
+and the complete commitment remain in progress.
 
 ## 5. Five confined runner types
 
@@ -131,6 +142,29 @@ but cannot supply an agent hook's read-only inspection tools. Add an explicit
 snapshot inspection policy and enforce it in both the tool boundary and process
 confinement. Keep hook phases distinct for usage attribution while retaining an
 owning `agent:<id>` prefix, which the runtime uses to reject stopped assignments.
+
+Runner integration constraints from the existing production paths:
+
+- `WorktreeAccess::command` currently mounts its workspace writable and uses
+  stdin as the root descriptor. Command hooks need a separate bounded JSON stdin
+  stream and explicit descriptor mounts. Decision runners mount the retained
+  snapshot read-only; transformer grants remain separate. Preserve the existing
+  credential masks, cleared environment and socket confinement.
+- `subagents::worktree::materialize` copies bytes and ordinary mode bits, but does
+  not reproduce captured ownership, ACLs or other access metadata. Gate snapshot
+  materialization must preserve the required inspection semantics or hold with
+  a specific reason. A byte-identical copy alone does not establish that proof.
+- `supervisor` owns orphaned Bash descendants with a subreaper and lifetime pipe.
+  Backend supervision instead uses a process group and a stdin lease. Select and
+  adapt ownership for arbitrary hook commands deliberately; demonstrate cleanup
+  for detached descendants, cancellation, output overflow and owner death.
+- Prompt runners can follow `workflow::review::run_prompt` for tool-free adapter
+  execution and closure, but need their own response schema and owning allowance.
+  Agent runners need snapshot inspection tools. Neither runner may substitute a
+  different configured model or recover authority from response-supplied identity.
+- The provider HTTP client disables redirects, but its response helper discards
+  non-success bodies. Hook HTTP runners must retain bounded source-protocol
+  responses and check endpoint and credential authority before any redirect.
 
 - [ ] Command: JSON stdin, explicit argv/shell, declared environment/access, bounded output/deadlines and owned descendants. Literal event values never enter executable shell source.
 - [ ] Prompt: selected model, no tools, schema-validated verdict, cumulative admission and usage. Agent: immutable admitted snapshot, bounded read-only inspection, retained evidence and the same ledger.

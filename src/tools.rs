@@ -135,10 +135,63 @@ pub trait ToolExtension: Send + Sync {
 struct ToolEffect<'a> {
     events: &'a EventSink,
     started: bool,
+    admission: Option<crate::plugins::admission::AdmittedCandidate>,
+    boundary: Option<Arc<tokio::sync::Mutex<()>>>,
+    guard: Option<Arc<tokio::sync::OwnedMutexGuard<()>>>,
+}
+
+/// The same descriptor resolver used by file admission pins the target inspected
+/// by path matchers. A missing leaf pins its existing parent instead.
+pub(crate) struct PluginTarget {
+    anchor: File,
+    path: PathBuf,
+    leaf: Option<std::ffi::OsString>,
+}
+
+impl PluginTarget {
+    pub(crate) fn verify(&self) -> Result<()> {
+        ensure!(
+            descriptor_path(&self.anchor)? == self.path,
+            "plugin target moved after path matching; retry"
+        );
+        Ok(())
+    }
+
+    fn bind(&self, file: &File, parent: bool) -> Result<()> {
+        let expected = self.anchor.metadata()?;
+        let actual = file.metadata()?;
+        ensure!(
+            parent == self.leaf.is_some()
+                && (expected.dev(), expected.ino()) == (actual.dev(), actual.ino())
+                && descriptor_path(file)? == self.path,
+            "plugin target changed after path matching; retry"
+        );
+        self.verify()
+    }
 }
 
 impl ToolEffect<'_> {
-    fn start(&mut self) -> Result<()> {
+    fn bind_target(&self, file: &File, parent: bool) -> Result<()> {
+        if let Some(target) = self.admission.as_ref().and_then(|a| a.target.as_ref()) {
+            target.bind(file, parent)?;
+        }
+        Ok(())
+    }
+
+    async fn lock(&mut self) {
+        if self.guard.is_none()
+            && let Some(boundary) = &self.boundary
+        {
+            self.guard = Some(Arc::new(boundary.clone().lock_owned().await));
+        }
+    }
+    async fn start(&mut self) -> Result<()> {
+        self.lock().await;
+        if !self.started
+            && let Some(admission) = &self.admission
+        {
+            admission.validate(self.guard.clone()).await?;
+        }
         self.events.tool_effect()?;
         self.started = true;
         Ok(())
@@ -154,6 +207,8 @@ pub struct ToolExecutor {
     worktree: Option<Arc<crate::worktree_access::WorktreeAccess>>,
     intent: Mutex<String>,
     hooks: Vec<Box<dyn ToolHook>>,
+    plugin_plan: Option<Arc<crate::plugins::dispatch::PreToolPlan>>,
+    gate_workspace: Arc<crate::plugins::gate_snapshot::GateWorkspace>,
     // Execution is sequential. Keep the current receipt across cancellation
     // during event delivery or a presentation error; never retain a full copy
     // of the session history here.
@@ -275,6 +330,10 @@ impl ToolExecutor {
             },
             intent: Mutex::new(String::new()),
             hooks: Vec::new(),
+            plugin_plan: None,
+            gate_workspace: Arc::new(crate::plugins::gate_snapshot::GateWorkspace::open(
+                &workspace,
+            )?),
             completed: Mutex::new(None),
         })
     }
@@ -338,6 +397,19 @@ impl ToolExecutor {
         Ok(())
     }
 
+    /// Host-selected immutable registration; package discovery/activation is separate.
+    pub fn register_pre_tool_plan(
+        &mut self,
+        plan: Arc<crate::plugins::dispatch::PreToolPlan>,
+    ) -> Result<()> {
+        ensure!(
+            self.plugin_plan.is_none(),
+            "pre-tool plan is already frozen"
+        );
+        self.plugin_plan = Some(plan);
+        Ok(())
+    }
+
     pub fn add_hook(&mut self, hook: Box<dyn ToolHook>) {
         self.hooks.push(hook);
     }
@@ -358,9 +430,18 @@ impl ToolExecutor {
         let events = &scoped_events;
         self.take_completed();
         let identity = (call.id.clone(), call.name.clone());
+        let root_metadata = self.root.metadata()?;
+        let workspace_identity = (root_metadata.dev(), root_metadata.ino());
         let mut effect = ToolEffect {
             events,
             started: false,
+            admission: None,
+            boundary: if matches!(call.name.as_str(), "write" | "edit" | "bash") {
+                events.mutation_boundary(workspace_identity)?
+            } else {
+                None
+            },
+            guard: None,
         };
         let execution = async {
             ensure!(self.access.tools_enabled, "the Oracle cannot execute tools");
@@ -379,6 +460,10 @@ impl ToolExecutor {
                 serde_json::to_vec(&call.arguments)?.len() <= MAX_BYTES,
                 "tool arguments exceed 1 MiB"
             );
+            if let Some(plan) = &self.plugin_plan {
+                effect.admission = Some(plan.admit(&mut call, events, self.gate_workspace.clone(), workspace_identity, self).await?);
+            }
+            self.validate_final_call(&call)?;
             events.admit_tool(&call)?;
             events
                 .emit(Event::ToolStarted { call: call.clone() })
@@ -389,7 +474,7 @@ impl ToolExecutor {
                     let mut file = self
                         .admitted_file(&call, &args.path, OFlags::RDONLY, false, &mut effect)
                         .await?;
-                    effect.start()?;
+                    effect.start().await?;
                     Ok((read_text(&mut file)?, None))
                 }
                 "write" => {
@@ -397,7 +482,7 @@ impl ToolExecutor {
                     let mut file = self
                         .admitted_file(&call, &args.path, OFlags::WRONLY, true, &mut effect)
                         .await?;
-                    effect.start()?;
+                    effect.start().await?;
                     write_text(&mut file, &args.content)?;
                     Ok((
                         format!("Wrote {} bytes to {}", args.content.len(), args.path),
@@ -416,7 +501,7 @@ impl ToolExecutor {
                         "edit requires exactly one matching old_text"
                     );
                     let new = old.replacen(&args.old_text, &args.new_text, 1);
-                    effect.start()?;
+                    effect.start().await?;
                     write_text(&mut file, &new)?;
                     Ok((format!("Edited {}", args.path), None))
                 }
@@ -449,7 +534,7 @@ impl ToolExecutor {
                         "tool is not authorized: {}",
                         call.name
                     );
-                    effect.start()?;
+                    effect.start().await?;
                     let output = extension.execute(&call, events).await?;
                     ensure!(output.len() <= MAX_BYTES, "parent tool result exceeds 1 MiB; inspect the retained agent record with /agent ID");
                     Ok((output, None))
@@ -457,6 +542,7 @@ impl ToolExecutor {
             }
         }
         .await;
+        effect.guard.take();
         let mut result = match execution {
             Ok((output, exit_code)) => ToolResult {
                 call_id: identity.0,
@@ -536,6 +622,110 @@ impl ToolExecutor {
         Ok(result)
     }
 
+    fn validate_final_call(&self, call: &ToolCall) -> Result<()> {
+        ensure!(
+            serde_json::to_vec(&call.arguments)?.len() <= MAX_BYTES,
+            "tool arguments exceed 1 MiB"
+        );
+        match call.name.as_str() {
+            "read" => {
+                let _: ReadArgs = serde_json::from_value(call.arguments.clone())?;
+            }
+            "write" => {
+                let args: WriteArgs = serde_json::from_value(call.arguments.clone())?;
+                ensure!(
+                    args.content.len() <= MAX_BYTES,
+                    "file content exceeds 1 MiB"
+                );
+            }
+            "edit" => {
+                let args: EditArgs = serde_json::from_value(call.arguments.clone())?;
+                ensure!(!args.old_text.is_empty(), "old_text must not be empty");
+            }
+            "bash" => {
+                let args: BashArgs = serde_json::from_value(call.arguments.clone())?;
+                ensure!(
+                    !args.command.is_empty() && args.command.len() <= 65536,
+                    "invalid Bash command size"
+                );
+            }
+            _ => ensure!(
+                self.plugin_plan.is_none(),
+                "plugin admission for extension and language-service tools requires their effect owner integration"
+            ),
+        }
+        Ok(())
+    }
+
+    /// Normalize only the file tools whose effects this executor owns. O_PATH
+    /// inspects identity without reading contents or creating/truncating a file;
+    /// ordinary access checks and Oracle review still run in admitted_file.
+    pub(crate) fn plugin_candidate(&self, call: &mut ToolCall) -> Result<Option<PluginTarget>> {
+        if !matches!(call.name.as_str(), "read" | "write" | "edit") {
+            return Ok(None);
+        }
+        let path = call.arguments["path"]
+            .as_str()
+            .context("file tool requires a path")?;
+        ensure!(!path.is_empty() && path.len() <= 4096, "invalid tool path");
+        let resolve = if self.access.strict_worktree {
+            validate_path(path)?;
+            RESOLVE | ResolveFlags::NO_XDEV
+        } else if self.access.unrestricted {
+            ResolveFlags::empty()
+        } else if call.name == "read" {
+            ResolveFlags::NO_MAGICLINKS
+        } else {
+            validate_path(path)?;
+            RESOLVE
+        };
+        let opened = openat2(
+            &*self.root,
+            path,
+            OFlags::PATH | OFlags::CLOEXEC,
+            Mode::empty(),
+            resolve,
+        );
+        let (anchor, leaf) = match opened {
+            Ok(fd) => (File::from(fd), None),
+            Err(rustix::io::Errno::NOENT) if call.name == "write" => {
+                let path = Path::new(path);
+                let name = path
+                    .file_name()
+                    .context("new file needs a name")?
+                    .to_owned();
+                let parent = path
+                    .parent()
+                    .filter(|p| !p.as_os_str().is_empty())
+                    .unwrap_or(Path::new("."));
+                let directory = openat2(
+                    &*self.root,
+                    parent,
+                    OFlags::PATH | OFlags::DIRECTORY | OFlags::CLOEXEC,
+                    Mode::empty(),
+                    resolve,
+                )
+                .context("open existing parent directory for plugin path matching")?;
+                (File::from(directory), Some(name))
+            }
+            Err(error) => {
+                return Err(error).context("resolve plugin candidate with tool access policy");
+            }
+        };
+        let target = PluginTarget {
+            path: descriptor_path(&anchor)?,
+            anchor,
+            leaf,
+        };
+        let absolute = target
+            .leaf
+            .as_ref()
+            .map_or_else(|| target.path.clone(), |leaf| target.path.join(leaf));
+        let normalized = absolute.strip_prefix(&self.workspace).unwrap_or(&absolute);
+        call.arguments["path"] = json!(normalized.to_str().context("tool target is not UTF-8")?);
+        Ok(Some(target))
+    }
+
     async fn language_query(
         &self,
         args: crate::language_services::Args,
@@ -554,7 +744,7 @@ impl ToolExecutor {
         let path = args.path.clone();
         let original = source.clone();
         if let Some(effect) = effect {
-            effect.start()?;
+            effect.start().await?;
         }
         let output = manager.execute(args, source).await?;
         if let (Some(path), Some(original)) = (path, original) {
@@ -598,7 +788,7 @@ impl ToolExecutor {
         read_text(&mut file)
     }
 
-    fn open(
+    async fn open(
         &self,
         path: &str,
         flags: OFlags,
@@ -625,10 +815,21 @@ impl ToolExecutor {
         let file = match fd {
             Ok(fd) => File::from(fd),
             Err(rustix::io::Errno::NOENT) if create => {
-                effect.start()?;
+                effect.start().await?;
+                // With a plugin plan, create relative to the parent that the
+                // matchers inspected, not a second traversal of the request.
+                let target = effect.admission.as_ref().and_then(|a| a.target.as_ref());
+                let (root, path) = if let Some(target) = target {
+                    (
+                        &target.anchor,
+                        Path::new(target.leaf.as_ref().context("plugin target disappeared")?),
+                    )
+                } else {
+                    (&*self.root, Path::new(path))
+                };
                 File::from(
                     openat2(
-                        &*self.root,
+                        root,
                         path,
                         flags | OFlags::CREATE | OFlags::EXCL,
                         Mode::RUSR | Mode::WUSR,
@@ -647,6 +848,9 @@ impl ToolExecutor {
             "tools require regular files without hard links"
         );
         ensure!(meta.len() <= MAX_BYTES as u64, "file exceeds 1 MiB");
+        if !effect.started {
+            effect.bind_target(&file, false)?;
+        }
         Ok(file)
     }
 
@@ -660,18 +864,22 @@ impl ToolExecutor {
     ) -> Result<File> {
         let events = effect.events;
         if self.access.strict_worktree {
-            return self.open(path, flags, create, effect);
+            effect.lock().await;
+            return self.open(path, flags, create, effect).await;
         }
         if !self.access.unrestricted {
             if flags == OFlags::RDONLY {
-                return self
+                let file = self
                     .developer
                     .as_ref()
                     .context("developer tools are disabled")?
                     .read(self.root.clone(), path.to_owned())
-                    .await;
+                    .await?;
+                effect.bind_target(&file, false)?;
+                return Ok(file);
             }
-            return self.open(path, flags, create, effect);
+            effect.lock().await;
+            return self.open(path, flags, create, effect).await;
         }
         ensure!(!path.is_empty() && path.len() <= 4096, "invalid tool path");
         let flags = flags | OFlags::CLOEXEC | OFlags::NONBLOCK;
@@ -700,6 +908,8 @@ impl ToolExecutor {
                     descriptor_path(&file)? == target,
                     "tool target moved during admission; retry with its current path"
                 );
+                effect.bind_target(&file, false)?;
+                effect.lock().await;
                 Ok(file)
             }
             Err(rustix::io::Errno::NOENT) if create => {
@@ -728,9 +938,10 @@ impl ToolExecutor {
                     descriptor_path(&directory)? == parent_path,
                     "parent directory moved during admission; retry"
                 );
+                effect.bind_target(&directory, true)?;
                 // No file is created before review. A concurrently created leaf
                 // or symlink fails rather than changing the admitted target.
-                effect.start()?;
+                effect.start().await?;
                 Ok(File::from(
                     openat2(
                         &directory,
@@ -890,7 +1101,7 @@ impl ToolExecutor {
                 .kill_on_drop(true);
             command
         };
-        effect.start()?;
+        effect.start().await?;
         let mut child = command.spawn().with_context(|| {
             if self.access.unrestricted {
                 "start host Bash"
@@ -1082,3 +1293,6 @@ mod utf8_tests {
         }
     }
 }
+
+#[cfg(test)]
+mod plugin_target_tests;
