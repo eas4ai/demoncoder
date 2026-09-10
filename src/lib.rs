@@ -25,3 +25,5 @@ pub mod workflow;
 mod worktree_access;
 
 pub mod settings;
+
+pub mod plugins;

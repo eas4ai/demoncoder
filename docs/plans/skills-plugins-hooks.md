@@ -35,12 +35,14 @@ pub fn inspect(source: &std::path::Path, options: &ImportOptions)
 
 `Package` retains source identity, digest, exact admitted files and an inspection report. The report distinguishes source-shape validity, executable readiness and activation; inspection never activates. Canonical relative file names are the only component references. Each file includes bytes, kind/mode and content hash. Never reread a source path to execute a previously inspected generation.
 
-- [ ] Add `tests/plugin_import.rs` tests for three dialects, root plus overlay, inline replacement, malformed inline objects, independent legacy manifest ambiguity and manifest-free Claude discovery.
-- [ ] Run `cargo test --locked --test plugin_import`; the missing public importer must fail compilation before implementation.
-- [ ] Implement bounded descriptor-relative snapshot reads: 4,096 entries, 1 MiB per declaration/text file and 32 MiB aggregate; reject outside traversal, special files and unsafe links. Race-safe source reads must detect changed file metadata/content. Later binary assets use separately declared limits instead of silently increasing declaration limits.
-- [ ] Implement manifest composition using PCOMP-001, canonical-file deduplication, qualified identity collision checks and field-level diagnostics. Unknown executable declarations cannot be reported executable. Preserve metadata without treating it as instructions or permission.
-- [ ] Add malicious-path, source-mutation, oversize, duplicate-name and discovery-canary tests. Confirm source edits cannot change captured bytes and malformed required components prevent readiness.
-- [ ] Run the integration test and `cargo clippy --locked --all-targets -- -D warnings`; review specification compliance, then code quality, before committing.
+- [x] Add `tests/plugin_import.rs` tests for three dialects, root plus overlay, inline replacement, malformed inline objects, independent legacy manifest ambiguity and manifest-free Claude discovery.
+- [x] Run `cargo test --locked --test plugin_import`; the missing public importer must fail compilation before implementation.
+- [x] Implement bounded descriptor-relative snapshot reads: 4,096 entries, 1 MiB per declaration/text file and 32 MiB aggregate; reject outside traversal, special files and unsafe links. Race-safe source reads must detect changed file metadata/content. Later binary assets use separately declared limits instead of silently increasing declaration limits.
+- [x] Implement manifest composition using PCOMP-001, canonical-file deduplication, qualified identity collision checks and field-level diagnostics. Unknown executable declarations cannot be reported executable. Preserve metadata without treating it as instructions or permission.
+- [x] Add malicious-path, source-mutation, oversize, duplicate-name and discovery-canary tests. Confirm source edits cannot change captured bytes and malformed required components prevent readiness.
+- [x] Run the integration test and `cargo clippy --locked --all-targets -- -D warnings`; review specification compliance, then code quality, before committing.
+
+Foundation verification: 34 importer integration tests, 3 deterministic snapshot mutation tests and all-target Clippy passed. Specification and quality reviews found and resolved empty-directory discovery, dialect diagnostics and duplicate-path resource amplification. Execution remains unavailable until the later runtime stages.
 
 ## 2. Actual backend barrier qualification
 
