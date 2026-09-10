@@ -11,4 +11,4 @@ An ordinary ext4 workspace has no active statx attributes but advertises more op
 
 ## Realized by
 
-86e82e4a22061e27c56ede98193a343bc65e68c9 Add bounded prompt and agent hook runners
+- 86e82e4a22061e27c56ede98193a343bc65e68c9 Add bounded prompt and agent hook runners
