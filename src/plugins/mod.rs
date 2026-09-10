@@ -10,3 +10,7 @@ pub use types::*;
 pub fn inspect(source: &std::path::Path, options: &ImportOptions) -> anyhow::Result<Package> {
     manifest::inspect(snapshot::capture(source)?, options)
 }
+
+pub mod hook_types;
+pub mod profile;
+pub mod wire;

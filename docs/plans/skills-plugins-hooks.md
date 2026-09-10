@@ -10,7 +10,8 @@
 
 ## Status and execution rules
 
-- **In progress:** Build and verify the import/validation foundation and backend qualification probes.
+- Complete: Immutable import foundation, backend compaction qualification probes, wire validation and model-result interpretation.
+- **In progress:** Normalize event-specific command, HTTP and MCP results.
 - Pending: Integrate lifecycle dispatch and every runner.
 - Pending: Integrate state, recovery, services and all package components.
 - Pending: Exercise the complete public management and coding workflows.
@@ -63,14 +64,28 @@ Backend development checks: managed Codex 179 hook tests, 36 actual backend faul
 
 **Files:** `src/plugins/{wire.rs,profile.rs,hook_types.rs}`, `tests/plugin_wire.rs`, runtime coverage data under `tests/fixtures/plugins/`.
 
-- [ ] Compile the frozen JSON schemas with external retrieval disabled. Resolve only the retained schema/reference closure. Validate Claude's nested graph and every union alternative using the recorded event/control roots.
-- [ ] Implement the exact 510-cell applicability lookup; missing cells and unsupported source pairs fail validation. Native conversion creates a separate explicit declaration, not a fallback.
+- [x] Compile the frozen JSON schemas with external retrieval disabled. Resolve only the retained schema/reference closure. Validate Claude's nested graph and every union alternative using the recorded event/control roots.
+- [x] Implement the exact 510-cell applicability lookup; missing cells and unsupported source pairs fail validation without a native fallback.
+- [ ] Add the explicit developer conversion control that creates a separately validated native declaration with its required runner settings.
 - [ ] Implement event-specific command/HTTP/MCP responses and separate prompt/agent schemas. Retain ignored source fields as ignored. Worktree paths, watch updates, elicitation and display responses keep their special meaning.
-- [ ] Generate positive and negative shape cases per reachable field/branch and effect cases per event. Remove one nested field handler and one nontrivial response handler in controlled mutation tests; both must fail.
+- [x] Generate positive and negative shape cases per reachable field/branch. Controlled nested-field and union-branch mutations must break unchanged production fixtures.
+- [ ] Exercise effect cases per event and remove one nontrivial response-effect handler in a controlled mutation test; it must fail.
+
+The [wire foundation review](../reviews/plugin-wire-foundation.md) records the
+closed schema-coverage and string-allocation findings, independent reviews and
+executed checks. The foundation interprets model outcomes but does not execute
+those outcomes or the command/HTTP/MCP event effects.
 
 ## 4. Final-candidate admission and durable lifecycle
 
 **Files:** `src/plugins/{dispatch.rs,admission.rs,receipts.rs}`, `src/tools.rs`, `src/events.rs`, `src/workflow/{runtime.rs,state.rs,store.rs}`, `tests/plugin_admission.rs`.
+
+Integration constraints from the existing production paths:
+
+- `EventSink::emit` retains workflow state before sending UI events. Add invocation and admission records through `SharedRuntime`; do not introduce a separate allowance or effect ledger.
+- `ToolExecutor::execute` retains the actual result before its next await. Keep that property when adding observers, and retain the actual operation result separately from model-facing replacements.
+- `workflow::workspace::capture_scoped_cancellable` already captures bounded dirty and untracked bytes using two descriptor-relative scans. Extend its revision with ownership and ACL identity, preserving historical snapshot decoding. Snapshot materialization currently lives in `subagents::worktree`, not `workflow::review`.
+- The executor currently relies on sequential execution and has no shared mutation lock. Add a host-owned serialized boundary for final freshness checks and mutation, shared by relevant executors. A host lock cannot provide atomicity against external writers; stronger policies need a supported transaction or a hold.
 
 - [ ] Persist invocation identity and causal source before effects. Implement transformer, decision, observer and legacy-combined classes. Native priority and source concurrent groups retain their specified ordering.
 - [ ] Freeze the candidate after at most four revisions; recompute applicable matchers, retain every deny and reject conflicting concurrent rewrites. A stale combined decision requires a declared read-only endpoint or a visible hold; never rerun its effects.
@@ -80,7 +95,7 @@ Backend development checks: managed Codex 179 hook tests, 36 actual backend faul
 
 ## 5. Five confined runner types
 
-**Files:** `src/plugins/runners/{mod.rs,command.rs,model.rs,http.rs,mcp.rs}`, `src/worktree_access.rs`, `src/workflow/review.rs`, `tests/plugin_runners.rs`.
+**Files:** `src/plugins/runners/{mod.rs,command.rs,model.rs,http.rs,mcp.rs}`, `src/worktree_access.rs`, `src/workflow/workspace.rs`, `src/subagents/worktree.rs`, `tests/plugin_runners.rs`.
 
 - [ ] Command: JSON stdin, explicit argv/shell, declared environment/access, bounded output/deadlines and owned descendants. Literal event values never enter executable shell source.
 - [ ] Prompt: selected model, no tools, schema-validated verdict, cumulative admission and usage. Agent: immutable admitted snapshot, bounded read-only inspection, retained evidence and the same ledger.

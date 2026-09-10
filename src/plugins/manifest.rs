@@ -913,7 +913,7 @@ fn validate_handler(handler: &Map<String, Value>, field: &str, errors: &mut Vec<
 
 // serde_json::Value normally overwrites duplicate keys. A recursive visitor makes
 // ambiguity an import error, including inside executable settings.
-struct UniqueJson(Value);
+pub(super) struct UniqueJson(pub(super) Value);
 impl<'de> serde::Deserialize<'de> for UniqueJson {
     fn deserialize<D: serde::Deserializer<'de>>(
         deserializer: D,
