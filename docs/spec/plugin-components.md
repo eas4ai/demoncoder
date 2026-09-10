@@ -1,6 +1,6 @@
 # Plugin components and distribution
 
-Status: Draft 2026-09-09
+Status: Agreed 2026-09-09
 Prefix: PLUG
 
 These requirements belong to the same complete deliverable as

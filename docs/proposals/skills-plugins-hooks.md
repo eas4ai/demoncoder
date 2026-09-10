@@ -1,12 +1,12 @@
 # Reuse Claude Code and Codex skills and plugins
 
-Status: Draft 2026-09-09
+Status: Selected 2026-09-09
 
 DemonCoder will reuse Claude Code and Codex skills and plugins through one
 complete extension runtime. Every component and lifecycle event below is required
-before Done. Implementation order does not reduce the delivery scope. This draft
-does not select a new Current commitment or claim that arbitrary upstream plugins
-already work.
+before Done. Implementation order does not reduce the delivery scope. The developer
+selected the full specification for implementation on 2026-09-09. This selection
+does not claim that arbitrary upstream plugins already work.
 
 ## Recommendation and alternatives
 

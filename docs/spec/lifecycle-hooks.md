@@ -1,6 +1,6 @@
 # Lifecycle hooks
 
-Status: Draft 2026-09-09
+Status: Agreed 2026-09-09
 Prefix: HOOK
 
 The [design](../proposals/skills-plugins-hooks.md) defines event timing, delivery

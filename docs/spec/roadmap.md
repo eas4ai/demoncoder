@@ -1,6 +1,6 @@
 # Roadmap
 
-Current: managed-language-services
+Current: skills-plugins-hooks
 
 The developer selected the usable coding session as the first commitment
 and agreed to use Cairn on 2026-09-06. The developer confirmed its detailed
@@ -76,3 +76,10 @@ On 2026-09-09 the developer confirmed LSP-001 through LSP-006 and their
 falsifiers as the managed-language-services commitment. Release follow-ups are
 complete. The reference-informed sequence is recorded in
 [the delivery proposal](../proposals/reference-feature-sequence.md).
+
+Managed-language-services is complete. On 2026-09-09 the developer confirmed
+implementation of skills-plugins-hooks: EXT-001 through EXT-009, HOOK-001
+through HOOK-011, PLUG-001 through PLUG-011, PRUN-001 through PRUN-006 and
+PCOMP-001 through PCOMP-004, including their falsifiers and complete profile.
+Backend barrier qualification comes first in implementation order; it does not
+reduce the complete delivery commitment.

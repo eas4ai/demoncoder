@@ -1,10 +1,10 @@
 # Skills, plugins and lifecycle hooks
 
-Status: Draft 2026-09-09
+Status: Agreed 2026-09-09
 Requirements: EXT-001, EXT-002, EXT-003, EXT-004, EXT-005, EXT-006, EXT-007, EXT-008, EXT-009, HOOK-001, HOOK-002, HOOK-003, HOOK-004, HOOK-005, HOOK-006, HOOK-007, HOOK-008, HOOK-009, HOOK-010, HOOK-011, PLUG-001, PLUG-002, PLUG-003, PLUG-004, PLUG-005, PLUG-006, PLUG-007, PLUG-008, PLUG-009, PLUG-010, PLUG-011, PRUN-001, PRUN-002, PRUN-003, PRUN-004, PRUN-005, PRUN-006, PCOMP-001, PCOMP-002, PCOMP-003, PCOMP-004
 
-Proposed complete delivery of [the extension design](../proposals/skills-plugins-hooks.md).
-The roadmap does not select this draft for implementation yet.
+Developer-selected complete delivery of [the extension design](../proposals/skills-plugins-hooks.md).
+The developer confirmed implementation of the full specification on 2026-09-09.
 
 Deliver Claude Code, Codex and portable package imports; standalone and packaged
 skills; all five hook types and the full lifecycle matrix; agents and workflows;

@@ -1,6 +1,6 @@
 # Plugin admission, state and recovery
 
-Status: Draft 2026-09-09
+Status: Agreed 2026-09-09
 Prefix: PRUN
 
 This contract resolves the adversarial review without reducing the complete

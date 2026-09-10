@@ -1,6 +1,6 @@
 # Plugin compatibility contract
 
-Status: Draft 2026-09-09
+Status: Agreed 2026-09-09
 Prefix: PCOMP
 
 This is part of the complete plugin deliverable. The versioned
@@ -338,8 +338,8 @@ for a developer decision; do not claim coverage or silently weaken the gate.
 A backend version becomes selectable for this plugin contract only after the
 real denial/allow/disconnect/timeout/relay-crash cases pass. This is a production
 qualification test required by this commitment, not a claim those tests ran while
-writing this specification. Existing ordinary connections keep their established
-behavior while the draft remains unselected.
+writing this specification. Existing ordinary connections retain their established behavior; plugin-dependent
+work requires the qualified backend integration described here.
 
 ## Registered app binding
 

@@ -1,10 +1,10 @@
 # Skills and plugin packages
 
-Status: Draft 2026-09-09
+Status: Agreed 2026-09-09
 Prefix: EXT
 
-This proposal is not selected for implementation. The companion
-[design](../proposals/skills-plugins-hooks.md) defines the proposed delivery
+The developer selected this complete commitment on 2026-09-09. The companion
+[design](../proposals/skills-plugins-hooks.md) defines the agreed delivery
 scope and compatibility boundary. A plugin is a versioned directory containing
 instructions, lifecycle handlers, agent templates or service declarations.
 An enabled package generation is an immutable snapshot of those files.
