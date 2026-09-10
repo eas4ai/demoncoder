@@ -22,7 +22,14 @@ use rustix::fs::{Dir, Mode, OFlags, ResolveFlags, openat2, readlinkat};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
+mod access;
+mod gate_selection;
+#[cfg(test)]
+mod gate_tests;
 mod scope;
+pub(crate) use access::AccessCaptureError;
+pub use access::{AccessMetadata, AclMetadata};
+pub use gate_selection::GateReadSet;
 pub use scope::CaptureScope;
 
 /// Only the worktree owner can admit child source inside the session container.
@@ -37,15 +44,18 @@ const MAX_ENTRIES: usize = 20_000;
 const MAX_DEPTH: usize = 64;
 const MAX_FILE_BYTES: u64 = 8 * 1024 * 1024;
 const MAX_TOTAL_BYTES: u64 = 64 * 1024 * 1024;
+const MAX_METADATA_BYTES: usize = 8 * 1024 * 1024;
 const MAX_EVIDENCE_BYTES: usize = 1024 * 1024;
 const MAX_DURATION: Duration = Duration::from_secs(10);
 const RESOLVE: ResolveFlags = ResolveFlags::BENEATH
     .union(ResolveFlags::NO_SYMLINKS)
     .union(ResolveFlags::NO_XDEV);
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Snapshot {
     pub digest: String,
+    #[serde(default)]
+    metadata_version: u8,
     /// Zero identifies historical snapshots captured before private-source exclusions.
     #[serde(default)]
     export_policy: u8,
@@ -54,9 +64,31 @@ pub struct Snapshot {
     root_device: u64,
     root_inode: u64,
     pub(crate) entries: BTreeMap<String, Entry>,
+    #[serde(default)]
+    pub(crate) memberships: BTreeMap<String, Vec<String>>,
 }
 
 impl Snapshot {
+    /// Historical entries without ownership/ACL capture are not current evidence.
+    pub fn has_complete_access_metadata(&self) -> bool {
+        self.metadata_version == 1
+            && !self.entries.is_empty()
+            && self.entries.values().all(|entry| entry.access.is_some())
+    }
+
+    fn calculate_digest(&self) -> Result<String> {
+        Ok(format!(
+            "{:x}",
+            Sha256::digest(serde_json::to_vec(&(
+                self.metadata_version,
+                self.export_policy,
+                &self.scope,
+                self.root_identity(),
+                &self.entries,
+                &self.memberships,
+            ))?)
+        ))
+    }
     pub(crate) fn root_identity(&self) -> (u64, u64) {
         (self.root_device, self.root_inode)
     }
@@ -66,17 +98,20 @@ impl Snapshot {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub(crate) struct Entry {
     pub(crate) kind: Kind,
     pub(crate) mode: u32,
     bytes: u64,
     hash: String,
     text: Option<String>,
+    /// None means historical capture without access metadata, never current evidence.
+    #[serde(default)]
+    pub(crate) access: Option<AccessMetadata>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
-pub(crate) enum Kind {
+pub enum Kind {
     Directory,
     File,
     Symlink,
@@ -87,6 +122,8 @@ struct Stamp {
     device: u64,
     inode: u64,
     mode: u32,
+    uid: u32,
+    gid: u32,
     length: u64,
     links: u64,
     modified: (i64, i64),
@@ -99,6 +136,8 @@ fn stamp(file: &File) -> Result<Stamp> {
         device: m.dev(),
         inode: m.ino(),
         mode: m.mode(),
+        uid: m.uid(),
+        gid: m.gid(),
         length: m.len(),
         links: m.nlink(),
         modified: (m.mtime(), m.mtime_nsec()),
@@ -107,6 +146,10 @@ fn stamp(file: &File) -> Result<Stamp> {
 }
 
 struct Scan<'a> {
+    selection: Option<&'a GateReadSet>,
+    memberships: BTreeMap<String, Vec<String>>,
+    examined: usize,
+    metadata_bytes: usize,
     root: &'a File,
     started: Instant,
     entries: BTreeMap<String, Entry>,
@@ -137,6 +180,71 @@ impl Scan<'_> {
             .with_context(|| format!("cannot securely capture {}; symlink traversal and mounted subtrees are not supported", path.display()))?.into())
     }
 
+    fn capture_directory(
+        &mut self,
+        path: &Path,
+        name: &str,
+        before: &Stamp,
+        depth: usize,
+    ) -> Result<AccessMetadata> {
+        let dir = self.open(path, OFlags::RDONLY | OFlags::DIRECTORY)?;
+        ensure!(
+            stamp(&dir)? == *before,
+            "directory changed during capture: {name}; retry when edits stop"
+        );
+        let metadata = dir.metadata()?;
+        let access = access::capture(&dir, &metadata, &|| self.checkpoint())?;
+        // Reserve this entry before recursion so the global entry limit
+        // also bounds wide trees and ancestor directories.
+        self.entries.insert(
+            name.to_owned(),
+            entry(Kind::Directory, metadata.mode(), &[]),
+        );
+        let mut members = Vec::new();
+        for item in Dir::read_from(&dir)? {
+            self.checkpoint()?;
+            let item = item?;
+            let bytes = item.file_name().to_bytes();
+            if bytes == b"." || bytes == b".." {
+                continue;
+            }
+            let child = std::str::from_utf8(bytes)
+                .context("workspace contains a non-UTF-8 path; rename it before verification")?;
+            let child_path = path.join(child);
+            if crate::export_policy::private_path(&child_path) || (depth == 0 && bytes == b".git") {
+                ensure!(
+                    !self
+                        .selection
+                        .is_some_and(|selection| selection.requires_protected(path, &child_path)),
+                    "explicit gate selection requires protected content"
+                );
+                continue;
+            }
+            if self.scope.excludes(&child_path) {
+                continue;
+            }
+            self.metadata_bytes += child.len();
+            ensure!(
+                self.metadata_bytes <= MAX_METADATA_BYTES,
+                "workspace metadata exceeds 8 MiB capture limit"
+            );
+            members.push(child.to_owned());
+            ensure!(
+                members.len() <= MAX_ENTRIES,
+                "workspace exceeds directory membership limit"
+            );
+            if self
+                .selection
+                .is_none_or(|selection| selection.visits(&child_path))
+            {
+                self.walk(&child_path, depth + 1)?;
+            }
+        }
+        members.sort();
+        self.memberships.insert(name.to_owned(), members);
+        Ok(access)
+    }
+
     fn walk(&mut self, path: &Path, depth: usize) -> Result<()> {
         self.checkpoint()?;
         ensure!(
@@ -151,40 +259,30 @@ impl Scan<'_> {
             .to_str()
             .context("workspace contains a non-UTF-8 path; rename it before verification")?
             .to_owned();
+        self.examined += 1;
+        ensure!(
+            self.examined <= MAX_ENTRIES,
+            "workspace exceeds captured-entry limit"
+        );
+        ensure!(
+            name.len() <= 4096,
+            "workspace path exceeds capture name bound"
+        );
         let handle = self.open(path, OFlags::PATH)?;
         let before = stamp(&handle)?;
         let metadata = handle.metadata()?;
+        if self.selection.is_some_and(|selection| {
+            !metadata.is_dir() && !selection.selects(path) && !selection.ancestor(path)
+        }) {
+            return Ok(());
+        }
         let kind;
         let content;
+        let access;
         if metadata.is_dir() {
             kind = Kind::Directory;
             content = Vec::new();
-            let dir = self.open(path, OFlags::RDONLY | OFlags::DIRECTORY)?;
-            ensure!(
-                stamp(&dir)? == before,
-                "directory changed during capture: {name}; retry when edits stop"
-            );
-            // Reserve this entry before recursion so the global entry limit
-            // also bounds wide trees and ancestor directories.
-            self.entries
-                .insert(name.clone(), entry(kind.clone(), metadata.mode(), &content));
-            for item in Dir::read_from(&dir)? {
-                self.checkpoint()?;
-                let item = item?;
-                let bytes = item.file_name().to_bytes();
-                if bytes == b"." || bytes == b".." || (depth == 0 && bytes == b".git") {
-                    continue;
-                }
-                let child = std::str::from_utf8(bytes).context(
-                    "workspace contains a non-UTF-8 path; rename it before verification",
-                )?;
-                if crate::export_policy::private_path(&path.join(child))
-                    || self.scope.excludes(&path.join(child))
-                {
-                    continue;
-                }
-                self.walk(&path.join(child), depth + 1)?;
-            }
+            access = self.capture_directory(path, &name, &before, depth)?;
         } else if metadata.is_file() {
             kind = Kind::File;
             ensure!(
@@ -207,6 +305,7 @@ impl Scan<'_> {
                 stamp(&file)? == before,
                 "file changed before capture: {name}; retry when edits stop"
             );
+            access = access::capture(&file, &metadata, &|| self.checkpoint())?;
             let mut data = Vec::new();
             let mut chunk = vec![0_u8; 64 * 1024];
             loop {
@@ -235,6 +334,15 @@ impl Scan<'_> {
             content = data;
         } else if metadata.file_type().is_symlink() {
             kind = Kind::Symlink;
+            let parent = self.open(
+                path.parent()
+                    .filter(|parent| !parent.as_os_str().is_empty())
+                    .unwrap_or(Path::new(".")),
+                OFlags::RDONLY | OFlags::DIRECTORY,
+            )?;
+            let leaf = path.file_name().context("symlink has no leaf name")?;
+            access =
+                access::capture_symlink(&handle, &metadata, &parent, leaf, &|| self.checkpoint())?;
             // Empty-path readlinkat reads the pinned O_PATH symlink itself.
             content = readlinkat(&handle, "", Vec::new())?.into_bytes();
             self.bytes += content.len() as u64;
@@ -251,8 +359,14 @@ impl Scan<'_> {
             stamp(&handle)? == before,
             "workspace entry changed during capture: {name}; retry when edits stop"
         );
-        self.entries
-            .insert(name.clone(), entry(kind, metadata.mode(), &content));
+        self.metadata_bytes += name.len() + access.byte_count();
+        ensure!(
+            self.metadata_bytes <= MAX_METADATA_BYTES,
+            "workspace metadata exceeds 8 MiB capture limit"
+        );
+        let mut captured = entry(kind, metadata.mode(), &content);
+        captured.access = Some(access);
+        self.entries.insert(name.clone(), captured);
         if let Some(raw) = &mut self.raw {
             raw.insert(name.clone(), content);
         }
@@ -265,6 +379,7 @@ fn entry(kind: Kind, mode: u32, data: &[u8]) -> Entry {
     Entry {
         kind,
         mode,
+        access: None,
         bytes: data.len() as u64,
         hash: format!("{:x}", Sha256::digest(data)),
         text: if data.contains(&0) {
@@ -283,7 +398,7 @@ pub fn capture(root: &Path) -> Result<Snapshot> {
 }
 
 pub fn capture_with_scope(root: &Path, scope: &CaptureScope) -> Result<Snapshot> {
-    Ok(capture_inner(root, false, None, scope, CaptureRoot::Workspace)?.0)
+    Ok(capture_inner(root, false, None, scope, CaptureRoot::Workspace, None, None)?.0)
 }
 
 /// The worktree coordinator can cancel a background read at scanner checkpoints.
@@ -310,7 +425,7 @@ pub(crate) fn capture_scoped_cancellable(
     scope: &CaptureScope,
     kind: CaptureRoot,
 ) -> Result<(Snapshot, BTreeMap<String, Vec<u8>>)> {
-    capture_inner(root, retain_raw, Some(cancelled), scope, kind)
+    capture_inner(root, retain_raw, Some(cancelled), scope, kind, None, None)
 }
 
 fn capture_inner(
@@ -319,6 +434,8 @@ fn capture_inner(
     cancelled: Option<&AtomicBool>,
     scope: &CaptureScope,
     kind: CaptureRoot,
+    selection: Option<&GateReadSet>,
+    pinned: Option<&File>,
 ) -> Result<(Snapshot, BTreeMap<String, Vec<u8>>)> {
     scope.validate()?;
     ensure!(
@@ -330,14 +447,24 @@ fn capture_inner(
     );
     let started = Instant::now();
     let open_root = || -> Result<File> {
-        Ok(openat2(rustix::fs::CWD, root, OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC | OFlags::NOFOLLOW, Mode::empty(), ResolveFlags::NO_SYMLINKS)
-            .context("cannot securely open workspace root; select a real directory without symlink ancestors")?.into())
+        open_gate_root(root).context("cannot securely open workspace root; select a real directory without symlink ancestors")
     };
-    let root_fd = open_root()?;
+    let root_fd = match pinned {
+        Some(file) => file.try_clone()?,
+        None => open_root()?,
+    };
+    ensure!(
+        stamp(&root_fd)? == stamp(&open_root()?)?,
+        "admitted workspace root changed"
+    );
     let root_stamp = stamp(&root_fd)?;
     let scan = |keep_raw: bool| -> Result<Scan<'_>> {
         let mut scan = Scan {
             root: &root_fd,
+            selection,
+            memberships: BTreeMap::new(),
+            examined: 0,
+            metadata_bytes: 0,
             started,
             entries: BTreeMap::new(),
             stamps: BTreeMap::new(),
@@ -350,25 +477,38 @@ fn capture_inner(
         Ok(scan)
     };
     let first = scan(false)?;
-    let second = scan(retain_raw)?;
+    let mut second = scan(retain_raw)?;
     ensure!(
         first.entries == second.entries
             && first.stamps == second.stamps
+            && first.memberships == second.memberships
             && stamp(&root_fd)? == root_stamp
             && stamp(&open_root()?)? == root_stamp,
         "workspace changed during capture; stop concurrent edits and retry"
     );
+    second.checkpoint()?;
+    if let Some(selection) = selection {
+        selection.finish(&mut second.entries)?;
+        second
+            .memberships
+            .retain(|name, _| selection.selects(Path::new(name)));
+        if let Some(raw) = &mut second.raw {
+            raw.retain(|name, _| second.entries.contains_key(name));
+        }
+    }
     let mut snapshot = Snapshot {
         digest: String::new(),
+        metadata_version: 1,
         export_policy: crate::export_policy::VERSION,
         scope: scope.clone(),
         root_device: root_stamp.device,
         root_inode: root_stamp.inode,
         entries: second.entries,
+        memberships: second.memberships,
     };
     // Structured serialization supplies unambiguous length/delimiter encoding;
     // BTreeMap iteration provides deterministic ordering independent of readdir.
-    snapshot.digest = format!("{:x}", Sha256::digest(serde_json::to_vec(&snapshot)?));
+    snapshot.digest = snapshot.calculate_digest()?;
     Ok((snapshot, second.raw.unwrap_or_default()))
 }
 
@@ -428,6 +568,10 @@ fn describe(output: &mut String, side: &str, value: Option<&Entry>, changed: boo
 /// Baseline includes pre-existing developer edits and untracked/ignored files;
 /// no Git tracked/clean claim is made. Oversized or changed binary evidence fails.
 pub fn review_evidence(before: &Snapshot, after: &Snapshot) -> Result<String> {
+    ensure!(
+        before.has_complete_access_metadata() && after.has_complete_access_metadata(),
+        "snapshot lacks current access metadata; start a new task baseline"
+    );
     ensure!(
         before.export_policy == crate::export_policy::VERSION
             && after.export_policy == crate::export_policy::VERSION,
@@ -525,6 +669,56 @@ pub fn review_evidence(before: &Snapshot, after: &Snapshot) -> Result<String> {
     Ok(output)
 }
 
+impl std::fmt::Debug for Entry {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Entry")
+            .field("kind", &self.kind)
+            .field("mode", &self.mode)
+            .field("bytes", &self.bytes)
+            .field("hash", &self.hash)
+            .field("access", &self.access)
+            .finish()
+    }
+}
+
+pub(crate) fn open_gate_root(root: &Path) -> Result<File> {
+    Ok(openat2(
+        rustix::fs::CWD,
+        root,
+        OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC | OFlags::NOFOLLOW,
+        Mode::empty(),
+        ResolveFlags::NO_SYMLINKS,
+    )?
+    .into())
+}
+
+pub(crate) fn capture_gate(
+    root: &Path,
+    pinned: &File,
+    selection: &GateReadSet,
+    cancelled: &AtomicBool,
+) -> Result<(Snapshot, BTreeMap<String, Vec<u8>>)> {
+    capture_inner(
+        root,
+        true,
+        Some(cancelled),
+        &CaptureScope::default(),
+        CaptureRoot::Workspace,
+        Some(selection),
+        Some(pinned),
+    )
+}
+
+impl std::fmt::Debug for Snapshot {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Snapshot")
+            .field("digest", &self.digest)
+            .field("metadata_version", &self.metadata_version)
+            .field("entries", &self.entries.len())
+            .finish()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -538,10 +732,13 @@ mod tests {
         let mut snapshot = capture_with_scope(root.path(), &scope).unwrap();
         // Isolate the formatter with metadata from a permitted-size source tree.
         for index in 0..4096 {
-            snapshot.entries.insert(
-                format!("./{index}-{}", "x".repeat(200)),
-                entry(Kind::File, 0o600, b""),
-            );
+            snapshot
+                .entries
+                .insert(format!("./{index}-{}", "x".repeat(200)), {
+                    let mut value = entry(Kind::File, 0o600, b"");
+                    value.access = snapshot.entries["."].access.clone();
+                    value
+                });
         }
         assert!(
             review_evidence(&snapshot, &snapshot)
@@ -576,6 +773,10 @@ mod tests {
         // exercise actual secure symlink capture without a 64 MiB fixture.
         let mut scan = Scan {
             root: &root_fd,
+            selection: None,
+            memberships: BTreeMap::new(),
+            examined: 0,
+            metadata_bytes: 0,
             started: Instant::now(),
             entries: BTreeMap::new(),
             stamps: BTreeMap::new(),

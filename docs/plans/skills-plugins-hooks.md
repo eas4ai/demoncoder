@@ -90,16 +90,26 @@ Integration constraints from the existing production paths:
 
 - `EventSink::emit` retains workflow state before sending UI events. Add invocation and admission records through `SharedRuntime`; do not introduce a separate allowance or effect ledger.
 - `main` opens `SharedRuntime` before opening the adapter, including ordinary sessions with no verification task. Attach startup plugin records there. A new record has no allocation; admit model-backed hooks only after attaching the appropriate cumulative allowance. External-backend conversation restore is currently refused, so plugin reconciliation must not claim it restores that conversation.
-- `ToolExecutor::execute` retains the actual result before its next await. Keep that property when adding observers, and retain the actual operation result separately from model-facing replacements.
+- `ToolExecutor::execute` retains the actual result in its in-memory `completed` slot before its next await. Language diagnostics can await before `ToolFinished` reaches durable storage. Plugin integration must retain the original result durably before any observer await, while keeping model-facing replacements separate. Native interruption recovery consumes that slot; external adapters do not currently do so.
 - `workflow::workspace::capture_scoped_cancellable` already captures bounded dirty and untracked bytes using two descriptor-relative scans. Extend its revision with ownership and ACL identity, preserving historical snapshot decoding. Snapshot materialization currently lives in `subagents::worktree`, not `workflow::review`.
 - Verification's `CaptureScope` excludes declared generated outputs during capture. A gate read set must be resolved from its own policy; do not silently inherit those review exclusions for the legacy whole-workspace default. Protected source exclusions still apply, and an oversized required snapshot holds the gate.
 - The executor currently relies on sequential execution and has no shared mutation lock. Add a host-owned serialized boundary for final freshness checks and mutation, shared by relevant executors. A host lock cannot provide atomicity against external writers; stronger policies need a supported transaction or a hold.
+- `ToolStarted` currently allocates another operation for every event; it does not deduplicate a repeated backend call ID. Plugin admission needs a durable operation identity and replay lookup before effects, with backend IDs retained as scoped correlation data. Duplicate UI publication must not allocate another invocation or overwrite the original result.
+- Native restore currently feeds `Operation.result` directly back to the model for operations after the checkpoint cursor. Retain the original tool receipt and any admitted model-facing replacement separately, and restore the same admitted presentation without rerunning observers. Historical records without a replacement retain their existing result behavior.
+- Scope backend call IDs to a durable host invocation, not merely the `worker` phase. Native model admissions already have IDs, but `EventSink::begin_backend` records an admission only for delegated sessions. Ordinary external turns need an explicit identity too; a reused source call ID in a later turn must not select an earlier turn's receipt.
 
 - [ ] Persist invocation identity and causal source before effects. Implement transformer, decision, observer and legacy-combined classes. Native priority and source concurrent groups retain their specified ordering.
 - [ ] Freeze the candidate after at most four revisions; recompute applicable matchers, retain every deny and reject conflicting concurrent rewrites. A stale combined decision requires a declared read-only endpoint or a visible hold; never rerun its effects.
 - [ ] Capture gate read sets, including absent paths, file kinds, symlink targets, modes, ownership and ACLs. Gates inspect an immutable dirty/untracked admitted snapshot. Rescan before release and compare inside the host mutation boundary.
 - [ ] Bind developer answers to the frozen candidate and authenticated control origin. Input, configuration or permission changes invalidate pending answers.
 - [ ] Test actual write outcomes for both handler orders, delayed stale results, permission revocation, uncertain admissions and cancellation. Preserve original operation receipts before observers or display transformations.
+
+The [gate snapshot prerequisite](../reviews/plugin-gate-snapshots.md) is implemented
+and independently reviewed: 54 affected integration tests and nine workspace unit
+tests pass. Review exposed and corrected retained ACL-buffer allocation beyond the
+metadata allowance. Gate runners, metadata-preserving materialization, final
+admission and mutation-boundary comparisons remain integration work, so the gate
+capture obligation above is not yet complete.
 
 ## 5. Five confined runner types
 

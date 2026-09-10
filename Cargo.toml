@@ -28,6 +28,7 @@ syntect = { version = "5.3", default-features = false, features = ["default-fanc
 seccompiler = "0.5.0"
 libc = "0.2"
 ignore = "0.4.33"
+globset = "0.4.20"
 notify = "8.2"
 
 [lints.rust]

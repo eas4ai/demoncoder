@@ -16,3 +16,5 @@ pub mod profile;
 pub mod wire;
 
 pub mod results;
+
+pub mod gate_snapshot;
