@@ -248,7 +248,8 @@ mod tests {
         let entry = snapshot.entry("file").unwrap();
         let target = tempfile::tempfile().unwrap();
         let mut unsupported = entry.access().clone();
-        unsupported.supported_attributes ^= 1u64 << 63;
+        unsupported.attributes |= 1u64 << 63;
+        unsupported.supported_attributes |= 1u64 << 63;
         let error = crate::workflow::workspace::access::restore_and_verify(
             &target,
             None,

@@ -4,6 +4,72 @@ use crate::plugins::receipts::*;
 use anyhow::{Context, Result, ensure};
 use std::sync::Arc;
 
+/// A host-marked hook model request. Package/model data cannot create this value.
+#[derive(Clone)]
+pub(crate) struct ModelAdmission {
+    pub owner: u64,
+    pub invocation: u32,
+    pub maximum: u32,
+    pub snapshot: Arc<crate::plugins::runners::SnapshotInspection>,
+    pub cancelled: Arc<std::sync::atomic::AtomicBool>,
+}
+
+pub(super) fn validate_model_admission(
+    record: &Record,
+    phase: &str,
+    hook: &ModelAdmission,
+) -> Result<()> {
+    ensure!(
+        !hook.cancelled.load(std::sync::atomic::Ordering::Acquire),
+        "model hook cancelled before admission"
+    );
+    let receipt = active(record, hook.owner)?;
+    ensure!(
+        record.allocation.is_some(),
+        "model hook requires an owning task or explicitly configured session allowance"
+    );
+    let invocation = receipt
+        .plugin_admission
+        .as_ref()
+        .and_then(|plan| plan.hooks.iter().find(|h| h.invocation == hook.invocation))
+        .context("model hook lacks a reserved invocation")?;
+    ensure!(
+        invocation.outcome.is_none(),
+        "model hook invocation already settled"
+    );
+    ensure!(
+        record
+            .operations
+            .iter()
+            .filter(|op| op.phase == phase && op.host_invocation.is_some())
+            .count()
+            < hook.maximum as usize,
+        "hook model/backend invocation allowance exhausted"
+    );
+    Ok(())
+}
+
+impl SharedRuntime {
+    pub(crate) fn settle_hook_models(&self, phase: &str) -> Result<()> {
+        self.update(|record| {
+            let mut uncertain = false;
+            for operation in &mut record.operations {
+                if operation.phase == phase
+                    && operation.host_invocation.is_some()
+                    && !operation.complete
+                {
+                    operation.complete = true;
+                    uncertain |= !operation.usage_reported;
+                }
+            }
+            if uncertain && let Some(allocation) = &mut record.allocation {
+                allocation.usage.uncertain();
+            }
+            Ok(())
+        })
+    }
+}
+
 fn active(record: &Record, id: u64) -> Result<&super::ToolReceipt> {
     let operation = record
         .operations

@@ -10,9 +10,9 @@
 
 ## Status and execution rules
 
-- Complete: Immutable import foundation, backend compaction qualification probes, wire validation, result decoding, gate snapshots, durable tool receipts, pre-tool final-candidate admission, and the confined command-runner/snapshot-materialization prerequisite.
-- **In progress:** Integrate prompt and agent runners with snapshot inspection and owning allowances.
-- Pending: Integrate remaining runners and complete lifecycle dispatch.
+- Complete: Immutable import foundation, backend compaction qualification probes, wire validation, result decoding, gate snapshots, durable tool receipts, pre-tool final-candidate admission, the confined command-runner/snapshot-materialization prerequisite, and bounded PreToolUse prompt/agent runners.
+- **In progress:** Integrate the HTTP runner with admitted endpoint, header and credential authority.
+- Pending: Integrate MCP runners and complete lifecycle dispatch.
 - Pending: Integrate state, recovery, services and all package components.
 - Pending: Exercise the complete public management and coding workflows.
 - Pending: Run full conformance, installed/live cases, adversarial review and Cairn checks.
@@ -171,6 +171,10 @@ Runner integration constraints from the existing production paths:
   integration must require and charge its owning allowance atomically on that
   path too; a preflight balance check alone is insufficient. Preserve ordinary
   sessions while making hook authority explicit in the host event context.
+  SUB-006 distinguishes native model calls from external backend invocations:
+  charge each hook backend invocation under its stated controls, preserve finite
+  deadlines and tool limits, and retain unknown internal request counts. Never
+  describe an invocation cap as an enforceable backend-internal model-call cap.
 - Usage attaches to an incomplete operation by phase. Give concurrent hook model
   invocations distinct causal phases, retaining any `agent:<id>` owner prefix.
   Do not reuse a generic reviewer phase or forward usage twice when presenting it.
@@ -185,8 +189,9 @@ Runner integration constraints from the existing production paths:
   and confined commands must use that view; opening the live workspace through
   an ordinary executor would invalidate the inspection guarantee.
 - The provider HTTP client disables redirects, but its response helper discards
-  non-success bodies. Hook HTTP runners must retain bounded source-protocol
-  responses and check endpoint and credential authority before any redirect.
+  non-success bodies. Hook HTTP runners decode bounded successful source-protocol
+  responses; transport and non-success gate responses hold with secret-safe
+  diagnostics. Check endpoint and credential authority before any redirect.
 
 
 The [command-runner prerequisite](../reviews/plugin-command-runners.md) is
@@ -201,6 +206,13 @@ command integration still includes declared network grants, every applicable
 lifecycle input and source-configured timeout policies. Replace prerequisite
 deadline constants with admitted handler deadlines bounded by the owning
 allowance, while retaining cleanup time and unknown-outcome handling.
+
+The [prompt/agent prerequisite](../reviews/plugin-model-runners.md) is implemented
+and independently approved for PreToolUse. Model16, command30, library193 and
+affected regression controls passed; both external backends have actual local
+isolation and compaction evidence. Independent adversarial probes verified
+verdict/inspection rejection and failure when managed isolation is removed.
+Other lifecycle events and public activation remain pending.
 
 - [ ] Command: JSON stdin, explicit argv/shell, declared environment/access, bounded output/deadlines and owned descendants. Literal event values never enter executable shell source.
 - [ ] Prompt: selected model, no tools, schema-validated verdict, cumulative admission and usage. Agent: immutable admitted snapshot, bounded read-only inspection, retained evidence and the same ledger.

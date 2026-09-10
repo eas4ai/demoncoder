@@ -1,5 +1,5 @@
 {
-  "binary_sha256": "6c5475e45e79a798f151a88d32ceeb5f1770bd56e51928e5acf4fb62ce4187f7",
+  "binary_sha256": "80315a32acf1b625129a46b0bd75537cf76ef09701ae986154159076cc0b6aff",
   "capability": {
     "protocol": "demoncoder-compaction-v1",
     "source_version": "0.153.4",
@@ -436,9 +436,5 @@
       "backend_alive": true,
       "passed": true
     }
-  ],
-  "scope": "actual managed Codex core waits; production host adapter qualification is separate",
-  "artifact_profile": "dev, debug information disabled",
-  "retained_artifacts": "/home/shawn/.cache/demoncoder/managed-codex-v0.153.4/codex-rs/target/qualification-fifo-full",
-  "qualifier_sha256": "309096eb4b56e58230c98ec67dd27c78e1832f12f60ce75bb923500a96a50b69"
+  ]
 }

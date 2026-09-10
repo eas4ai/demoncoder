@@ -288,6 +288,68 @@ pub fn decode_response(
     result
 }
 
+/// The bounded model runner supplies host configuration separately from the
+/// untrusted response. Keep the profile's source control request in the receipt.
+pub(crate) fn decode_model_pretool(
+    profile: &CompatibilityProfile,
+    dialect: HookDialect,
+    handler: HandlerKind,
+    value: &Value,
+    continue_on_block: bool,
+) -> DecodedResult {
+    let context = ResultContext {
+        work: ModelCallContext {
+            continue_on_block,
+            ..ModelCallContext::default()
+        },
+        ..ResultContext::default()
+    };
+    let mut result = DecodedResult {
+        dialect,
+        event: HookEvent::PreToolUse,
+        handler,
+        gate: GateDisposition::NoObjection,
+        source_decision: SourceDecision::NoSourceDecision,
+        stderr: None,
+        effects: Vec::new(),
+        diagnostics: Vec::new(),
+    };
+    let validated = profile
+        .validate_model(dialect, handler, value)
+        .and_then(|verdict| {
+            profile
+                .model_outcome(HookEvent::PreToolUse, &verdict, &context.work)
+                .map(|outcome| (verdict, outcome))
+        });
+    match validated {
+        Ok((verdict, ModelOutcome::NoModelObjection)) => result.push(ProposedEffect::Decision {
+            choice: DecisionChoice::NoObjection,
+            reason: verdict.reason().map(|s| Untrusted::new(s.into())),
+        }),
+        Ok((
+            verdict,
+            outcome @ (ModelOutcome::DenyToolAndContinue
+            | ModelOutcome::DenyToolAndEndTurn
+            | ModelOutcome::HoldPendingAction),
+        )) => {
+            decisions::deny(
+                &mut result,
+                verdict.reason().map(|s| Untrusted::new(s.into())),
+            );
+            if outcome == ModelOutcome::DenyToolAndEndTurn {
+                result.push(ProposedEffect::Control(ControlRequest::EndTurn));
+            }
+        }
+        Ok(_) => result.fail(WireError::new(
+            "/model_result_rules",
+            "unexpected model PreToolUse outcome",
+        )),
+        Err(error) => result.fail(error),
+    }
+    result.finish(&context);
+    result
+}
+
 fn validate_invocation(
     profile: &CompatibilityProfile,
     dialect: HookDialect,

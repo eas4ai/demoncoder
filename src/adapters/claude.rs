@@ -24,6 +24,7 @@ struct Claude {
     session: Option<String>,
     subscription_confirmed: bool,
     tools: ToolExecutor,
+    model_hook: bool,
     next_control_id: u64,
     lifecycle: Option<Arc<crate::plugins::bridge::Lifecycle>>,
     callbacks: Option<crate::plugins::bridge::Callbacks>,
@@ -36,7 +37,7 @@ pub fn open(config: &Connection, workspace: &Path) -> Result<Box<dyn Session>> {
     }
     Ok(Box::new(Claude {
         binary: executable(config.binary.as_deref(), "claude")?,
-        supervisor: if config.access.lifecycle.is_some() {
+        supervisor: if config.access.lifecycle.is_some() || config.access.snapshot.is_some() {
             Some(
                 config
                     .access
@@ -55,6 +56,7 @@ pub fn open(config: &Connection, workspace: &Path) -> Result<Box<dyn Session>> {
         session: None,
         subscription_confirmed: false,
         tools: ToolExecutor::with_policy(workspace, &config.access)?,
+        model_hook: config.access.snapshot.is_some(),
         next_control_id: 1,
         lifecycle: config.access.lifecycle.clone(),
         callbacks: None,
@@ -91,7 +93,13 @@ impl Claude {
             .into_iter()
             .map(str::to_owned)
             .collect();
-            if !self.tools.definitions().is_empty() {
+            if self.model_hook {
+                args.extend([
+                    "--safe-mode".into(),
+                    "--append-system-prompt".into(),
+                    super::MODEL_HOOK_INSTRUCTIONS.into(),
+                ]);
+            } else if !self.tools.definitions().is_empty() {
                 args.extend([
                     "--append-system-prompt".into(),
                     super::CREATOR_INSTRUCTIONS.into(),
@@ -400,6 +408,7 @@ async fn handle_control(
                             events,
                         )
                         .await?;
+                    events.validate_hook_delivery()?;
                     json!({"content":[{"type":"text", "text":serde_json::to_string(&result)?}],"isError":!result.success})
                 }
                 Some("notifications/initialized" | "ping") => json!({}),

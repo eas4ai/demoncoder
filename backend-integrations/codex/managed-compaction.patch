@@ -1371,10 +1371,19 @@
  codex-home = { workspace = true }
 --- a/codex-rs/cli/src/main.rs
 +++ b/codex-rs/cli/src/main.rs
-@@ -1036,6 +1036,13 @@
+@@ -1036,6 +1036,22 @@
  }
  
  fn main() -> anyhow::Result<()> {
++    if std::env::args_os().skip(1).eq([std::ffi::OsString::from(
++        "--demoncoder-model-hook-capability",
++    )]) {
++        println!(
++            "{}",
++            serde_json::json!({"protocol":"demoncoder-model-hook-v1","source_version":"0.153.4"})
++        );
++        return Ok(());
++    }
 +    if std::env::args_os().skip(1).eq([std::ffi::OsString::from(
 +        "--demoncoder-compaction-capability",
 +    )]) {
@@ -1385,6 +1394,42 @@
      let remote_control_disabled = codex_app_server::take_remote_control_disabled_env();
      arg0_dispatch_or_else(move |arg0_paths: Arg0DispatchPaths| async move {
          cli_main(arg0_paths, remote_control_disabled).await?;
+--- a/codex-rs/codex-home/src/instructions/mod.rs
++++ b/codex-rs/codex-home/src/instructions/mod.rs
+@@ -22,6 +22,11 @@
+     }
+ 
+     async fn load_from_codex_home(&self) -> LoadedUserInstructions {
++        // A managed hook receives only host-supplied snapshot evidence. Keep
++        // the original Codex home for authentication, but never load its prose.
++        if std::env::var_os("CODEX_DEMONCODER_MODEL_HOOK").is_some_and(|value| value == "v1") {
++            return LoadedUserInstructions::default();
++        }
+         let mut warnings = Vec::new();
+         for candidate in [LOCAL_AGENTS_MD_FILENAME, DEFAULT_AGENTS_MD_FILENAME] {
+             let path = self.codex_home.join(candidate);
+--- a/codex-rs/core/src/config/mod.rs
++++ b/codex-rs/core/src/config/mod.rs
+@@ -3150,6 +3150,19 @@
+     ) -> std::io::Result<Self> {
+         // Keep the large config-construction future off small test thread stacks.
+         Box::pin(async move {
++        // This process-wide host mode survives configuration refresh. Preserve
++        // authentication and managed access restrictions; replace only ambient
++        // model context and the legacy executable notification callback.
++        if std::env::var_os("CODEX_DEMONCODER_MODEL_HOOK")
++            .is_some_and(|value| value == "v1")
++        {
++            cfg.model_instructions_file = None;
++            cfg.experimental_compact_prompt_file = None;
++            cfg.instructions = None;
++            cfg.developer_instructions = None;
++            cfg.project_doc_max_bytes = Some(0);
++            cfg.notify = None;
++        }
+         if cfg.experimental_thread_store_endpoint.is_some() {
+             return Err(std::io::Error::new(
+                 std::io::ErrorKind::InvalidInput,
 --- a/codex-rs/hooks/Cargo.toml
 +++ b/codex-rs/hooks/Cargo.toml
 @@ -27,6 +27,7 @@

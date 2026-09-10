@@ -42,6 +42,7 @@ fn executor(path: &Path) -> ToolExecutor {
             supervisor: Some(env!("CARGO_BIN_EXE_demoncoder").into()),
             extension: None,
             lifecycle: None,
+            snapshot: None,
             language_servers: Default::default(),
         },
     )

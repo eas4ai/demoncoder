@@ -1,6 +1,6 @@
 //! Durable admissions and results shared by worker, checks, Oracle and reviewer.
 mod delegation;
-mod plugin_admission;
+pub(crate) mod plugin_admission;
 mod tool_operations;
 pub use tool_operations::HostInvocation;
 pub(crate) use tool_operations::ToolAdmission;
@@ -624,6 +624,15 @@ impl SharedRuntime {
     }
 
     pub(crate) fn begin_model_as(&self, phase: &str, identity: Option<&Identity>) -> Result<u64> {
+        self.begin_model_owned(phase, identity, None)
+    }
+
+    pub(crate) fn begin_model_owned(
+        &self,
+        phase: &str,
+        identity: Option<&Identity>,
+        hook: Option<&plugin_admission::ModelAdmission>,
+    ) -> Result<u64> {
         self.admission(|r| {
             delegation::ensure_agent_active(r, phase)?;
             ensure!(
@@ -634,6 +643,9 @@ impl SharedRuntime {
                 r.operations.len() < 4096,
                 "session operation history is full"
             );
+            if let Some(hook) = hook {
+                plugin_admission::validate_model_admission(r, phase, hook)?;
+            }
             if let Some(a) = &mut r.allocation {
                 a.admit(true)?;
             }

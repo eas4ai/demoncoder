@@ -1,0 +1,75 @@
+{
+  "transport": "actual managed Codex with synthetic local TLS model and login",
+  "binary_sha256": "80315a32acf1b625129a46b0bd75537cf76ef09701ae986154159076cc0b6aff",
+  "cases": [
+    {
+      "managed": false,
+      "missing_compact_prompt": false,
+      "finished": true,
+      "model_requests": 3,
+      "inspection_calls": 1,
+      "canaries": {
+        "GLOBAL": true,
+        "BASE": true,
+        "DEVELOPER": true,
+        "COMPACT": false,
+        "WORKSPACE": false
+      },
+      "account": "chatgpt",
+      "errors": [],
+      "notification_ran": true,
+      "tools": [
+        "snapshot_read"
+      ],
+      "passed": true
+    },
+    {
+      "managed": true,
+      "missing_compact_prompt": false,
+      "finished": true,
+      "model_requests": 3,
+      "inspection_calls": 1,
+      "canaries": {
+        "GLOBAL": false,
+        "BASE": false,
+        "DEVELOPER": false,
+        "COMPACT": false,
+        "WORKSPACE": false
+      },
+      "account": "chatgpt",
+      "errors": [],
+      "notification_ran": false,
+      "tools": [
+        "snapshot_read"
+      ],
+      "passed": true
+    },
+    {
+      "managed": false,
+      "missing_compact_prompt": true,
+      "startup_rejected": true,
+      "passed": true
+    },
+    {
+      "managed": true,
+      "missing_compact_prompt": true,
+      "finished": true,
+      "model_requests": 3,
+      "inspection_calls": 1,
+      "canaries": {
+        "GLOBAL": false,
+        "BASE": false,
+        "DEVELOPER": false,
+        "COMPACT": false,
+        "WORKSPACE": false
+      },
+      "account": "chatgpt",
+      "errors": [],
+      "notification_ran": false,
+      "tools": [
+        "snapshot_read"
+      ],
+      "passed": true
+    }
+  ]
+}

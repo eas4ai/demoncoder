@@ -7,7 +7,7 @@
   "source_tree_sha256": "faa3dfcd3b8647b879cc7a2d42b64d2dc5398bf0283c9a47148b4a20541015ed",
   "source_file_count": 6945,
   "tree_digest_algorithm": "SHA256 of sorted UTF-8 relative path + NUL + file SHA256 hex + LF records",
-  "patch_sha256": "8a9d99930cdbc041ec6b86a2f1798c6617b0cedd7895ec51b08d57c97847e26a",
+  "patch_sha256": "99d0bd1a9ba6e595df99eca9d1e7f1cdbc4f081705711d703147a13eb8e69d43",
   "rust_toolchain": "1.95.0",
   "external_dependency_records_unchanged": true,
   "workspace_lock_repair": "149 workspace packages: 0.0.0 -> 0.153.4; direct edges added for codex-cli -> codex-hooks and codex-hooks -> sha2/libc; no external package changes",
@@ -26,7 +26,7 @@
     },
     "codex-rs/cli/src/main.rs": {
       "original_sha256": "beab9cd5ea1cbf6e8762397e39fcdec9f263b675365cd206fd808501a2102c14",
-      "patched_sha256": "37fb6442da18b4fe5a81bf37465d89c0b224c56008505cb1da1b54118e93982f"
+      "patched_sha256": "bfb36f02387735667c7594b2c95140cff1c078a294e80f9d5301baa475214ad1"
     },
     "codex-rs/hooks/Cargo.toml": {
       "original_sha256": "03d55888127bb1b7ab683696e11080046f0b9bade863bd4a81e1d746123f7e08",
@@ -63,6 +63,15 @@
     "codex-rs/hooks/src/registry.rs": {
       "original_sha256": "4c9e29f146fd409a515d198ae86c46d1852e8e84d4a0f3bcd73c45548311c160",
       "patched_sha256": "ae278b8b063cea071a3299d1efd53b20b4e460ed186b9b3a8245793ba461d613"
+    },
+    "codex-rs/codex-home/src/instructions/mod.rs": {
+      "original_sha256": "fad349ac9be95dfcbf5401d814f35a8cb118ab6cdfe3cf48ae89fda8b39e4614",
+      "patched_sha256": "2036182be9ed9625154de57543b50340f302e817a8be9b50ee35996746bcc087"
+    },
+    "codex-rs/core/src/config/mod.rs": {
+      "original_sha256": "b3eb0a9751522f7f6f7a7bd1b21253f2fcb4e669955819bfb6d0a7425e1fed9e",
+      "patched_sha256": "ffa887cff9e68932fc49681ad5cef240bbcb109bd07b5788524ac3274beeb8dd"
     }
-  }
+  },
+  "model_hook_protocol": "demoncoder-model-hook-v1"
 }

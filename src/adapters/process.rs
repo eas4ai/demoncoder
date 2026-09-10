@@ -61,6 +61,24 @@ impl BackendProcess {
         Self::spawn_inner(binary, args, workspace, auth_env, &[], Some(supervisor))
     }
 
+    pub fn spawn_supervised_with_environment(
+        binary: &Path,
+        args: &[String],
+        workspace: &Path,
+        auth_env: &[&str],
+        environment: &[(&str, &str)],
+        supervisor: &Path,
+    ) -> Result<Self> {
+        Self::spawn_inner(
+            binary,
+            args,
+            workspace,
+            auth_env,
+            environment,
+            Some(supervisor),
+        )
+    }
+
     fn spawn_inner(
         binary: &Path,
         args: &[String],

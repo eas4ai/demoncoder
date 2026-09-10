@@ -148,6 +148,7 @@ pub struct EventSink {
     identity: Option<crate::workflow::runtime::Identity>,
     invocation: Option<u64>,
     tool_operation: Option<u64>,
+    hook_model: Option<crate::workflow::runtime::plugin_admission::ModelAdmission>,
 }
 
 impl EventSink {
@@ -180,6 +181,7 @@ impl EventSink {
             identity: None,
             invocation: None,
             tool_operation: None,
+            hook_model: None,
         })
     }
 
@@ -227,20 +229,35 @@ impl EventSink {
             } else {
                 phase.into()
             },
+            hook_model: self.hook_model.clone(),
         }
     }
 
     pub(crate) fn begin_model(&self) -> Result<Option<u64>> {
+        self.validate_hook_delivery()?;
         self.runtime
             .as_ref()
-            .map(|r| r.begin_model_as(&self.phase, self.identity.as_ref()))
+            .map(|r| {
+                r.begin_model_owned(
+                    &self.phase,
+                    self.identity.as_ref(),
+                    self.hook_model.as_ref(),
+                )
+            })
             .transpose()
     }
 
     pub(crate) fn begin_backend(&self) -> Result<Option<u64>> {
+        self.validate_hook_delivery()?;
         self.runtime
             .as_ref()
-            .map(|runtime| runtime.begin_backend_as(&self.phase, self.identity.as_ref()))
+            .map(|runtime| {
+                runtime.begin_backend_owned(
+                    &self.phase,
+                    self.identity.as_ref(),
+                    self.hook_model.as_ref(),
+                )
+            })
             .transpose()
     }
 
@@ -304,6 +321,74 @@ impl EventSink {
             self.tool_operation
                 .context("plugin admission requires a correlated tool operation")?,
         ))
+    }
+
+    pub(crate) fn for_hook_model(
+        &self,
+        invocation: u32,
+        maximum: u32,
+        snapshot: Arc<crate::plugins::runners::SnapshotInspection>,
+        cancelled: Arc<std::sync::atomic::AtomicBool>,
+        sender: mpsc::Sender<Envelope>,
+    ) -> Result<Self> {
+        let (runtime, owner) = self.plugin_context()?;
+        runtime.plugin_owner(owner)?;
+        let mut sink = self.child(&format!("hook:{owner}:{invocation}"), sender);
+        sink.hook_model = Some(crate::workflow::runtime::plugin_admission::ModelAdmission {
+            owner,
+            invocation,
+            maximum,
+            snapshot,
+            cancelled,
+        });
+        Ok(sink)
+    }
+
+    pub(crate) fn validate_hook_delivery(&self) -> Result<()> {
+        if let Some(hook) = &self.hook_model {
+            self.validate_model_owner()?;
+            hook.snapshot.validate_delivery()?;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn validate_hook_request(&self, value: &serde_json::Value) -> Result<()> {
+        if let Some(hook) = &self.hook_model {
+            self.validate_model_owner()?;
+            hook.snapshot.validate_request(value)?;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn validate_model_owner(&self) -> Result<()> {
+        let hook = self
+            .hook_model
+            .as_ref()
+            .context("model hook authority missing")?;
+        anyhow::ensure!(
+            !hook.cancelled.load(std::sync::atomic::Ordering::Acquire),
+            "model hook cancelled"
+        );
+        let runtime = self
+            .runtime
+            .as_ref()
+            .context("model hook runtime missing")?;
+        runtime.plugin_owner(hook.owner)?;
+        anyhow::ensure!(
+            !runtime.remaining()?.is_zero(),
+            "model hook owner deadline expired"
+        );
+        Ok(())
+    }
+
+    pub(crate) fn settle_hook_models(&self) -> Result<()> {
+        if self.hook_model.is_some() {
+            self.runtime
+                .as_ref()
+                .context("hook runtime missing")?
+                .settle_hook_models(&self.phase)?;
+        }
+        Ok(())
     }
 
     pub(crate) fn mutation_boundary(
@@ -370,6 +455,11 @@ impl EventSink {
     }
 
     pub(crate) fn checkpoint(&self, state: Option<serde_json::Value>) -> Result<()> {
+        // Hook contexts are fresh isolated assignments. In particular an
+        // agent:<id>:hook phase must never overwrite that child's checkpoint.
+        if self.hook_model.is_some() {
+            return Ok(());
+        }
         if let (Some(runtime), Some(state)) = (&self.runtime, state) {
             if self.phase == "worker" {
                 runtime.checkpoint(state)?;

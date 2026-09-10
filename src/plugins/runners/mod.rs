@@ -1,11 +1,15 @@
 //! Explicit host-selected runners; package inspection is not activation.
 mod command;
+mod inspection;
 mod launch;
+mod model;
 mod package;
 mod process;
 pub(crate) mod snapshot;
 mod staging;
 pub use command::{CommandConfig, CommandProgram, CommandRunner, NetworkGrant};
+pub use inspection::SnapshotInspection;
+pub use model::{ModelConfig, ModelRunner};
 
 /// Only ToolExecutor constructs this capability from its admitted host policy.
 #[derive(Clone)]

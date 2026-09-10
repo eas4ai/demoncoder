@@ -125,10 +125,20 @@ impl SharedRuntime {
         self.begin_backend_as(phase, None)
     }
 
+    #[cfg(test)]
     pub(crate) fn begin_backend_as(
         &self,
         phase: &str,
         identity: Option<&super::Identity>,
+    ) -> Result<u64> {
+        self.begin_backend_owned(phase, identity, None)
+    }
+
+    pub(crate) fn begin_backend_owned(
+        &self,
+        phase: &str,
+        identity: Option<&super::Identity>,
+        hook: Option<&super::plugin_admission::ModelAdmission>,
     ) -> Result<u64> {
         self.admission(|record| {
             ensure!(
@@ -146,7 +156,15 @@ impl SharedRuntime {
                 record.operations.len() < 4096,
                 "session operation history is full"
             );
-            if record.delegation.is_some() {
+            if let Some(hook) = hook {
+                super::plugin_admission::validate_model_admission(record, phase, hook)?;
+                record
+                    .allocation
+                    .as_mut()
+                    .context("hook allocation missing")?
+                    .admit(true)?;
+            }
+            if record.delegation.is_some() || hook.is_some() {
                 record.backend_invocations += 1;
             }
             let id = record.operations.len() as u64 + 1;

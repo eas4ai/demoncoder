@@ -24,6 +24,7 @@ struct Anthropic {
     max_output_tokens: Option<u32>,
     history: Vec<Value>,
     definitions: Vec<Value>,
+    model_hook: bool,
 }
 
 pub fn open(config: &Connection, workspace: &Path) -> Result<Box<dyn Session>> {
@@ -36,6 +37,7 @@ pub fn open(config: &Connection, workspace: &Path) -> Result<Box<dyn Session>> {
     let definitions = tools.definitions();
     Ok(Box::new(NativeSession::with_tools(
         Box::new(Anthropic {
+            model_hook: config.access.snapshot.is_some(),
             client: http::client()?,
             endpoint: http::endpoint(
                 config
@@ -152,7 +154,9 @@ impl Model for Anthropic {
             "model":self.model,"messages":self.history,"stream":true,"max_tokens":limit,
             "tools":self.definitions.clone(),
         });
-        if !self.definitions.is_empty() {
+        if self.model_hook {
+            body["system"] = super::MODEL_HOOK_INSTRUCTIONS.into();
+        } else if !self.definitions.is_empty() {
             body["system"] = super::CREATOR_INSTRUCTIONS.into();
         }
         if let Some(effort) = &self.effort {
@@ -163,6 +167,7 @@ impl Model for Anthropic {
                 usage: ContextUsage::estimate_request(&body),
             })
             .await?;
+        events.validate_hook_request(&body)?;
         let request = self
             .client
             .post(self.endpoint.clone())

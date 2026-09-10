@@ -22,7 +22,7 @@ Executed checks:
 - `PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s backend-integrations/codex -p 'test_*.py'`:
   four passed. Tampered source, patch, reused candidate and external dependencies
   are rejected; source links cannot escape or hide an untracked directory.
-- `qualify.py`: all 36 actual backend cases passed on the rebuilt FIFO-fix
+- `qualify.py`: all 36 actual backend cases passed on the rebuilt model-hook-isolation
   artifact whose digest matches `build-receipt.json`. Manual and automatic compaction
   each exercised PreCompact and PostCompact with allow, deny, SIGKILL, timeout,
   stale acknowledgment, empty output, plain output, malformed output and nonzero
@@ -56,3 +56,15 @@ digest. The fault-injection relay is a test fixture. Production authenticated
 host relay tests live in `tests/plugin_codex_installed.rs` and are owned by the
 host integration; backend acknowledgments alone do not prove host authentication.
 The broader plugin commitment and installation qualification remain separate.
+
+## Model hook isolation rebuild
+
+The managed model-hook mode preserves the original authentication home while
+suppressing ambient instructions and notification commands. The current build
+receipt and all 17 startup plus 36 compaction cases refer to the same artifact.
+`model-hook-qualification.json` records four additional actual CLI cases:
+ordinary and isolated instruction/notification controls, and rejection versus
+isolation of a missing configured compaction-prompt file. All four passed.
+These use local controlled endpoints and synthetic authentication; they do not
+claim live-provider qualification. See `docs/reviews/plugin-model-runners.md`
+for the host integration scope and limitations.

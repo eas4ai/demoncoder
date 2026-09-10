@@ -22,6 +22,7 @@ struct OpenAi {
     max_output_tokens: Option<u32>,
     history: Vec<Value>,
     definitions: Vec<Value>,
+    model_hook: bool,
 }
 
 pub fn open(config: &Connection, workspace: &Path) -> Result<Box<dyn Session>> {
@@ -34,6 +35,7 @@ pub fn open(config: &Connection, workspace: &Path) -> Result<Box<dyn Session>> {
     let definitions = tools.definitions();
     Ok(Box::new(NativeSession::with_tools(
         Box::new(OpenAi {
+            model_hook: config.access.snapshot.is_some(),
             client: http::client()?,
             endpoint: http::endpoint(
                 config
@@ -93,7 +95,9 @@ impl Model for OpenAi {
             })
             .collect();
         let mut body = json!({"model":self.model,"input":self.history,"stream":true,"store":false,"include":["reasoning.encrypted_content"],"tools":tools});
-        if !self.definitions.is_empty() {
+        if self.model_hook {
+            body["instructions"] = super::MODEL_HOOK_INSTRUCTIONS.into();
+        } else if !self.definitions.is_empty() {
             body["instructions"] = super::CREATOR_INSTRUCTIONS.into();
         }
         if let Some(limit) = self.max_output_tokens {
@@ -107,6 +111,7 @@ impl Model for OpenAi {
                 usage: ContextUsage::estimate_request(&body),
             })
             .await?;
+        events.validate_hook_request(&body)?;
         let request = self
             .client
             .post(self.endpoint.clone())

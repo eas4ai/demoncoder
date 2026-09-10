@@ -128,6 +128,7 @@ def main():
     for key in list(environment):
         if key.startswith("CARGO_PROFILE_") or key in {
             REQUIREMENT_ENV,
+            "CODEX_DEMONCODER_MODEL_HOOK",
             "RUSTFLAGS",
             "CARGO_ENCODED_RUSTFLAGS",
             "RUSTC",
@@ -199,6 +200,14 @@ def main():
         raise RuntimeError(
             "built artifact does not expose the expected managed capability"
         )
+    model_hook_capability = json.loads(
+        capture([str(binary), "--demoncoder-model-hook-capability"])
+    )
+    if model_hook_capability != {
+        "protocol": "demoncoder-model-hook-v1",
+        "source_version": "0.153.4",
+    }:
+        raise RuntimeError("built artifact lacks model-hook instruction isolation")
     receipt = {
         "schema_version": 1,
         "source_tree_sha256": provenance["source_tree_sha256"],
@@ -215,6 +224,7 @@ def main():
         "platform": platform.platform(),
         "version": capture([str(binary), "--version"]),
         "capability": capability,
+        "model_hook_capability": model_hook_capability,
         "checks": ["just test --locked -p codex-hooks"],
         "qualification": "not established by this build receipt; run backend and host-adapter qualification",
     }

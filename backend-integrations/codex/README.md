@@ -68,3 +68,27 @@ authenticated host relay. The test relay in `qualify.py` is only a fault injecto
 the patch adds only direct edges to already pinned `codex-hooks`, `sha2` and `libc`.
 External dependency package records must remain byte-for-byte equivalent after
 TOML decoding. The build script checks that invariant before compiling.
+
+## Model-hook instruction isolation
+
+The same artifact exposes `--demoncoder-model-hook-capability` with protocol
+`demoncoder-model-hook-v1` and source version `0.153.4`. The host selects this
+mode only for snapshot-bound model hooks, through the inherited
+`CODEX_DEMONCODER_MODEL_HOOK=v1` environment value. Ordinary adapter launches
+clear that value. Package configuration and model output cannot select it.
+
+This mode skips global AGENTS.md loading, project instruction discovery,
+configured base/developer instruction text and instruction files, custom
+compaction prompt files, and the legacy executable notification callback.
+It applies again when configuration is rebuilt. Authentication storage,
+subscription account restrictions and managed access restrictions retain their
+original configuration and directory. No credentials are relocated or copied.
+The host also disables ambient tools/plugins/services, supplies the hook's
+instructions, and uses an owned empty transport working directory. Snapshot
+inspection tools return only host-captured evidence.
+
+`tests/plugin_model_codex_isolation.py` exercises the actual binary against a
+local TLS model and synthetic ChatGPT login. It compares ordinary and hook
+requests, inspection calls and notification effects. This is controlled
+transport evidence, not a live subscription-provider check. Existing compaction
+qualification must be rerun whenever the artifact changes.

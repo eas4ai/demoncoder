@@ -1,11 +1,11 @@
 {
   "schema_version": 1,
   "source_tree_sha256": "faa3dfcd3b8647b879cc7a2d42b64d2dc5398bf0283c9a47148b4a20541015ed",
-  "patch_sha256": "8a9d99930cdbc041ec6b86a2f1798c6617b0cedd7895ec51b08d57c97847e26a",
-  "prepared_tree_sha256": "eee0c3b4781bafbd91eb92dbd004b5b48b6faed3ff1d01c77a6ae100385b4851",
+  "patch_sha256": "99d0bd1a9ba6e595df99eca9d1e7f1cdbc4f081705711d703147a13eb8e69d43",
+  "prepared_tree_sha256": "0a8cede77909190fb19c4c60b92d4fa5b176b767be3fc310e1a178e7365c0bda",
   "binary": "/home/shawn/.cache/demoncoder/managed-codex-v0.153.4/codex-rs/target/debug/codex",
-  "binary_sha256": "6c5475e45e79a798f151a88d32ceeb5f1770bd56e51928e5acf4fb62ce4187f7",
-  "binary_bytes": 548111744,
+  "binary_sha256": "80315a32acf1b625129a46b0bd75537cf76ef09701ae986154159076cc0b6aff",
+  "binary_bytes": 548123280,
   "profile": "dev",
   "debug_information": false,
   "build_command": [
@@ -27,6 +27,10 @@
     "protocol": "demoncoder-compaction-v1",
     "source_version": "0.153.4",
     "patch_version": 1
+  },
+  "model_hook_capability": {
+    "protocol": "demoncoder-model-hook-v1",
+    "source_version": "0.153.4"
   },
   "checks": [
     "just test --locked -p codex-hooks"

@@ -115,10 +115,6 @@ impl PreToolPlan {
             }
             profile.require_runner(id.dialect, HookEvent::PreToolUse, id.runner)?;
             ensure!(
-                !matches!(id.runner, HandlerKind::Prompt | HandlerKind::Agent),
-                "model runner allocation integration is unavailable"
-            );
-            ensure!(
                 d.class != HandlerClass::Observer,
                 "pre-tool observers require later owned observer integration"
             );
@@ -237,7 +233,7 @@ impl RawOutcome {
                         n.saturating_add(t.len().saturating_mul(6))
                     })
             }
-            Self::Callback { value } => value_bytes(value),
+            Self::Callback { value } | Self::Model { value, .. } => value_bytes(value),
             Self::Failure { reason } => reason.len().saturating_mul(6),
         };
         measured <= 120 * 1024
@@ -248,6 +244,19 @@ impl RawOutcome {
         profile: &CompatibilityProfile,
         id: &DeclarationIdentity,
     ) -> results::DecodedResult {
+        if let Self::Model {
+            value,
+            continue_on_block,
+        } = self
+        {
+            return results::decode_model_pretool(
+                profile,
+                id.dialect,
+                id.runner,
+                value,
+                *continue_on_block,
+            );
+        }
         let texts;
         let response = match self {
             Self::Command {
@@ -276,6 +285,7 @@ impl RawOutcome {
                 }
             }
             Self::Callback { value } => HookResponse::Callback(value),
+            Self::Model { .. } => unreachable!("model response decoded above"),
             Self::Failure { .. } | Self::CommandFailure { .. } => {
                 HookResponse::Failure(results::TransportFailure::Execution)
             }

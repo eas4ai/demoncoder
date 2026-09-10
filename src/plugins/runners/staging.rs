@@ -256,7 +256,8 @@ mod tests {
             .unwrap();
         let entry = snapshot.entry("file").unwrap();
         let mut unsupported = entry.access().clone();
-        unsupported.supported_attributes ^= 1u64 << 63;
+        unsupported.attributes |= 1u64 << 63;
+        unsupported.supported_attributes |= 1u64 << 63;
         let path = std::cell::RefCell::new(PathBuf::new());
         let prepare = || -> Result<()> {
             let mut staging = StagingDirectory::new()?;

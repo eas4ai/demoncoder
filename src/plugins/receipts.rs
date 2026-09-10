@@ -86,6 +86,11 @@ pub enum RawOutcome {
     Callback {
         value: Value,
     },
+    Model {
+        value: Value,
+        /// Host-selected source configuration, never read from model output.
+        continue_on_block: bool,
+    },
     Failure {
         reason: String,
     },

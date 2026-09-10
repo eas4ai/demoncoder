@@ -83,6 +83,24 @@ impl Codex {
         if self.process.is_some() {
             return Ok(());
         }
+        if self.access.snapshot.is_some() {
+            let mut probe = BackendProcess::spawn(
+                &self.binary,
+                &["--demoncoder-model-hook-capability".into()],
+                &self.workspace,
+                &[],
+            )?;
+            let capability =
+                tokio::time::timeout(Duration::from_secs(5), probe.finite_json(4096)).await;
+            probe.stop().await?;
+            let capability =
+                capability.context("managed Codex model-hook qualification timed out")??;
+            anyhow::ensure!(
+                capability["protocol"] == "demoncoder-model-hook-v1"
+                    && capability["source_version"] == "0.153.4",
+                "Codex lacks the qualified model-hook instruction isolation"
+            );
+        }
         if let Some(lifecycle) = &self.lifecycle {
             let mut probe = BackendProcess::spawn(
                 &self.binary,
@@ -140,18 +158,32 @@ impl Codex {
         ] {
             args.extend(["-c".into(), setting.into()]);
         }
-        let environment = self
+        let mut environment = self
             .relay
             .as_ref()
             .map(|relay| vec![("CODEX_DEMONCODER_COMPACTION_RELAY", relay.requirement())])
             .unwrap_or_default();
-        self.process = Some(BackendProcess::spawn_with_environment(
-            &self.binary,
-            &args,
-            &self.workspace,
-            &["CODEX_HOME"],
-            &environment,
-        )?);
+        if self.access.snapshot.is_some() {
+            environment.push(("CODEX_DEMONCODER_MODEL_HOOK", "v1"));
+        }
+        self.process = Some(if self.access.snapshot.is_some() {
+            BackendProcess::spawn_supervised_with_environment(
+                &self.binary,
+                &args,
+                &self.workspace,
+                &["CODEX_HOME"],
+                &environment,
+                &self.relay_binary,
+            )?
+        } else {
+            BackendProcess::spawn_with_environment(
+                &self.binary,
+                &args,
+                &self.workspace,
+                &["CODEX_HOME"],
+                &environment,
+            )?
+        });
         self.rpc(
             "initialize",
             json!({"clientInfo":{"name":"demoncoder","version":env!("CARGO_PKG_VERSION")},"capabilities":{"experimentalApi":true}}),
@@ -195,7 +227,9 @@ impl Codex {
             "model":self.model,"cwd":self.workspace,"sandbox":if self.tools.unrestricted() {"danger-full-access"} else {"workspace-write"},"approvalPolicy":"never",
             "config":{"mcp_servers":disabled_servers},
         });
-        if !dynamic_tools.is_empty() {
+        if self.access.snapshot.is_some() {
+            params["developerInstructions"] = super::MODEL_HOOK_INSTRUCTIONS.into();
+        } else if !dynamic_tools.is_empty() {
             params["developerInstructions"] = super::CREATOR_INSTRUCTIONS.into();
         }
         let method = if let Some(thread) = &self.thread {
@@ -373,6 +407,7 @@ impl Codex {
                                 events,
                             )
                             .await?;
+                        events.validate_hook_delivery()?;
                         // Deliver completed evidence before interrupting its backend turn.
                         process.send(json!({"id":message["id"],"result":{
                             "success":result.success,"contentItems":[{"type":"inputText","text":serde_json::to_string(&result)?}],

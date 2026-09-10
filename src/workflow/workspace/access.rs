@@ -37,6 +37,18 @@ impl std::fmt::Debug for AccessMetadata {
     }
 }
 impl AccessMetadata {
+    /// Filesystems may support different inactive features. Reproduction still
+    /// requires identical active policy and destination support for every active
+    /// source attribute. Capture/freshness equality keeps the complete mask.
+    fn reproduced_by(&self, actual: &Self) -> bool {
+        self.uid == actual.uid
+            && self.gid == actual.gid
+            && self.acl == actual.acl
+            && self.extended == actual.extended
+            && self.attributes == actual.attributes
+            && actual.supported_attributes & self.attributes == self.attributes
+    }
+
     pub(super) fn byte_count(&self) -> usize {
         let acl = match &self.acl {
             AclMetadata::SymlinkNotApplicable => 0,
@@ -376,7 +388,7 @@ pub(crate) fn restore_and_verify(
         "snapshot mode cannot be reproduced"
     );
     ensure!(
-        actual == *expected,
+        expected.reproduced_by(&actual),
         "snapshot access metadata or statx semantics cannot be reproduced"
     );
     Ok(())
@@ -386,6 +398,63 @@ pub(crate) fn restore_and_verify(
 mod tests {
     use super::*;
     use std::cell::Cell;
+
+    #[test]
+    fn materialization_accepts_different_inactive_filesystem_features() {
+        let root = tempfile::tempdir().unwrap();
+        let file = File::create(root.path().join("file")).unwrap();
+        let metadata = file.metadata().unwrap();
+        let original = capture(&file, &metadata, &|| Ok(())).unwrap();
+        let mut retained = original.clone();
+        retained.supported_attributes ^= 1u64 << 63;
+        assert_ne!(retained, original, "freshness must retain the full mask");
+        restore_and_verify(&file, None, metadata.mode(), &retained, &|| Ok(())).unwrap();
+    }
+
+    #[test]
+    fn reproduction_rejects_changed_access_and_unsupported_active_attributes() {
+        let retained = AccessMetadata {
+            uid: 1000,
+            gid: 1000,
+            acl: AclMetadata::Posix {
+                access: None,
+                default: None,
+            },
+            extended: BTreeMap::new(),
+            attributes: 0x4,
+            supported_attributes: 0x34,
+        };
+        let mut reproduced = retained.clone();
+        reproduced.supported_attributes = 0x14;
+        assert!(retained.reproduced_by(&reproduced));
+        assert_ne!(
+            retained, reproduced,
+            "freshness must retain feature support"
+        );
+        let reject = |label, change: fn(&mut AccessMetadata)| {
+            let mut actual = reproduced.clone();
+            change(&mut actual);
+            assert!(!retained.reproduced_by(&actual), "accepted changed {label}");
+        };
+        reject("owner", |actual| actual.uid += 1);
+        reject("group", |actual| actual.gid += 1);
+        reject("ACL", |actual| {
+            actual.acl = AclMetadata::Posix {
+                access: Some(vec![1]),
+                default: None,
+            };
+        });
+        reject("security attribute", |actual| {
+            actual
+                .extended
+                .insert("security.synthetic".into(), b"synthetic-policy".to_vec());
+        });
+        reject("missing active flag", |actual| actual.attributes = 0);
+        reject("additional active flag", |actual| actual.attributes |= 0x10);
+        reject("unsupported active flag", |actual| {
+            actual.supported_attributes &= !0x4;
+        });
+    }
 
     #[test]
     fn canonical_attribute_name_buffer_retains_no_spare_capacity() {

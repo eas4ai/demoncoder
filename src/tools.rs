@@ -42,6 +42,8 @@ pub struct AccessPolicy {
     pub language_servers: crate::language_services::LanguageServers,
     /// Host-selected lifecycle owner; packages cannot configure a backend relay.
     pub lifecycle: Option<Arc<crate::plugins::bridge::Lifecycle>>,
+    /// Host-only model-hook evidence capability; never deserialized with Connection.
+    pub snapshot: Option<Arc<crate::plugins::runners::SnapshotInspection>>,
 }
 
 impl Default for AccessPolicy {
@@ -56,6 +58,7 @@ impl Default for AccessPolicy {
             extension: None,
             language_servers: crate::language_services::LanguageServers::default(),
             lifecycle: None,
+            snapshot: None,
         }
     }
 }
@@ -231,6 +234,16 @@ impl ToolExecutor {
     }
 
     pub fn with_policy(workspace: &Path, access: &AccessPolicy) -> Result<Self> {
+        ensure!(
+            access.snapshot.is_none()
+                || (!access.unrestricted
+                    && !access.strict_worktree
+                    && access.oracle.is_none()
+                    && access.extension.is_none()
+                    && !access.language_servers.enabled()
+                    && access.lifecycle.is_none()),
+            "snapshot hook policy cannot inherit live tools, extensions, language services or lifecycle dispatch"
+        );
         access.language_servers.validate()?;
         ensure!(
             !access.language_servers.enabled() || (access.tools_enabled && !access.strict_worktree),
@@ -285,7 +298,11 @@ impl ToolExecutor {
         .context("workspace requires Linux openat2")?;
         let root = Arc::new(root);
         let workspace = workspace.canonicalize().context("resolve tool workspace")?;
-        let developer = if !access.unrestricted && !access.strict_worktree && access.tools_enabled {
+        let developer = if !access.unrestricted
+            && !access.strict_worktree
+            && access.tools_enabled
+            && access.snapshot.is_none()
+        {
             Some(Arc::new(crate::developer_access::DeveloperAccess::new(
                 &workspace,
                 &access.credential_paths,
@@ -353,6 +370,9 @@ impl ToolExecutor {
     pub fn definitions(&self) -> Vec<Value> {
         if !self.access.tools_enabled {
             return Vec::new();
+        }
+        if let Some(snapshot) = &self.access.snapshot {
+            return snapshot.definitions();
         }
         let mut tools = definitions();
         if self.access.strict_worktree {
@@ -480,6 +500,10 @@ impl ToolExecutor {
             events
                 .emit(Event::ToolStarted { call: call.clone() })
                 .await?;
+            if let Some(snapshot) = &self.access.snapshot {
+                effect.start().await?;
+                return Ok((snapshot.execute(&call)?, None));
+            }
             match call.name.as_str() {
                 "read" => {
                     let args: ReadArgs = serde_json::from_value(call.arguments.clone())?;
