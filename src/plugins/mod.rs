@@ -1,4 +1,6 @@
 //! Immutable package inspection. Import never executes or activates package code.
+pub mod bridge;
+pub mod codex_relay;
 mod manifest;
 mod snapshot;
 mod types;

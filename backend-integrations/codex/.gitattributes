@@ -1,0 +1,2 @@
+# Empty unified-diff context lines contain their required leading space.
+managed-compaction.patch whitespace=-blank-at-eol

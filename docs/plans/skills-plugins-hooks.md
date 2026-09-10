@@ -50,12 +50,14 @@ Foundation verification: 34 importer integration tests, 3 deterministic snapshot
 
 The relay envelope has explicit `version`, `connection`, `session`, `task`, `sequence`, `callback`, `event`, `operation`, `deadline` and candidate digest fields. Authentication comes from an inherited private host channel, never the event payload. A result matches one envelope and one candidate; an after-action notification cannot answer a pre-action request.
 
-- [ ] Exercise installed Claude's `initialize.hooks` callback registration and a real manual compaction against a local model peer. Capture allow and denial, checking backend state and model requests independently of callback text.
-- [ ] Trigger actual automatic compaction and repeat allow/deny. Kill, disconnect and time out the callback path while it is waiting; observe whether the backend crosses the boundary. Keep the owner alive in the disconnected-relay case so the probe does not merely prove killing all processes stops work.
-- [ ] Implement the owner-supervised Claude control lifetime and correlated cancellation needed to hold failed barriers. Retest all failure cases through the production adapter.
-- [ ] Probe pinned Codex manual and automatic compaction using an isolated hook configuration. If the command runner fails open, patch the exact managed relay boundary in the pinned source. A normal upstream hook must not acquire global behavior changes accidentally.
-- [ ] Build and qualify that managed Codex artifact; record source digest, patch digest, toolchain, command and executable digest. Test forged/stale/duplicate acknowledgments and ambient plugin canaries.
+- [x] Exercise installed Claude's `initialize.hooks` callback registration and a real manual compaction against a local model peer. Capture allow and denial, checking backend state and model requests independently of callback text.
+- [x] Trigger actual automatic compaction and repeat allow/deny. Kill, disconnect and time out the callback path while it is waiting; observe whether the backend crosses the boundary. Keep the owner alive in the disconnected-relay case so the probe does not merely prove killing all processes stops work.
+- [x] Implement the owner-supervised Claude control lifetime and correlated cancellation needed to hold failed barriers. Retest all failure cases through the production adapter.
+- [x] Probe pinned Codex manual and automatic compaction using an isolated hook configuration. If the command runner fails open, patch the exact managed relay boundary in the pinned source. A normal upstream hook must not acquire global behavior changes accidentally.
+- [x] Build and qualify that managed Codex artifact; record source digest, patch digest, toolchain, command and executable digest. Test forged/stale/duplicate acknowledgments and ambient plugin canaries.
 - [ ] Register only qualified versions for plugin-dependent execution. Any demonstrated proprietary limitation becomes a concrete Cairn escalation, not a capability warning counted as delivery.
+
+Backend development checks: managed Codex 179 hook tests, 36 actual backend fault cases, 17 startup cases and 30 production-adapter cases pass. Installed Claude has 18 compaction cases and two abrupt-owner-death cases passing. Controlled lifetime tests additionally cover supervisor death, partial input, output backpressure and descriptor ownership. See [the qualification review](../reviews/plugin-backend-qualification.md) for corrections and evidence limits. Public activation still must enforce the qualified version policy.
 
 ## 3. Runtime wire validation and source semantics
 

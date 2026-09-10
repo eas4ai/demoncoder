@@ -1,0 +1,68 @@
+{
+  "schema_version": 1,
+  "protocol": "demoncoder-compaction-v1",
+  "patch_version": 1,
+  "source_version": "0.153.4",
+  "retained_source": "reference/codex-rust-v0.153.4",
+  "source_tree_sha256": "faa3dfcd3b8647b879cc7a2d42b64d2dc5398bf0283c9a47148b4a20541015ed",
+  "source_file_count": 6945,
+  "tree_digest_algorithm": "SHA256 of sorted UTF-8 relative path + NUL + file SHA256 hex + LF records",
+  "patch_sha256": "8a9d99930cdbc041ec6b86a2f1798c6617b0cedd7895ec51b08d57c97847e26a",
+  "rust_toolchain": "1.95.0",
+  "external_dependency_records_unchanged": true,
+  "workspace_lock_repair": "149 workspace packages: 0.0.0 -> 0.153.4; direct edges added for codex-cli -> codex-hooks and codex-hooks -> sha2/libc; no external package changes",
+  "changed_files": {
+    "codex-rs/Cargo.lock": {
+      "original_sha256": "3494b8a78d0f643556a83a9cc184e912bcab9f4c5640288952f4223452ba5dc8",
+      "patched_sha256": "c062207b1d35c6553c2518cc503bde59ba81a12f8437314c9e869f535a0c471c"
+    },
+    "codex-rs/app-server/src/main.rs": {
+      "original_sha256": "e7f7128eba53906ebf9da2bf0d9a48ddd51198a0d213620510d8ccdeb5749765",
+      "patched_sha256": "eb35b5d110d11a9b36ecd169a33bebe946dd9bee58e138507bb23edfe21040ef"
+    },
+    "codex-rs/cli/Cargo.toml": {
+      "original_sha256": "e2c944b3d04278ef9c25e1a9e1e81e374a4e22c286d739dfc2e65320e53717a3",
+      "patched_sha256": "58eeeddd1c28073ced157b999c4b04a1a1e23a50bf30dc053b96086d55daf923"
+    },
+    "codex-rs/cli/src/main.rs": {
+      "original_sha256": "beab9cd5ea1cbf6e8762397e39fcdec9f263b675365cd206fd808501a2102c14",
+      "patched_sha256": "37fb6442da18b4fe5a81bf37465d89c0b224c56008505cb1da1b54118e93982f"
+    },
+    "codex-rs/hooks/Cargo.toml": {
+      "original_sha256": "03d55888127bb1b7ab683696e11080046f0b9bade863bd4a81e1d746123f7e08",
+      "patched_sha256": "dc2195bf94eef51ea25b2c0e787e8cab52b8307f52b985a2bc0c8fae1f68b3d5"
+    },
+    "codex-rs/hooks/src/engine/command_runner.rs": {
+      "original_sha256": "c3913ff8ee6f449f07ce3c69bb2f194ad8aef2ce13b83e693165d74329ca3e14",
+      "patched_sha256": "21741f510cdeafa4e2df8f49205c80ddbf9eb221b8fc7b440f3349f388096e32"
+    },
+    "codex-rs/hooks/src/engine/command_runner_tests.rs": {
+      "original_sha256": "9f6dbcdf8fdb596396b8ea1dd5a2988c961ac29a252c366bbdd07a7fb39e43a4",
+      "patched_sha256": "2812fe5a23e77eae9a7e5b2e166f89bc660ae73a57ab21fe39b485ca8108c169"
+    },
+    "codex-rs/hooks/src/events/compact.rs": {
+      "original_sha256": "75396cc3c0c9936f0e2ef92599f34dc991b171ecdee9c4def49a8067c661bd80",
+      "patched_sha256": "dec02445b67787576d95f013b34a2a8d456b0e47137509349e5f2ca982903cbb"
+    },
+    "codex-rs/hooks/src/lib.rs": {
+      "original_sha256": "df594069f8ed09e14bece62ec5f1404c8fa9df88c9131d513d382b895a52a5f4",
+      "patched_sha256": "fa41d1479f6402af3e96be8b3b548595bc12ba345a8ce445ad30062651649f29"
+    },
+    "codex-rs/hooks/src/managed_compaction.rs": {
+      "original_sha256": null,
+      "patched_sha256": "c7233de4314f866dcd8cafa5fd3c2c9e691fb89f4dc6a3212fbfbfbc329bf239"
+    },
+    "codex-rs/hooks/src/managed_compaction_tests.rs": {
+      "original_sha256": null,
+      "patched_sha256": "06c9547eaf64bb2a74a65f8569b53c13ed7c9ded46367dde5d38da713ba9b28d"
+    },
+    "codex-rs/hooks/src/managed_registry_tests.rs": {
+      "original_sha256": null,
+      "patched_sha256": "3cbb410fdb6d817e4bd7893c119b1fbdd2e8131d01afe910ab60c29b4c5e2dca"
+    },
+    "codex-rs/hooks/src/registry.rs": {
+      "original_sha256": "4c9e29f146fd409a515d198ae86c46d1852e8e84d4a0f3bcd73c45548311c160",
+      "patched_sha256": "ae278b8b063cea071a3299d1efd53b20b4e460ed186b9b3a8245793ba461d613"
+    }
+  }
+}

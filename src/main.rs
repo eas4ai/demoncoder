@@ -13,6 +13,12 @@ use tokio::sync::mpsc;
 #[tokio::main]
 async fn main() -> Result<()> {
     let args = Args::parse();
+    if let Some(spec) = &args.supervise_backend {
+        return adapters::backend_supervisor::run(spec).await;
+    }
+    if let Some(address) = &args.codex_compaction_relay {
+        return demoncoder::plugins::codex_relay::run(address).await;
+    }
     if let Some(script) = &args.supervise_bash {
         std::process::exit(demoncoder::supervisor::run(script).await?);
     }

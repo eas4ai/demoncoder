@@ -40,6 +40,8 @@ pub struct AccessPolicy {
     pub extension: Option<Arc<dyn ToolExtension>>,
     /// Explicit session configuration; repositories and models cannot enable servers.
     pub language_servers: crate::language_services::LanguageServers,
+    /// Host-selected lifecycle owner; packages cannot configure a backend relay.
+    pub lifecycle: Option<Arc<crate::plugins::bridge::Lifecycle>>,
 }
 
 impl Default for AccessPolicy {
@@ -53,6 +55,7 @@ impl Default for AccessPolicy {
             supervisor: None,
             extension: None,
             language_servers: crate::language_services::LanguageServers::default(),
+            lifecycle: None,
         }
     }
 }

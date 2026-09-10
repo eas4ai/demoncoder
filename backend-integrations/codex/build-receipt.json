@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "source_tree_sha256": "faa3dfcd3b8647b879cc7a2d42b64d2dc5398bf0283c9a47148b4a20541015ed",
+  "patch_sha256": "8a9d99930cdbc041ec6b86a2f1798c6617b0cedd7895ec51b08d57c97847e26a",
+  "prepared_tree_sha256": "eee0c3b4781bafbd91eb92dbd004b5b48b6faed3ff1d01c77a6ae100385b4851",
+  "binary": "/home/shawn/.cache/demoncoder/managed-codex-v0.153.4/codex-rs/target/debug/codex",
+  "binary_sha256": "6c5475e45e79a798f151a88d32ceeb5f1770bd56e51928e5acf4fb62ce4187f7",
+  "binary_bytes": 548111744,
+  "profile": "dev",
+  "debug_information": false,
+  "build_command": [
+    "cargo",
+    "build",
+    "--locked",
+    "--profile",
+    "dev",
+    "-p",
+    "codex-cli",
+    "--bin",
+    "codex"
+  ],
+  "rustc": "rustc 1.95.0 (59807616e 2026-04-14)\nbinary: rustc\ncommit-hash: 59807616e1fa2540724bfbac14d7976d7e4a3860\ncommit-date: 2026-04-14\nhost: x86_64-unknown-linux-gnu\nrelease: 1.95.0\nLLVM version: 22.1.2",
+  "cargo": "cargo 1.95.0 (f2d3ce0bd 2026-03-21)",
+  "platform": "Linux-7.0.0-30-generic-x86_64-with-glibc2.43",
+  "version": "codex-cli 0.153.4",
+  "capability": {
+    "protocol": "demoncoder-compaction-v1",
+    "source_version": "0.153.4",
+    "patch_version": 1
+  },
+  "checks": [
+    "just test --locked -p codex-hooks"
+  ],
+  "qualification": "not established by this build receipt; run backend and host-adapter qualification"
+}

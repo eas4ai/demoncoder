@@ -25,6 +25,10 @@ struct Codex {
     thread: Option<String>,
     next_id: u64,
     tools: ToolExecutor,
+    access: crate::tools::AccessPolicy,
+    lifecycle: Option<std::sync::Arc<crate::plugins::bridge::Lifecycle>>,
+    relay: Option<crate::plugins::codex_relay::Owner>,
+    relay_binary: PathBuf,
 }
 
 pub fn open(config: &Connection, workspace: &Path) -> Result<Box<dyn Session>> {
@@ -41,6 +45,15 @@ pub fn open(config: &Connection, workspace: &Path) -> Result<Box<dyn Session>> {
         thread: None,
         next_id: 1,
         tools: ToolExecutor::with_policy(workspace, &config.access)?,
+        access: config.access.clone(),
+        lifecycle: config.access.lifecycle.clone(),
+        relay: None,
+        relay_binary: config
+            .access
+            .supervisor
+            .clone()
+            .map(Ok)
+            .unwrap_or_else(std::env::current_exe)?,
     }))
 }
 
@@ -69,6 +82,32 @@ impl Codex {
     async fn connect(&mut self) -> Result<()> {
         if self.process.is_some() {
             return Ok(());
+        }
+        if let Some(lifecycle) = &self.lifecycle {
+            let mut probe = BackendProcess::spawn(
+                &self.binary,
+                &["--demoncoder-compaction-capability".into()],
+                &self.workspace,
+                &[],
+            )?;
+            let capability =
+                tokio::time::timeout(Duration::from_secs(5), probe.finite_json(4096)).await;
+            probe.stop().await?;
+            let capability = capability.context("managed Codex qualification timed out")??;
+            anyhow::ensure!(
+                capability["protocol"] == "demoncoder-compaction-v1"
+                    && capability["source_version"] == "0.153.4"
+                    && capability["patch_version"] == 1,
+                "Codex lacks the qualified managed compaction integration"
+            );
+            let relay = crate::plugins::codex_relay::Owner::new(lifecycle, &self.relay_binary)?;
+            let mut access = self.access.clone();
+            access
+                .credential_paths
+                .push(relay.protected_root().to_path_buf());
+            self.tools.stop_language_services().await?;
+            self.tools = ToolExecutor::with_policy(&self.workspace, &access)?;
+            self.relay = Some(relay);
         }
         let mut args = vec!["app-server".into(), "--stdio".into()];
         for feature in [
@@ -101,11 +140,17 @@ impl Codex {
         ] {
             args.extend(["-c".into(), setting.into()]);
         }
-        self.process = Some(BackendProcess::spawn(
+        let environment = self
+            .relay
+            .as_ref()
+            .map(|relay| vec![("CODEX_DEMONCODER_COMPACTION_RELAY", relay.requirement())])
+            .unwrap_or_default();
+        self.process = Some(BackendProcess::spawn_with_environment(
             &self.binary,
             &args,
             &self.workspace,
             &["CODEX_HOME"],
+            &environment,
         )?);
         self.rpc(
             "initialize",
@@ -194,12 +239,15 @@ impl Codex {
             self.next_id += 1;
             let process = self.process.as_mut().context("Codex process unavailable")?;
             let admission = events.begin_backend()?;
-            process
-                .send(json!({"id":id,"method":"turn/start","params":{
+            let request = if prompt == "/compact" {
+                json!({"id":id,"method":"thread/compact/start","params":{"threadId":self.thread}})
+            } else {
+                json!({"id":id,"method":"turn/start","params":{
                     "threadId":self.thread,"input":[{"type":"text","text":prompt}],
                     "environments":[],"effort":self.effort,
-                }}))
-                .await?;
+                }})
+            };
+            process.send(request).await?;
             let mut turn: Option<String> = None;
             let mut corrections = Vec::new();
             let mut interrupt_id = None;
@@ -226,14 +274,42 @@ impl Codex {
                     prompt = correction_prompt(corrections);
                     continue 'turns;
                 }
-                let message = tokio::select! {
+                enum Incoming {
+                    Backend(Value),
+                    Relay(tokio::net::UnixStream),
+                }
+                let incoming = tokio::select! {
                     biased;
                     Some(text) = steering.recv() => { corrections.push(text); continue; },
-                    result = process.receive() => result?,
+                    result = process.receive() => Incoming::Backend(result?),
+                    stream = async {
+                        match (&self.relay, &turn) {
+                            (Some(relay), Some(_)) => relay.accept().await,
+                            _ => std::future::pending().await,
+                        }
+                    } => Incoming::Relay(stream?),
                     _ = async { match deadline {
                         Some(at) => tokio::time::sleep_until(at).await,
                         None => std::future::pending().await,
                     }} => bail!("Codex did not finish the superseded turn within 30 seconds"),
+                };
+                let message = match incoming {
+                    Incoming::Backend(message) => message,
+                    Incoming::Relay(stream) => {
+                        self.relay
+                            .as_mut()
+                            .context("managed relay unavailable")?
+                            .handle(
+                                stream,
+                                self.thread
+                                    .as_deref()
+                                    .context("managed thread unavailable")?,
+                                turn.as_deref().context("managed turn unavailable")?,
+                                events,
+                            )
+                            .await?;
+                        continue;
+                    }
                 };
                 let is_reply = message.get("method").is_none();
                 if is_reply && interrupt_id.is_some_and(|request| message["id"] == request) {
@@ -247,8 +323,15 @@ impl Codex {
                 if is_reply && message["id"] == id && message.get("error").is_some() {
                     bail!("Codex rejected the turn");
                 }
-                if is_reply && message["id"] == id {
-                    turn = message["result"]["turn"]["id"].as_str().map(str::to_owned);
+                if is_reply
+                    && message["id"] == id
+                    && let Some(returned) = message["result"]["turn"]["id"].as_str()
+                {
+                    anyhow::ensure!(
+                        turn.as_deref().is_none_or(|current| current == returned),
+                        "Codex replied with an unrelated turn"
+                    );
+                    turn = Some(returned.to_owned());
                 }
                 let params = &message["params"];
                 if let Some(thread) = params["threadId"].as_str()
@@ -399,11 +482,13 @@ impl Session for Codex {
     }
 
     async fn close(&mut self) -> Result<()> {
-        self.tools.stop_language_services().await?;
-        if let Some(mut process) = self.process.take() {
-            process.stop().await?;
-        }
+        let result = super::process::stop_backend_and_services(
+            &mut self.process,
+            self.tools.stop_language_services(),
+        )
+        .await;
+        self.relay = None;
         // Keep backend-owned context for the next prompt after cancellation.
-        Ok(())
+        result
     }
 }

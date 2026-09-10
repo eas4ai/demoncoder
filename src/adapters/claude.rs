@@ -11,10 +11,12 @@ use anyhow::{Context, Result, bail};
 use async_trait::async_trait;
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use tokio::sync::mpsc;
 
 struct Claude {
     binary: PathBuf,
+    supervisor: Option<PathBuf>,
     workspace: PathBuf,
     model: Option<String>,
     effort: Option<String>,
@@ -23,6 +25,8 @@ struct Claude {
     subscription_confirmed: bool,
     tools: ToolExecutor,
     next_control_id: u64,
+    lifecycle: Option<Arc<crate::plugins::bridge::Lifecycle>>,
+    callbacks: Option<crate::plugins::bridge::Callbacks>,
 }
 
 pub fn open(config: &Connection, workspace: &Path) -> Result<Box<dyn Session>> {
@@ -32,6 +36,18 @@ pub fn open(config: &Connection, workspace: &Path) -> Result<Box<dyn Session>> {
     }
     Ok(Box::new(Claude {
         binary: executable(config.binary.as_deref(), "claude")?,
+        supervisor: if config.access.lifecycle.is_some() {
+            Some(
+                config
+                    .access
+                    .supervisor
+                    .clone()
+                    .map(Ok)
+                    .unwrap_or_else(std::env::current_exe)?,
+            )
+        } else {
+            None
+        },
         workspace: workspace.to_owned(),
         model: config.model.clone(),
         effort: config.effort.clone(),
@@ -40,6 +56,8 @@ pub fn open(config: &Connection, workspace: &Path) -> Result<Box<dyn Session>> {
         subscription_confirmed: false,
         tools: ToolExecutor::with_policy(workspace, &config.access)?,
         next_control_id: 1,
+        lifecycle: config.access.lifecycle.clone(),
+        callbacks: None,
     }))
 }
 
@@ -51,6 +69,7 @@ impl Claude {
         events: &EventSink,
     ) -> Result<TurnEnd> {
         if self.process.is_none() {
+            self.callbacks = self.lifecycle.as_ref().map(|l| l.callbacks()).transpose()?;
             let mut args: Vec<String> = [
                 "-p",
                 "--input-format",
@@ -87,17 +106,27 @@ impl Claude {
             if let Some(session) = &self.session {
                 args.extend(["--resume".into(), session.clone()]);
             }
-            self.process = Some(BackendProcess::spawn(
-                &self.binary,
-                &args,
-                &self.workspace,
-                &["CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CONFIG_DIR"],
-            )?);
+            self.process = Some(match &self.supervisor {
+                Some(supervisor) => BackendProcess::spawn_supervised(
+                    &self.binary,
+                    &args,
+                    &self.workspace,
+                    &["CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CONFIG_DIR"],
+                    supervisor,
+                )?,
+                None => BackendProcess::spawn(
+                    &self.binary,
+                    &args,
+                    &self.workspace,
+                    &["CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CONFIG_DIR"],
+                )?,
+            });
             let process = self
                 .process
                 .as_mut()
                 .context("Claude process unavailable")?;
-            process.send(json!({"type":"control_request","request_id":"initialize","request":{"subtype":"initialize","hooks":null,"skills":[]}})).await?;
+            let hooks = self.callbacks.as_ref().map(|c| c.registration());
+            process.send(json!({"type":"control_request","request_id":"initialize","request":{"subtype":"initialize","hooks":hooks,"skills":[]}})).await?;
             tokio::time::timeout(std::time::Duration::from_secs(30), async {
                 loop {
                     let message = process.receive().await?;
@@ -111,7 +140,16 @@ impl Claude {
                         return Ok::<(), anyhow::Error>(());
                     }
                     if message["type"] == "control_request" {
-                        handle_control(&self.tools, process, &message, events, false).await?;
+                        handle_control(
+                            &self.tools,
+                            process,
+                            &message,
+                            events,
+                            false,
+                            self.callbacks.as_mut(),
+                            self.session.as_deref(),
+                        )
+                        .await?;
                     }
                 }
             })
@@ -269,6 +307,8 @@ impl Claude {
                             &message,
                             events,
                             corrections.is_empty() && self.subscription_confirmed,
+                            self.callbacks.as_mut(),
+                            self.session.as_deref(),
                         )
                         .await?;
                     }
@@ -285,9 +325,32 @@ async fn handle_control(
     message: &Value,
     events: &EventSink,
     admit_tools: bool,
+    callbacks: Option<&mut crate::plugins::bridge::Callbacks>,
+    session_id: Option<&str>,
 ) -> Result<()> {
     let request = &message["request"];
     let response = match request["subtype"].as_str() {
+        Some("hook_callback") => {
+            // The owning turn closes and reaps the backend on every error. Do
+            // not send an SDK error or close stdin: both can fail open upstream.
+            let callback = callbacks.context("unexpected backend lifecycle callback")?;
+            let decision = tokio::select! {
+                result = callback.handle(message, session_id, events) => result,
+                result = process.wait_for_exit() => { result?; unreachable!() },
+            };
+            match decision {
+                Ok(response) => response,
+                Err(error) => {
+                    if request["input"]["hook_event_name"] == "PreCompact" {
+                        // Give a live relay a typed denial, then terminate the
+                        // failed turn. PostCompact has no Claude veto response.
+                        let denial = json!({"decision":"block","reason":"Host lifecycle admission failed; work remains held"});
+                        process.send(json!({"type":"control_response","response":{"subtype":"success","request_id":message["request_id"],"response":denial}})).await?;
+                    }
+                    return Err(error);
+                }
+            }
+        }
         Some("can_use_tool") => {
             let name = request["tool_name"].as_str().unwrap_or("");
             let allowed = tools.definitions().iter().any(|tool| {
@@ -382,11 +445,13 @@ impl Session for Claude {
     }
 
     async fn close(&mut self) -> Result<()> {
-        self.tools.stop_language_services().await?;
         self.subscription_confirmed = false;
-        if let Some(mut process) = self.process.take() {
-            process.stop().await?;
-        }
-        Ok(())
+        let result = super::process::stop_backend_and_services(
+            &mut self.process,
+            self.tools.stop_language_services(),
+        )
+        .await;
+        self.callbacks = None;
+        result
     }
 }

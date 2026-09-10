@@ -1,4 +1,5 @@
 mod anthropic;
+pub mod backend_supervisor;
 mod claude;
 mod codex;
 pub(crate) mod http;

@@ -14,6 +14,12 @@ pub struct Args {
     /// Internal host-tool process lifetime protocol.
     #[arg(long, hide = true, allow_hyphen_values = true)]
     pub supervise_bash: Option<String>,
+    /// Internal backend stdin lifetime lease.
+    #[arg(long, hide = true)]
+    pub supervise_backend: Option<String>,
+    /// Internal authenticated managed-backend lifecycle transport.
+    #[arg(long, hide = true)]
+    pub codex_compaction_relay: Option<PathBuf>,
     /// Print the application version.
     #[arg(short = 'v', long = "version", visible_short_alias = 'V', action = clap::ArgAction::Version)]
     pub version: Option<bool>,
