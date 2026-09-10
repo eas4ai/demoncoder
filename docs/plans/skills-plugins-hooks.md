@@ -10,9 +10,9 @@
 
 ## Status and execution rules
 
-- Complete: Immutable import foundation, backend compaction qualification probes, wire validation and model-result interpretation.
-- **In progress:** Normalize event-specific command, HTTP and MCP results.
-- Pending: Integrate lifecycle dispatch and every runner.
+- Complete: Immutable import foundation, backend compaction qualification probes, wire validation, model-result interpretation and event-specific command/HTTP/MCP result decoding.
+- **In progress:** Integrate final-candidate admission and durable lifecycle dispatch.
+- Pending: Integrate every confined runner.
 - Pending: Integrate state, recovery, services and all package components.
 - Pending: Exercise the complete public management and coding workflows.
 - Pending: Run full conformance, installed/live cases, adversarial review and Cairn checks.
@@ -67,14 +67,20 @@ Backend development checks: managed Codex 179 hook tests, 36 actual backend faul
 - [x] Compile the frozen JSON schemas with external retrieval disabled. Resolve only the retained schema/reference closure. Validate Claude's nested graph and every union alternative using the recorded event/control roots.
 - [x] Implement the exact 510-cell applicability lookup; missing cells and unsupported source pairs fail validation without a native fallback.
 - [ ] Add the explicit developer conversion control that creates a separately validated native declaration with its required runner settings.
-- [ ] Implement event-specific command/HTTP/MCP responses and separate prompt/agent schemas. Retain ignored source fields as ignored. Worktree paths, watch updates, elicitation and display responses keep their special meaning.
+- [x] Implement event-specific command/HTTP/MCP responses and separate prompt/agent schemas. Retain ignored source fields as ignored. Worktree paths, watch updates, elicitation and display responses keep their special meaning.
 - [x] Generate positive and negative shape cases per reachable field/branch. Controlled nested-field and union-branch mutations must break unchanged production fixtures.
-- [ ] Exercise effect cases per event and remove one nontrivial response-effect handler in a controlled mutation test; it must fail.
+- [x] Exercise typed effect cases per event and remove one nontrivial response-effect handler in a controlled mutation test; it must fail. Actual host effects remain integration work.
 
 The [wire foundation review](../reviews/plugin-wire-foundation.md) records the
 closed schema-coverage and string-allocation findings, independent reviews and
 executed checks. The foundation interprets model outcomes but does not execute
 those outcomes or the command/HTTP/MCP event effects.
+
+The [result decoder review](../reviews/plugin-result-decoding.md) records 49
+decoder and 34 importer tests, a failing watch-effect deletion probe, the corrected
+Codex async and continuation semantics, and both independent approvals. These
+results establish typed proposals; the following stages must execute and retain
+their actual effects through the host runtime.
 
 ## 4. Final-candidate admission and durable lifecycle
 
@@ -83,8 +89,10 @@ those outcomes or the command/HTTP/MCP event effects.
 Integration constraints from the existing production paths:
 
 - `EventSink::emit` retains workflow state before sending UI events. Add invocation and admission records through `SharedRuntime`; do not introduce a separate allowance or effect ledger.
+- `main` opens `SharedRuntime` before opening the adapter, including ordinary sessions with no verification task. Attach startup plugin records there. A new record has no allocation; admit model-backed hooks only after attaching the appropriate cumulative allowance. External-backend conversation restore is currently refused, so plugin reconciliation must not claim it restores that conversation.
 - `ToolExecutor::execute` retains the actual result before its next await. Keep that property when adding observers, and retain the actual operation result separately from model-facing replacements.
 - `workflow::workspace::capture_scoped_cancellable` already captures bounded dirty and untracked bytes using two descriptor-relative scans. Extend its revision with ownership and ACL identity, preserving historical snapshot decoding. Snapshot materialization currently lives in `subagents::worktree`, not `workflow::review`.
+- Verification's `CaptureScope` excludes declared generated outputs during capture. A gate read set must be resolved from its own policy; do not silently inherit those review exclusions for the legacy whole-workspace default. Protected source exclusions still apply, and an oversized required snapshot holds the gate.
 - The executor currently relies on sequential execution and has no shared mutation lock. Add a host-owned serialized boundary for final freshness checks and mutation, shared by relevant executors. A host lock cannot provide atomicity against external writers; stronger policies need a supported transaction or a hold.
 
 - [ ] Persist invocation identity and causal source before effects. Implement transformer, decision, observer and legacy-combined classes. Native priority and source concurrent groups retain their specified ordering.
@@ -97,6 +105,12 @@ Integration constraints from the existing production paths:
 
 **Files:** `src/plugins/runners/{mod.rs,command.rs,model.rs,http.rs,mcp.rs}`, `src/worktree_access.rs`, `src/workflow/workspace.rs`, `src/subagents/worktree.rs`, `tests/plugin_runners.rs`.
 
+`AccessPolicy::review_only` disables every tool; it is suitable for a prompt hook,
+but cannot supply an agent hook's read-only inspection tools. Add an explicit
+snapshot inspection policy and enforce it in both the tool boundary and process
+confinement. Keep hook phases distinct for usage attribution while retaining an
+owning `agent:<id>` prefix, which the runtime uses to reject stopped assignments.
+
 - [ ] Command: JSON stdin, explicit argv/shell, declared environment/access, bounded output/deadlines and owned descendants. Literal event values never enter executable shell source.
 - [ ] Prompt: selected model, no tools, schema-validated verdict, cumulative admission and usage. Agent: immutable admitted snapshot, bounded read-only inspection, retained evidence and the same ledger.
 - [ ] HTTP: explicitly bound endpoint/headers/credentials, redirects checked before disclosure, bounded response and cancellation. MCP: admitted service/tool and structured/text response handling, with `isError` as failure.
@@ -106,6 +120,20 @@ Integration constraints from the existing production paths:
 ## 6. Package catalog, activation and versioned state
 
 **Files:** `src/plugins/{catalog.rs,state.rs,activation.rs,recovery.rs}`, `src/workflow/{runtime.rs,state.rs}`, `tests/plugin_activation.rs`.
+
+The existing `workflow::store::Store` provides descriptor-pinned private storage,
+exclusive ownership, bounded checksummed records and atomic publication. A directory
+sync failure after replacement means publication is uncertain; callers must hold
+execution rather than assume the old record survived. Reuse this behavior for
+plugin records. Replacement-task activation needs a dedicated runtime transaction:
+ordinary `archive` can clear the allocation, `allocate` creates a fresh allowance,
+and `Task::new` resets the correction count. Preserve the original allocation and
+spent corrections while moving future admission ownership to the replacement.
+`SharedRuntime::update` mutates its in-memory record before the closure returns;
+an error does not restore it. Validate replacement preconditions before mutation,
+or stage a complete replacement record and publish it only after validation.
+Test rejected transactions followed by another successful update, so a rejected
+partial change cannot leak into a later persisted record.
 
 - [ ] Use descriptor-pinned private storage and atomic durable publication. Persist installed, validated, enabled, disabled and quarantined state separately.
 - [ ] Pin code/state/policy/configuration to tasks and children. Resolve managed, bundled, user, project and local-project scopes deterministically; names never merge identities or authority.
@@ -153,6 +181,11 @@ Integration constraints from the existing production paths:
 ## 11. Public management, distribution and presentation
 
 **Files:** `src/plugins/{control.rs,distribution.rs,scaffold.rs,presentation.rs}`, `src/config.rs`, `src/main.rs`, `src/terminal/`, `src/inspection/`, `tests/plugins_terminal.py`.
+
+`session::relay_command` currently rejects workflow controls while a turn runs.
+Quarantine needs an authenticated developer control available while a failing
+gate is waiting, with cancellation and a durable hold. Do not route it through
+the busy-control rejection or through plugin/channel text interpreted as prompts.
 
 - [ ] Add public `plugins`/`skills` controls for install, validate, inspect, enable, disable, reload, quarantine, update, remove, scoped discovery and author scaffolding. These controls use the same production catalog API.
 - [ ] Resolve marketplace/remote sources to immutable identities with bounded dependency graphs and no install lifecycle scripts. Activation review includes dependencies and changed access.

@@ -1,0 +1,26 @@
+Development test, not a Cairn receipt.
+Working directory: feature/skills-plugins-hooks worktree root.
+Command for both cases:
+rtk cargo test --test plugin_results nested_watch_replacement_is_atomic_including_explicit_empty_clear
+
+Mutation in src/plugins/results/effects.rs:
+replace result.push(ProposedEffect::ReplaceDynamicWatches(paths)); with let _ = paths;
+Restored file SHA256 at this deletion test, before the later Codex async correction:
+30b2740eb3828baafac1633c22cf8f61bd4a0510ba17031b8358302bc94984f9
+
+MUTANT: delete emitted dynamic watch replacement effect
+exit: 101
+---- nested_watch_replacement_is_atomic_including_explicit_empty_clear stdout ----
+
+thread 'nested_watch_replacement_is_atomic_including_explicit_empty_clear' (3050789) panicked at tests/plugin_results.rs:48:5:
+missing ReplaceDynamicWatches { path_count: 0 }: DecodedResult { dialect: Claude, event: SessionStart, handler: Command, gate: NotAGate, source_decision: NoSourceDecision, stderr: None, effects: [], diagnostics: [] }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 39 filtered out; finished in 0.04s
+[full output: ~/.local/share/rtk/tee/1789011192_cargo_test.log]
+
+
+RESTORED: original implementation, unchanged test
+exit: 0
+cargo test: 1 passed, 39 filtered out (1 suite, 0.15s)
