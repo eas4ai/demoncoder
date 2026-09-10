@@ -21,4 +21,4 @@ Declared placeholder access is to JSON event fields. Pinned Claude also exposes 
 
 ## Realized by
 
-73cda97539ad02afb518b77f3cbfd67494bc0327 Add admitted managed MCP services and bounded hook calls
+- 73cda97539ad02afb518b77f3cbfd67494bc0327 Add admitted managed MCP services and bounded hook calls
