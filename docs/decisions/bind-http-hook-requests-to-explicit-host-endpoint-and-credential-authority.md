@@ -11,4 +11,4 @@ Implement the HTTP runner through the shared admitted PreToolUse dispatcher. Imp
 
 ## Realized by
 
-(none yet: recorded, not built)
+- 20d160ac1065d934c758f86c1f30ab7bda7ac4f7 Add admitted HTTP hook runner with bounded secret-safe exchanges
