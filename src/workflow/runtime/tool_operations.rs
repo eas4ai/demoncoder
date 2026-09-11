@@ -71,10 +71,10 @@ impl Operation {
                                 | crate::plugins::receipts::PostDelivery::Superseding
                                 | crate::plugins::receipts::PostDelivery::Superseded
                                 | crate::plugins::receipts::PostDelivery::CorrectionReserved { .. }
-                        ) || plan.hooks.iter().any(|h| h.uncertain_effects)
+                        ) || plan.hooks.iter().any(|h| h.unresolved_effects())
                         })
                         || receipt.plugin_admission.as_ref().is_some_and(|plan| {
-                            plan.hooks.iter().any(|hook| hook.uncertain_effects)
+                            plan.hooks.iter().any(|hook| hook.unresolved_effects())
                         })
                 }))
     }

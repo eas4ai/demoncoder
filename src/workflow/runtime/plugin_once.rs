@@ -192,6 +192,12 @@ pub(super) fn reserve(
                 prior.inspected.operation != hook.inspected.operation,
                 "one-shot retry requires the next matching event"
             );
+            if attempt.activation == binding.0 {
+                ensure!(
+                    prior.required_gate == hook.required_gate,
+                    "one-shot required policy changed; explicitly reactivate before reuse"
+                );
+            }
             if attempt.activation == binding.0 && attempt.state == OnceState::Succeeded {
                 consumed = Some(reference(prior));
             }
@@ -268,7 +274,7 @@ pub(super) fn settle_post(
     successful: &[u32],
 ) {
     for hook in &mut lifecycle.hooks {
-        if hook.once.is_none() {
+        if hook.once.is_none() || hook.observer.is_some() {
             continue;
         }
         let applied = lifecycle

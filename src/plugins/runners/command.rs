@@ -35,6 +35,8 @@ pub enum NetworkGrant {
 /// Explicit trusted host configuration. Importing a Package does not create it.
 #[derive(Clone, Serialize)]
 pub struct CommandConfig {
+    pub asynchronous: bool,
+    pub async_rewake: bool,
     pub program: CommandProgram,
     pub environment: BTreeMap<String, String>,
     /// Canonical relative cwd inside the workspace, or `.` for its root.
@@ -52,6 +54,8 @@ pub struct CommandConfig {
 impl CommandConfig {
     pub fn new(program: CommandProgram) -> Self {
         Self {
+            asynchronous: false,
+            async_rewake: false,
             program,
             environment: BTreeMap::new(),
             cwd: ".".into(),
@@ -66,6 +70,10 @@ impl CommandConfig {
         }
     }
     pub(crate) fn validate(&self, class: HandlerClass, dialect: HookDialect) -> Result<()> {
+        ensure!(
+            !self.async_rewake || dialect == HookDialect::Claude,
+            "rewake requires Claude source semantics"
+        );
         ensure!(
             self.network == NetworkGrant::None,
             "hook network grants beyond None are not integrated"
@@ -195,6 +203,7 @@ impl CommandConfig {
 }
 
 pub struct CommandRunner {
+    required_gate: bool,
     event: HookEvent,
     package: Arc<Package>,
     identity: DeclarationIdentity,
@@ -243,6 +252,10 @@ impl CommandRunner {
                 ),
             "command package and source dialect differ"
         );
+        ensure!(
+            !(config.asynchronous || config.async_rewake) || !declaration.required_gate,
+            "async scheduling cannot satisfy a required gate"
+        );
         config.validate(declaration.class, dialect)?;
         ensure!(
             declaration.read_only_endpoint.is_some() == revalidation.is_some(),
@@ -259,6 +272,7 @@ impl CommandRunner {
         let profile = Arc::new(CompatibilityProfile::embedded()?);
         profile.require_runner(dialect, event, HandlerKind::Command)?;
         let runner = Arc::new(Self {
+            required_gate: declaration.required_gate,
             event,
             package: package.clone(),
             identity: declaration.identity.clone(),
@@ -269,6 +283,7 @@ impl CommandRunner {
         });
         let revalidation = revalidation.map(|config| {
             Arc::new(Self {
+                required_gate: true,
                 event,
                 package,
                 identity: declaration.identity.clone(),
@@ -307,6 +322,17 @@ impl Drop for Cancellation {
 
 #[async_trait::async_trait]
 impl HookRunner for CommandRunner {
+    fn observer_config(&self) -> Option<crate::plugins::observer::ObserverConfig> {
+        (!self.required_gate
+            && (self.config.asynchronous
+                || self.config.async_rewake
+                || self.identity.dialect == HookDialect::Claude))
+            .then_some(crate::plugins::observer::ObserverConfig {
+                declared: self.config.asynchronous,
+                rewake: self.config.async_rewake,
+                timeout_ms: self.config.timeout_ms,
+            })
+    }
     fn bound_event(&self) -> Option<HookEvent> {
         Some(self.event)
     }
@@ -324,7 +350,8 @@ impl HookRunner for CommandRunner {
                     && invocation.events.plugin_event() == self.event
                     && invocation.declaration == self.identity
                     && invocation.endpoint == self.endpoint
-                    && invocation.class == self.class,
+                    && invocation.class == self.class
+                    && invocation.required_gate == self.required_gate,
                 "command declaration/configuration identity mismatch"
             );
             let meta = invocation.host.root.metadata()?;
@@ -344,21 +371,29 @@ impl HookRunner for CommandRunner {
             );
             let input = self.input(invocation)?;
             let (runtime, operation) = invocation.events.plugin_context()?;
-            runtime.plugin_runner_owner(operation, event)?;
+            if let Some(owner) = &invocation.observer {
+                owner.validate()?;
+            } else {
+                runtime.plugin_runner_owner(operation, event)?;
+            }
             // Leave normal cleanup headroom before run_owned's existing outer
             // deadline. A stuck kernel reap still retains all resources even if
             // that outer owner returns an unknown outcome; no late settlement.
-            let available = runtime
-                .remaining()?
-                .min(Duration::from_secs(30))
-                .saturating_sub(Duration::from_secs(3));
+            let available = if let Some(owner) = &invocation.observer {
+                owner.validate()?
+            } else {
+                runtime
+                    .remaining()?
+                    .min(Duration::from_secs(30))
+                    .saturating_sub(Duration::from_secs(3))
+            };
             ensure!(
                 !available.is_zero(),
                 "command deadline has no cleanup allowance"
             );
             Ok((
                 input,
-                runtime,
+                runtime.downgrade(),
                 operation,
                 Instant::now() + available.min(Duration::from_millis(self.config.timeout_ms)),
             ))
@@ -375,9 +410,21 @@ impl HookRunner for CommandRunner {
         let config = self.config.clone();
         let lease = invocation.runner_lease.clone();
         let boundary = invocation.mutation_guard.clone();
+        let observer = invocation.observer.clone();
+        let first_line = self.identity.dialect == HookDialect::Claude;
         let outcome = tokio::task::spawn_blocking(move || {
             let _lease = lease;
             let _boundary = boundary;
+            let validate = || -> Result<()> {
+                if let Some(owner) = &observer {
+                    owner.validate()?;
+                } else {
+                    let runtime = runtime.upgrade()?;
+                    runtime.plugin_runner_owner(operation, event)?;
+                    ensure!(!runtime.remaining()?.is_zero(), "command owner expired");
+                }
+                Ok(())
+            };
             let prepared = (|| -> Result<_> {
                 // Apply the capture resolver again before any command sees retained
                 // bytes. Keep frozen targets and add current aliases, including an
@@ -420,11 +467,9 @@ impl HookRunner for CommandRunner {
                     },
                     &cancelled,
                 )?;
-                runtime.plugin_runner_owner(operation, event)?;
+                validate()?;
                 ensure!(
-                    !runtime.remaining()?.is_zero()
-                        && !cancelled.load(Ordering::Acquire)
-                        && Instant::now() < deadline,
+                    !cancelled.load(Ordering::Acquire) && Instant::now() < deadline,
                     "command owner cancelled or expired before launch"
                 );
                 Ok((snapshot, code, access, command))
@@ -437,10 +482,17 @@ impl HookRunner for CommandRunner {
                     config.max_output_bytes,
                     deadline,
                     &cancelled,
-                    &|| {
-                        runtime.plugin_runner_owner(operation, event)?;
-                        ensure!(!runtime.remaining()?.is_zero(), "command owner expired");
-                        Ok(())
+                    process::Owner {
+                        validate: &validate,
+                        first_line: first_line.then_some(
+                            (&|marker| {
+                                observer
+                                    .as_ref()
+                                    .context("async scheduling cannot satisfy a required gate")?
+                                    .transfer(Some(marker))
+                            })
+                                as &dyn Fn(serde_json::Value) -> Result<()>,
+                        ),
                     },
                 ),
                 Err(error) => failure(&error.to_string()),

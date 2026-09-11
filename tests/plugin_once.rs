@@ -220,6 +220,7 @@ impl Drop for Fixture {
 }
 fn declaration(name: &str, index: u32, once: Option<OnceBinding>) -> Declaration {
     Declaration {
+        required_gate: true,
         source: once.as_ref().map(OnceBinding::source),
         once,
         identity: DeclarationIdentity {
@@ -268,6 +269,7 @@ fn command_at(
     } else {
         HandlerClass::Observer
     };
+    d.required_gate = event == HookEvent::PreToolUse;
     d.reads = GateReadSet::new(vec![name.into()], vec![], vec![]).unwrap();
     CommandRunner::registration_for_event(package, d, event, config, None).unwrap()
 }
@@ -943,3 +945,9 @@ fn canonical_source_hash_preserves_distinct_non_utf8_paths() {
     }
     assert_ne!(identities[0], identities[1]);
 }
+
+#[path = "plugin_once/async_commands.rs"]
+mod async_commands;
+
+#[path = "plugin_once/async_external.rs"]
+mod async_external;

@@ -2,7 +2,7 @@
 pub(crate) mod claude_content;
 use super::{
     admission::{candidate_digest, digest},
-    dispatch::{CompletedTool, HookInvocation, PreToolPlan, Registration, run_owned},
+    dispatch::{CompletedTool, HookInvocation, PreToolPlan, Registration},
     gate_snapshot::{GateReadSet, GateSnapshot, GateWorkspace},
     hook_types::HookEvent,
     receipts::*,
@@ -89,7 +89,7 @@ impl PostEffects {
                     "plugin {} returned an invalid or failed post-tool result",
                     receipt.declaration.package
                 ));
-                if receipt.class != HandlerClass::Observer {
+                if receipt.required_gate {
                     self.hold("required post-tool handler failed");
                 }
             }
@@ -127,7 +127,7 @@ impl PostEffects {
                     }
                     _ => {
                         disposition = ProposalDisposition::Pending;
-                        if receipt.class != HandlerClass::Observer { self.hold("post-tool proposal owner is not integrated"); }
+                        if receipt.required_gate { self.hold("post-tool proposal owner is not integrated"); }
                     }
                 }
                 self.proposals.push(AppliedProposal {
@@ -357,20 +357,6 @@ impl PostToolPlan {
                     entry.insert(snapshot);
                 }
             }
-            for index in &indices {
-                let reads = self.plan.handlers[*index]
-                    .registration
-                    .declaration
-                    .reads
-                    .clone();
-                if self.plan.handlers[*index].registration.declaration.class
-                    != HandlerClass::Observer
-                {
-                    validation
-                        .snapshots
-                        .push((reads.clone(), snapshots[&digest(&reads)?].clone()));
-                }
-            }
             let inputs = snapshots
                 .iter()
                 .map(|(id, s)| (id.clone(), s.revision().to_owned()))
@@ -389,7 +375,7 @@ impl PostToolPlan {
                 external: None,
             };
             let mut jobs = Vec::new();
-            for index in indices {
+            for &index in &indices {
                 let registration = &self.plan.handlers[index].registration;
                 let declaration = &registration.declaration;
                 ensure!(
@@ -401,6 +387,8 @@ impl PostToolPlan {
                     "post-tool external atomic precondition is unavailable"
                 );
                 let receipt = HookReceipt {
+                    required_gate: declaration.required_gate,
+                    observer: None,
                     source: declaration.source.as_ref().map(|s| s.0.clone()),
                     once: None,
                     invocation: 0,
@@ -415,6 +403,8 @@ impl PostToolPlan {
                     pending_proposals: Vec::new(),
                 };
                 let invocation = HookInvocation {
+                    required_gate: declaration.required_gate,
+                    observer: None,
                     invocation: 0,
                     key: key.clone(),
                     declaration: declaration.identity.clone(),
@@ -467,7 +457,11 @@ impl PostToolPlan {
             let work = runtime.post_model_context(operation, event)?;
             let outcomes = futures_util::future::join_all(runnable.into_iter().map(
                 |(mut receipt, invocation, runner)| async move {
-                    let mut outcome = run_owned(&invocation, runner.as_ref()).await;
+                    let Some(mut outcome) =
+                        super::observer::dispatch(invocation, runner.clone()).await?
+                    else {
+                        return Ok::<_, anyhow::Error>(None);
+                    };
                     if !outcome.within_retention_bound() {
                         outcome = RawOutcome::Failure {
                             reason: "handler output exceeded retention bound".into(),
@@ -479,10 +473,34 @@ impl PostToolPlan {
                             RawOutcome::Failure { .. } | RawOutcome::CommandFailure { .. }
                         );
                     receipt.outcome = Some(outcome);
-                    receipt
+                    Ok(Some(receipt))
                 },
             ))
             .await;
+            let outcomes = outcomes
+                .into_iter()
+                .collect::<Result<Vec<_>>>()?
+                .into_iter()
+                .flatten()
+                .collect::<Vec<_>>();
+            for index in &indices {
+                let reads = self.plan.handlers[*index]
+                    .registration
+                    .declaration
+                    .reads
+                    .clone();
+                if self.plan.handlers[*index].registration.declaration.class
+                    != HandlerClass::Observer
+                    && outcomes.iter().any(|receipt| {
+                        receipt.declaration
+                            == self.plan.handlers[*index].registration.declaration.identity
+                    })
+                {
+                    validation
+                        .snapshots
+                        .push((reads.clone(), snapshots[&digest(&reads)?].clone()));
+                }
+            }
             // All source outcomes are durable before decoding/applying this group's effects.
             for receipt in &outcomes {
                 runtime.finish_post_hook(operation, event, receipt.clone())?;
@@ -491,7 +509,7 @@ impl PostToolPlan {
                 .into_iter()
                 .map(|receipt| {
                     let context = ResultContext {
-                        role: if receipt.class == HandlerClass::Observer {
+                        role: if !receipt.required_gate {
                             ResultRole::Observer
                         } else {
                             ResultRole::RequiredGate

@@ -273,6 +273,7 @@ fn call() -> ToolCall {
 }
 fn declaration(kind: HandlerKind, dialect: HookDialect, index: u32) -> Declaration {
     Declaration {
+        required_gate: true,
         source: None,
         once: None,
         identity: DeclarationIdentity {

@@ -107,6 +107,7 @@ struct Admission<'a> {
     ran_combined: BTreeSet<usize>,
     once_seen: BTreeSet<usize>,
     once_skipped: BTreeSet<usize>,
+    transferred: BTreeSet<usize>,
     holds: Vec<String>,
 }
 impl PreToolPlan {
@@ -146,6 +147,7 @@ impl PreToolPlan {
             ran_combined: BTreeSet::new(),
             once_seen: BTreeSet::new(),
             once_skipped: BTreeSet::new(),
+            transferred: BTreeSet::new(),
             holds: Vec::new(),
         };
         let result = admission.run(call).await;
@@ -328,6 +330,8 @@ impl Admission<'_> {
                 .1
                 .clone();
             let receipt = HookReceipt {
+                required_gate: d.required_gate,
+                observer: None,
                 source: d.source.as_ref().map(|s| s.0.clone()),
                 once: None,
                 invocation: 0,
@@ -350,6 +354,8 @@ impl Admission<'_> {
                 pending_proposals: Vec::new(),
             };
             let invocation = HookInvocation {
+                required_gate: d.required_gate,
+                observer: None,
                 invocation: receipt.invocation,
                 key: key.clone(),
                 declaration: d.identity.clone(),
@@ -418,14 +424,19 @@ impl Admission<'_> {
         }
         let outcomes = futures_util::future::join_all(runnable.into_iter().map(
             |(index, mut receipt, invocation, runner)| async move {
-                let outcome = super::dispatch::run_owned(&invocation, runner.as_ref()).await;
-                receipt.outcome = Some(outcome);
-                (index, receipt)
+                let outcome = super::observer::dispatch(invocation, runner).await?;
+                receipt.outcome = outcome;
+                Ok::<_, anyhow::Error>((index, receipt))
             },
         ))
         .await;
         let mut rewrite = None;
-        for (index, mut receipt) in outcomes {
+        for outcome in outcomes {
+            let (index, mut receipt) = outcome?;
+            if receipt.outcome.is_none() {
+                self.transferred.insert(index);
+                continue;
+            }
             outcomes::decode(&self.plan.profile, &mut receipt, &mut rewrite);
             if let Some(hold) = &receipt.hold {
                 self.holds.push(hold.clone());
@@ -457,6 +468,7 @@ impl Admission<'_> {
                         )
                         && !self.ran_combined.contains(i)
                         && !self.once_seen.contains(i)
+                        && !self.transferred.contains(i)
                 })
                 .map(|(i, _)| i)
                 .collect();
@@ -516,6 +528,16 @@ impl Admission<'_> {
         for group in self.groups(decisions) {
             self.group(&group, call, &key, &inputs, false).await?;
         }
+        let observers = applicable
+            .iter()
+            .copied()
+            .filter(|i| {
+                self.plan.handlers[*i].registration.declaration.class == HandlerClass::Observer
+            })
+            .collect();
+        for group in self.groups(observers) {
+            self.group(&group, call, &key, &inputs, false).await?;
+        }
         let mut revalidate = Vec::new();
         for index in applicable {
             let handler = &self.plan.handlers[index].registration;
@@ -524,7 +546,7 @@ impl Admission<'_> {
             }
             // A prior-event consumption exempts this declaration. It is not a
             // claim that a past decision approved this candidate or these inputs.
-            if self.once_skipped.contains(&index) {
+            if self.once_skipped.contains(&index) || self.transferred.contains(&index) {
                 continue;
             }
             if self.combined.get(&index) == Some(&key) {

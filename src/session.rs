@@ -138,6 +138,20 @@ pub(crate) fn relay_command(
 
 #[async_trait]
 pub trait Session: Send {
+    fn observer_notification(&self) -> Result<Option<Arc<tokio::sync::Notify>>> {
+        Ok(None)
+    }
+    fn observer_ready(&self) -> Result<bool> {
+        Ok(false)
+    }
+    async fn observer_turn(
+        &mut self,
+        _commands: &mut mpsc::Receiver<Command>,
+        _events: &EventSink,
+    ) -> Result<TurnEnd> {
+        Ok(TurnEnd::Complete)
+    }
+
     fn owner(&self) -> &'static str;
     /// Capture defaults before acknowledging the prompt. Implementations must not
     /// start effects here; queued publication may still be cancelled.
@@ -340,8 +354,23 @@ pub async fn run(
                 return Ok(());
             }
         }
-        while let Some(command) = commands.recv().await {
+        loop {
+            let notification=session.observer_notification()?;
+            let observer_ready=session.observer_ready()?;
+            let command=tokio::select! {
+                biased;
+                command=commands.recv()=>match command {Some(command)=>Some(command),None=>break},
+                ready=async {
+                    if observer_ready { return Ok::<_,anyhow::Error>(()); }
+                    if let Some(notification)=notification { notification.notified().await; } else { std::future::pending::<()>().await; }
+                    Ok(())
+                }=>{ready?;None},
+            };
+            let observer_turn=command.is_none();
+            if observer_turn && !session.observer_ready()? { continue; }
             let prompt = match command {
+                None=>Some(String::new()),
+                Some(command)=>match command {
                 Command::Prompt(prompt) => match session.admit(&prompt) {
                     Ok(()) => Some(prompt),
                     Err(error) => { events.emit_advisory(Event::Error { message: error.to_string() })?; None }
@@ -359,6 +388,7 @@ pub async fn run(
                     session.cancel_background().await?;
                     None
                 }
+                }
             };
             let Some(prompt) = prompt else {
                 continue;
@@ -373,6 +403,7 @@ pub async fn run(
             .await?
             {
                 Some(end) => Ok(end),
+                None if observer_turn => session.observer_turn(&mut commands, &events).await,
                 None => session.turn(prompt, &mut commands, &events).await,
             };
             let status = match outcome {

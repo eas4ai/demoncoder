@@ -496,6 +496,7 @@ async fn mutating_command_observer_does_not_turn_its_own_effect_into_a_gate() {
     config.write_paths = vec!["effects".into()];
     let mut d = declaration(HookDialect::Native, HandlerKind::Command);
     d.class = HandlerClass::Observer;
+    d.required_gate = false;
     let registration = CommandRunner::registration_for_event(
         package(HookDialect::Native, code),
         d,

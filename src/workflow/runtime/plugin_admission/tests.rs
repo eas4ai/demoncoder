@@ -119,6 +119,7 @@ fn same_workspace_sessions_cannot_reuse_keys_and_resume_preserves_identity() {
         mutation_boundaries: Default::default(),
         service_slots: Arc::new(tokio::sync::Semaphore::new(8)),
         once_live: Default::default(),
+        observers: Default::default(),
     })));
     assert_eq!(resumed.plugin_session().unwrap(), key_a.session);
     resumed.admit_tool(id_a, &call_a).unwrap();
@@ -153,11 +154,13 @@ fn reserve(runtime: &SharedRuntime, id: u64, call: &ToolCall, index: u32) -> Hoo
                 .as_mut()
                 .unwrap()
                 .declarations
-                .push(json!({"identity":declaration}));
+                .push(json!({"identity":declaration,"required_gate":true}));
             Ok(())
         })
         .unwrap();
     let mut hook = HookReceipt {
+        required_gate: true,
+        observer: None,
         source: None,
         once: None,
         invocation: 0,
@@ -389,7 +392,7 @@ fn completed_post_owner_cannot_revive_pretool_index_zero_or_borrow_another_sessi
             id,
             HookEvent::PostToolUse,
             "post-plan".into(),
-            vec![json!({"identity":pre.declaration})],
+            vec![json!({"identity":pre.declaration,"required_gate":pre.required_gate})],
             ToolRepresentation::Native,
         )
         .unwrap();
@@ -459,7 +462,7 @@ fn completed_post_owner_cannot_revive_pretool_index_zero_or_borrow_another_sessi
             other_id,
             HookEvent::PostToolUse,
             "post-plan".into(),
-            vec![json!({"identity":other_pre.declaration})],
+            vec![json!({"identity":other_pre.declaration,"required_gate":other_pre.required_gate})],
             ToolRepresentation::Native,
         )
         .unwrap();

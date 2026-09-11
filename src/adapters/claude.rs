@@ -17,6 +17,7 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 
 struct Claude {
+    observer_owner: crate::events::ObserverOwner,
     binary: PathBuf,
     supervisor: Option<PathBuf>,
     workspace: PathBuf,
@@ -40,6 +41,7 @@ pub fn open(config: &Connection, workspace: &Path) -> Result<Box<dyn Session>> {
         bail!("Claude subscription connections use the headless transport, not an API endpoint");
     }
     Ok(Box::new(Claude {
+        observer_owner: Default::default(),
         binary: executable(config.binary.as_deref(), "claude")?,
         supervisor: if config.access.lifecycle.is_some()
             || config.access.snapshot.is_some()
@@ -213,15 +215,27 @@ impl Claude {
             if let Some(post) = &mut self.post_callbacks {
                 post.begin_invocation(events, handoff.is_some())?;
             }
+            let observer_delivery = if handoff.is_none() && !crate::workflow::is_control(&prompt) {
+                events.observer_context()?
+            } else {
+                None
+            };
+            let outgoing_prompt = observer_delivery.as_ref().map_or_else(
+                || prompt.clone(),
+                |delivery| format!("{}\n{}", prompt, delivery.text),
+            );
             let user = if let Some(correction) = &handoff {
                 correction
                     .request
                     .clone()
                     .context("Claude correction frame was not prepared")?
             } else {
-                json!({"type":"user","message":{"role":"user","content":prompt},"parent_tool_use_id":null,"session_id":self.session.as_deref().unwrap_or("")})
+                json!({"type":"user","message":{"role":"user","content":outgoing_prompt},"parent_tool_use_id":null,"session_id":self.session.as_deref().unwrap_or("")})
             };
             deadline.during(process.send(user.clone())).await?;
+            if let Some(delivery) = &observer_delivery {
+                events.complete_observer_context(delivery)?;
+            }
             let mut context_usage = crate::context::MessageContext::default();
             let mut corrections = Vec::new();
             let mut plugin_correction: Option<super::post_correction::ExternalCorrection> = None;
@@ -642,6 +656,7 @@ impl Session for Claude {
         commands: &mut mpsc::Receiver<Command>,
         events: &EventSink,
     ) -> Result<TurnEnd> {
+        self.observer_owner.capture(events);
         let (corrections, mut steering) = correction_channel();
         let outcome = {
             let run = self.run_turn(prompt, &mut steering, events);
@@ -660,7 +675,12 @@ impl Session for Claude {
         outcome
     }
 
+    async fn cancel_background(&mut self) -> Result<()> {
+        self.observer_owner.stop().await
+    }
+
     async fn close(&mut self) -> Result<()> {
+        let observers = self.observer_owner.stop().await;
         self.subscription_confirmed = false;
         let result = super::process::stop_backend_and_services(
             &mut self.process,
@@ -669,6 +689,6 @@ impl Session for Claude {
         .await;
         self.callbacks = None;
         self.post_callbacks = None;
-        result
+        observers.and(result)
     }
 }

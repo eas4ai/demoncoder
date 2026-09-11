@@ -2,6 +2,7 @@
 mod delegation;
 pub(crate) mod plugin_admission;
 pub(crate) mod plugin_lifecycle;
+pub(crate) mod plugin_observer;
 mod plugin_once;
 mod tool_operations;
 pub(crate) use tool_operations::ToolAdmission;
@@ -221,6 +222,7 @@ struct Runtime {
     mutation_boundaries: std::collections::BTreeMap<(u64, u64), Arc<tokio::sync::Mutex<()>>>,
     service_slots: Arc<tokio::sync::Semaphore>,
     once_live: plugin_once::LiveHooks,
+    observers: plugin_observer::LiveObservers,
 }
 
 #[derive(Clone)]
@@ -310,6 +312,7 @@ impl SharedRuntime {
             mutation_boundaries: Default::default(),
             service_slots: Arc::new(tokio::sync::Semaphore::new(8)),
             once_live: Default::default(),
+            observers: Default::default(),
         }))))
     }
 
@@ -395,6 +398,7 @@ impl SharedRuntime {
             (store, record, false)
         };
         if resumed {
+            plugin_observer::interrupt_restored(&mut record);
             for agent in &mut record.agents {
                 if agent.status.active() {
                     agent.status = crate::subagents::state::AgentStatus::Uncertain;
@@ -432,12 +436,32 @@ impl SharedRuntime {
                 mutation_boundaries: Default::default(),
                 service_slots: Arc::new(tokio::sync::Semaphore::new(8)),
                 once_live: Default::default(),
+                observers: Default::default(),
             }))),
             resumed,
         ))
     }
 
     pub(crate) fn update<T>(&self, f: impl FnOnce(&mut Record) -> Result<T>) -> Result<T> {
+        self.update_guarded(|_| Ok(()), f)
+    }
+    fn update_without_observers<T>(&self, f: impl FnOnce(&mut Record) -> Result<T>) -> Result<T> {
+        self.update_guarded(
+            |runtime| {
+                ensure!(
+                    runtime.observers.stopped(),
+                    "stop original observers before changing owner or allocation"
+                );
+                Ok(())
+            },
+            f,
+        )
+    }
+    fn update_guarded<T>(
+        &self,
+        guard: impl FnOnce(&Runtime) -> Result<()>,
+        f: impl FnOnce(&mut Record) -> Result<T>,
+    ) -> Result<T> {
         let mut runtime = self
             .0
             .lock()
@@ -446,6 +470,7 @@ impl SharedRuntime {
             !runtime.failed,
             "session persistence failed; execution is held until recovery"
         );
+        guard(&runtime)?;
         let result = f(&mut runtime.record)?;
         if let Some(allocation) = &mut runtime.record.allocation {
             allocation.checkpoint_time();
@@ -472,7 +497,7 @@ impl SharedRuntime {
         connection: &Connection,
         checkpoint: Option<Value>,
     ) -> Result<()> {
-        self.update(|record| {
+        self.update_without_observers(|record| {
             ensure!(
                 !record.recovery_pending && record.phase.is_none(),
                 "reconcile interrupted work before changing its model"
@@ -540,7 +565,7 @@ impl SharedRuntime {
     }
 
     pub fn allocate(&self, limits: Limits, reviewer: Option<&Connection>) -> Result<()> {
-        self.update(|r| {
+        self.update_without_observers(|r| {
             ensure_children_settled(r)?;
             r.allocation = Some(Allocation::new(limits)?);
             r.reviewer_identity = reviewer.map(Identity::from);
@@ -549,7 +574,7 @@ impl SharedRuntime {
     }
 
     pub fn archive(&self) -> Result<()> {
-        self.update(|r| {
+        self.update_without_observers(|r| {
             ensure_children_settled(r)?;
             ensure!(
                 r.archived.len() < 32,
@@ -569,6 +594,7 @@ impl SharedRuntime {
     }
 
     pub fn begin_phase(&self, phase: &str, prompt: Option<&str>) -> Result<()> {
+        self.reopen_observer_admission(phase)?;
         self.update(|r| {
             ensure!(!r.recovery_pending, "interrupted or changed work needs /reconcile with an inspection explanation before continuing");
             r.phase = Some(phase.into());
@@ -992,6 +1018,7 @@ mod tests {
             mutation_boundaries: Default::default(),
             service_slots: Arc::new(tokio::sync::Semaphore::new(8)),
             once_live: Default::default(),
+            observers: Default::default(),
         })));
         let result = runtime.admission(|record| {
             let allocation = record.allocation.as_mut().unwrap();

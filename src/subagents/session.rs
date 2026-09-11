@@ -228,8 +228,24 @@ impl Session for DelegatingSession {
         }
         outcome
     }
+    fn observer_notification(&self) -> Result<Option<Arc<tokio::sync::Notify>>> {
+        self.inner.observer_notification()
+    }
+    fn observer_ready(&self) -> Result<bool> {
+        self.inner.observer_ready()
+    }
+    async fn observer_turn(
+        &mut self,
+        commands: &mut mpsc::Receiver<Command>,
+        events: &EventSink,
+    ) -> Result<TurnEnd> {
+        self.manager.ensure_parent_available()?;
+        self.inner.observer_turn(commands, events).await
+    }
     async fn cancel_background(&mut self) -> Result<()> {
-        self.manager.cancel_all().await
+        let (parent, children) =
+            tokio::join!(self.inner.cancel_background(), self.manager.cancel_all());
+        parent.and(children)
     }
     async fn close(&mut self) -> Result<()> {
         let children = self.manager.cancel_all().await;

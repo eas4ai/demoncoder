@@ -95,8 +95,12 @@ pub enum RawOutcome {
         reason: String,
     },
 }
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize)]
 pub struct HookReceipt {
+    #[serde(default = "required_gate_default")]
+    pub required_gate: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub observer: Option<super::observer::ObserverReceipt>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source: Option<super::once::CapturedSource>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -338,3 +342,20 @@ pub enum CorrectionAcknowledgment {
         request_id: u64,
     },
 }
+
+impl HookReceipt {
+    pub(crate) fn transferred(&self) -> bool {
+        self.observer
+            .as_ref()
+            .is_some_and(|o| o.status == super::observer::Status::Running)
+    }
+    pub(crate) fn unresolved_effects(&self) -> bool {
+        self.uncertain_effects && !self.transferred()
+    }
+}
+
+fn required_gate_default() -> bool {
+    true
+}
+
+mod migration;

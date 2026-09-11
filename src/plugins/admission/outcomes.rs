@@ -22,17 +22,26 @@ pub(super) fn decode(
         receipt.outcome,
         Some(RawOutcome::Failure { .. } | RawOutcome::CommandFailure { .. })
     );
-    let decoded = receipt
-        .outcome
-        .as_ref()
-        .expect("retained")
-        .decode(profile, &receipt.declaration);
+    let decoded = receipt.outcome.as_ref().expect("retained").decode_for(
+        profile,
+        &receipt.declaration,
+        crate::plugins::hook_types::HookEvent::PreToolUse,
+        &crate::plugins::results::ResultContext {
+            role: if receipt.required_gate {
+                crate::plugins::results::ResultRole::RequiredGate
+            } else {
+                crate::plugins::results::ResultRole::Observer
+            },
+            ..Default::default()
+        },
+    );
     if decoded.failed() || decoded.gate == GateDisposition::Held {
         receipt
             .hold
             .get_or_insert("handler returned a blocking or invalid result".into());
     }
-    if receipt.class != HandlerClass::Transformer
+    if receipt.required_gate
+        && receipt.class != HandlerClass::Transformer
         && decoded.source_decision == SourceDecision::NoSourceDecision
     {
         receipt

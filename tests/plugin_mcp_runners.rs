@@ -147,6 +147,7 @@ fn call(path: &str) -> ToolCall {
 }
 fn declaration(name: &str, dialect: HookDialect, class: HandlerClass) -> Declaration {
     Declaration {
+        required_gate: class != HandlerClass::Observer,
         source: None,
         once: None,
         identity: DeclarationIdentity {

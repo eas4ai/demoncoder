@@ -144,6 +144,7 @@ pub struct EventSink {
     sender: mpsc::Sender<Envelope>,
     log: Option<Arc<Mutex<File>>>,
     runtime: Option<crate::workflow::runtime::SharedRuntime>,
+    observer_runtime: Option<crate::workflow::runtime::RuntimeReference>,
     phase: String,
     identity: Option<crate::workflow::runtime::Identity>,
     invocation: Option<u64>,
@@ -151,6 +152,28 @@ pub struct EventSink {
     hook_model: Option<crate::workflow::runtime::plugin_admission::ModelAdmission>,
     plugin_event: crate::plugins::hook_types::HookEvent,
     tool_representation: crate::plugins::receipts::ToolRepresentation,
+}
+
+/// A session retains cancellation authority without keeping its runtime alive.
+#[derive(Default)]
+pub(crate) struct ObserverOwner {
+    owner: Option<(crate::workflow::runtime::RuntimeReference, String)>,
+}
+impl ObserverOwner {
+    pub(crate) fn capture(&mut self, events: &EventSink) {
+        self.owner = events
+            .runtime
+            .as_ref()
+            .map(|runtime| (runtime.downgrade(), events.phase.clone()));
+    }
+    pub(crate) async fn stop(&self) -> Result<()> {
+        if let Some((owner, phase)) = &self.owner
+            && let Ok(runtime) = owner.upgrade()
+        {
+            runtime.stop_observers(Some(phase), false).await?;
+        }
+        Ok(())
+    }
 }
 
 impl EventSink {
@@ -179,6 +202,7 @@ impl EventSink {
             sender,
             log,
             runtime: None,
+            observer_runtime: None,
             phase: "worker".into(),
             identity: None,
             invocation: None,
@@ -189,6 +213,43 @@ impl EventSink {
         })
     }
 
+    pub(crate) fn observer_context(
+        &self,
+    ) -> Result<Option<crate::workflow::runtime::plugin_observer::ContextDelivery>> {
+        self.runtime
+            .as_ref()
+            .map(|r| {
+                let ordinary =
+                    r.reserve_observer_context(&self.phase, self.identity.as_ref(), false)?;
+                if ordinary.is_some() {
+                    Ok(ordinary)
+                } else {
+                    r.reserve_observer_context(&self.phase, self.identity.as_ref(), true)
+                }
+            })
+            .transpose()
+            .map(Option::flatten)
+    }
+    pub(crate) fn complete_observer_context(
+        &self,
+        delivery: &crate::workflow::runtime::plugin_observer::ContextDelivery,
+    ) -> Result<()> {
+        self.runtime
+            .as_ref()
+            .context("observer delivery runtime missing")?
+            .complete_observer_context(delivery)
+    }
+    pub(crate) fn for_observer(&self) -> Self {
+        Self {
+            runtime: None,
+            observer_runtime: self
+                .runtime
+                .as_ref()
+                .map(|r| r.downgrade())
+                .or_else(|| self.observer_runtime.clone()),
+            ..self.clone()
+        }
+    }
     pub fn with_runtime(mut self, runtime: crate::workflow::runtime::SharedRuntime) -> Self {
         self.runtime = Some(runtime);
         self
@@ -225,6 +286,7 @@ impl EventSink {
             sender,
             log: None,
             runtime: self.runtime.clone(),
+            observer_runtime: self.observer_runtime.clone(),
             identity: None,
             invocation: None,
             tool_operation: None,
@@ -323,6 +385,9 @@ impl EventSink {
         Ok((
             self.runtime
                 .clone()
+                .map(Ok)
+                .or_else(|| self.observer_runtime.as_ref().map(|r| r.upgrade()))
+                .transpose()?
                 .context("plugin admission requires a durable runtime")?,
             self.tool_operation
                 .context("plugin admission requires a correlated tool operation")?,

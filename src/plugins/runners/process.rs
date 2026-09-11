@@ -45,6 +45,11 @@ impl Drop for OwnedProcess {
     }
 }
 
+pub(super) struct Owner<'a> {
+    pub validate: &'a dyn Fn() -> Result<()>,
+    pub first_line: Option<&'a dyn Fn(serde_json::Value) -> Result<()>>,
+}
+
 pub(super) fn run(
     host: &HookHost,
     command: &HookCommand,
@@ -52,8 +57,12 @@ pub(super) fn run(
     maximum: usize,
     deadline: Instant,
     cancelled: &AtomicBool,
-    owner: &dyn Fn() -> Result<()>,
+    owner: Owner<'_>,
 ) -> RawOutcome {
+    let Owner {
+        validate: owner,
+        first_line,
+    } = owner;
     let launch = match Launch::new() {
         Ok(launch) => launch,
         Err(_) => return failure("cannot establish kernel-observed sandbox lifetime"),
@@ -132,6 +141,7 @@ pub(super) fn run(
         maximum,
         problem: None,
     };
+    let mut inspected_first_line = first_line.is_none();
     let (mut out_open, mut err_open) = (true, true);
     loop {
         if output.problem.is_none() {
@@ -164,6 +174,26 @@ pub(super) fn run(
         // starve stderr, owner checks or cancellation.
         output.read(&mut stdout, true, &mut out_open);
         output.read(&mut stderr, false, &mut err_open);
+        if !inspected_first_line {
+            let newline = output.stdout.iter().position(|b| *b == b'\n');
+            let end = newline.unwrap_or(output.stdout.len());
+            if end > 4096 {
+                inspected_first_line = true;
+            } else if let Ok(marker) = crate::plugins::wire::parse_json(&output.stdout[..end]) {
+                inspected_first_line = true;
+                if marker.get("async").and_then(|v| v.as_bool()) == Some(true) {
+                    if first_line.expect("enabled")(marker).is_err() {
+                        output.problem = Some(
+                            "async transfer refused; required gate or observer capacity unavailable",
+                        );
+                    } else {
+                        output.stdout.drain(..end + usize::from(newline.is_some()));
+                    }
+                }
+            } else if newline.is_some() {
+                inspected_first_line = true;
+            }
+        }
         if output.problem.is_some() {
             process.revoke();
         }

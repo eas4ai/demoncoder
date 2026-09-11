@@ -23,6 +23,7 @@ pub trait Model: Send {
 }
 
 pub struct NativeSession {
+    observer_owner: crate::events::ObserverOwner,
     model: Box<dyn Model>,
     tools: ToolExecutor,
     pending: VecDeque<ToolCall>,
@@ -35,6 +36,7 @@ impl NativeSession {
 
     pub fn with_tools(model: Box<dyn Model>, tools: ToolExecutor) -> Self {
         Self {
+            observer_owner: Default::default(),
             model,
             tools,
             pending: VecDeque::new(),
@@ -98,17 +100,24 @@ impl Session for NativeSession {
         commands: &mut mpsc::Receiver<Command>,
         events: &EventSink,
     ) -> Result<TurnEnd> {
+        self.observer_owner.capture(events);
         let outcome = self.run_turn(prompt, commands, events).await;
         self.settle_interruption()?;
         if !matches!(outcome, Ok(TurnEnd::Complete)) {
-            self.tools.stop_language_services().await?;
+            self.close().await?;
         }
         events.checkpoint(self.checkpoint())?;
         outcome
     }
 
+    async fn cancel_background(&mut self) -> Result<()> {
+        self.observer_owner.stop().await
+    }
+
     async fn close(&mut self) -> Result<()> {
-        self.tools.stop_language_services().await
+        let observers = self.observer_owner.stop().await;
+        let services = self.tools.stop_language_services().await;
+        observers.and(services)
     }
 }
 
@@ -132,6 +141,11 @@ impl NativeSession {
             for correction in corrections.drain(..) {
                 self.tools.set_intent(&correction);
                 self.model.prompt(correction);
+            }
+            if let Some(delivery) = events.observer_context()? {
+                self.model.prompt(delivery.text.clone());
+                events.checkpoint(self.checkpoint())?;
+                events.complete_observer_context(&delivery)?;
             }
             let admission = events.begin_model()?;
             let invocation_events = events.for_invocation(admission);
@@ -228,7 +242,15 @@ impl NativeSession {
                     crate::plugins::receipts::PostContinuation::Continue => {}
                 }
             }
-            let corrected = !corrections.is_empty();
+            let delivered = if let Some(delivery) = events.observer_context()? {
+                self.model.prompt(delivery.text.clone());
+                events.checkpoint(self.checkpoint())?;
+                events.complete_observer_context(&delivery)?;
+                true
+            } else {
+                false
+            };
+            let corrected = !corrections.is_empty() || delivered;
             for correction in corrections {
                 self.tools.set_intent(&correction);
                 self.model.prompt(correction);

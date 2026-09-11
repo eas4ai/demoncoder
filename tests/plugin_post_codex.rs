@@ -114,6 +114,7 @@ for line in sys.stdin:
     let facts = Arc::new(Mutex::new(Vec::new()));
     let mut registration = Registration {
         declaration: Declaration {
+            required_gate: true,
             source: None,
             once: None,
             identity: DeclarationIdentity {

@@ -9,33 +9,49 @@ enum Owner {
 }
 
 fn resolve(record: &Record, facts: &PostToolFacts, available: bool) -> Result<Owner> {
+    resolve_owner(
+        record,
+        facts.task,
+        &facts.role,
+        facts.source_operation,
+        available,
+        false,
+    )
+}
+fn resolve_owner(
+    record: &Record,
+    task_id: Option<u64>,
+    role: &str,
+    source_operation: u64,
+    available: bool,
+    observer: bool,
+) -> Result<Owner> {
     ensure!(
-        facts.task == record.task.as_ref().map(|t| t.id)
+        task_id == record.task.as_ref().map(|t| t.id)
             && record.task.as_ref().is_none_or(|t| t.accepted.is_none()),
         "post-tool correction parent owner changed or accepted"
     );
-    if facts.role == "worker" {
+    if role == "worker" {
         let task = record
             .task
             .as_ref()
             .context("post-tool correction task missing")?;
         ensure!(
-            !task.stopped && (!available || task.corrections < task.correction_limit),
+            (observer || !task.stopped) && (!available || task.corrections < task.correction_limit),
             "post-tool task correction unavailable"
         );
         return Ok(Owner::Task);
     }
-    let id: u64 = facts
-        .role
+    let id: u64 = role
         .strip_prefix("agent:")
         .and_then(|s| s.strip_suffix(":worker"))
         .context("post-tool correction requires an exact worker phase")?
         .parse()?;
     ensure!(
-        facts.role == format!("agent:{id}:worker"),
+        role == format!("agent:{id}:worker"),
         "post-tool child worker phase is not canonical"
     );
-    delegation::ensure_agent_active(record, &facts.role)?;
+    delegation::ensure_agent_active(record, role)?;
     let child = record
         .agents
         .iter()
@@ -44,12 +60,12 @@ fn resolve(record: &Record, facts: &PostToolFacts, available: bool) -> Result<Ow
     let source = record
         .operations
         .iter()
-        .find(|o| o.id == facts.source_operation)
+        .find(|o| o.id == source_operation)
         .context("post-tool child source missing")?;
     ensure!(
         child.status == AgentStatus::Running
-            && child.parent_task == facts.task
-            && source.phase == facts.role
+            && child.parent_task == task_id
+            && source.phase == role
             && source.identity.as_ref().unwrap_or(&record.identity) == &child.identity,
         "post-tool child identity, assignment or worker status changed"
     );
@@ -105,7 +121,11 @@ pub(super) fn objective<'a>(record: &'a Record, facts: &PostToolFacts) -> Result
 }
 
 pub(super) fn charge(record: &mut Record, facts: &PostToolFacts) -> Result<()> {
-    match resolve(record, facts, true)? {
+    let owner = resolve(record, facts, true)?;
+    charge_owner(record, owner)
+}
+fn charge_owner(record: &mut Record, owner: Owner) -> Result<()> {
+    match owner {
         Owner::Task => record.task.as_mut().expect("validated").start_work(true)?,
         Owner::Child { id, limit } => {
             let child = record
@@ -123,4 +143,36 @@ pub(super) fn charge(record: &mut Record, facts: &PostToolFacts) -> Result<()> {
         }
     }
     Ok(())
+}
+
+pub(in crate::workflow::runtime) fn observer_available(
+    record: &Record,
+    hook: &crate::plugins::receipts::HookReceipt,
+) -> bool {
+    hook.observer.as_ref().is_some_and(|o| {
+        resolve_owner(
+            record,
+            o.task,
+            &hook.inspected.role,
+            hook.inspected.source_operation,
+            true,
+            true,
+        )
+        .is_ok()
+    })
+}
+pub(in crate::workflow::runtime) fn charge_observer(
+    record: &mut Record,
+    hook: &crate::plugins::receipts::HookReceipt,
+) -> Result<()> {
+    let observer = hook.observer.as_ref().context("observer owner missing")?;
+    let owner = resolve_owner(
+        record,
+        observer.task,
+        &hook.inspected.role,
+        hook.inspected.source_operation,
+        true,
+        true,
+    )?;
+    charge_owner(record, owner)
 }

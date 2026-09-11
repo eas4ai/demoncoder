@@ -120,6 +120,7 @@ fn rewrite(input: &HookInvocation, path: &str) -> RawOutcome {
 fn registration(name: &str, class: HandlerClass, run: Arc<dyn HookRunner>) -> Registration {
     Registration {
         declaration: Declaration {
+            required_gate: class != HandlerClass::Observer,
             source: None,
             once: None,
             identity: DeclarationIdentity {

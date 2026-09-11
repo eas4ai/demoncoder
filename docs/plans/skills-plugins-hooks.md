@@ -10,7 +10,7 @@
 
 ## Status and execution rules
 
-- Complete: Immutable import foundation, backend compaction qualification probes, wire validation, result decoding, gate snapshots, durable tool receipts, pre-tool final-candidate admission, the confined command-runner/snapshot-materialization prerequisite, bounded PreToolUse prompt/agent runners, the admitted HTTP runner prerequisite, managed MCP service/hook admission, and durable synchronous one-shot activation and recovery.
+- Complete: Immutable import foundation, backend compaction qualification probes, wire validation, result decoding, gate snapshots, durable tool receipts, pre-tool final-candidate admission, the confined command-runner/snapshot-materialization prerequisite, bounded PreToolUse prompt/agent runners, the admitted HTTP runner prerequisite, managed MCP service/hook admission, durable synchronous one-shot activation and recovery, and owned asynchronous observers with parent and child rewake.
 - **In progress:** Complete lifecycle dispatch.
 - Pending: Integrate state, recovery, services and all package components.
 - Pending: Exercise the complete public management and coding workflows.
@@ -339,23 +339,39 @@ The source loader and public management flow will use this same binding later.
   Final verification passed 721 tests with 16 explicitly ignored cases, Clippy
   and formatting; both independent reviews approved the candidate. See the
   [runtime review](../reviews/plugin-once-runtime.md) for failure controls and limits.
-  Public package activation, all remaining lifecycle events, owned async jobs,
-  rewake and full installed/live conformance remain pending.
+  Public package activation, remaining lifecycle events and full installed/live
+  conformance remain pending; owned async jobs and rewake are verified below.
 
 
 ### Owned asynchronous observers
+
+Decision: [original ownership and allowance](../decisions/keep-asynchronous-hook-work-with-its-original-owner-and-allowance.md).
+The [child completion boundary](../decisions/settle-child-observers-before-advancing-supervision.md)
+retains the same child session through admitted observer completion and eligible
+rewake before supervision advances, without changing the parent phase.
+Claude first-line and idle rewake source qualification is independently approved:
+seven cases and 135 corruption controls passed, with the seven-case one-shot
+regression preserved. See [the source review](../reviews/plugin-async-source.md).
+Codex deferred-context qualification also passed specification and quality review:
+three cases and 38 corruption controls, with the original three post-tool source
+cases preserved. See [the Codex source review](../reviews/plugin-codex-async-source.md).
+Owned async execution passed 737 tests with 16 explicitly ignored cases,
+all-target Clippy, formatting and independent specification then quality review.
+The [runtime review](../reviews/plugin-async-runtime.md) records child-boundary
+repairs, fixture corrections, exact evidence and source/live limits.
+Remaining lifecycle families and complete conformance are still pending.
 
 Implement after the synchronous one-shot prerequisite is verified. Record the
 ownership decision before changing code. Reuse the existing durable hook receipt,
 session store, runner supervision and cumulative allocation. Do not add another
 job database or redefine an idle foreground task as a cancelled owner.
 
-- [ ] Add a bounded observer execution lease for an exact reserved invocation.
+- [x] Add a bounded observer execution lease for an exact reserved invocation.
   Capture its original task or child, package and policy, allocation, absolute
   deadline and snapshot resources before launch. Retain cancellation and join
   ownership in a bounded runtime collection; jobs must not keep the runtime
   alive through an event sink. Acquiring capacity must precede queueing work.
-- [ ] Transfer only eligible observer work. Required gates remain synchronous.
+- [x] Transfer only eligible observer work. Required gates remain synchronous.
   Handle a source-supported first-line async marker while the command is still
   running; waiting for its exit cannot establish asynchronous execution. Keep
   the bounded launch marker separate from final output and reject transfer when
@@ -364,24 +380,24 @@ job database or redefine an idle foreground task as a cancelled owner.
   Ordinary turn completion may leave that observer running; explicit cancellation,
   shutdown, owner replacement or expired authority must stop it. Forward idle
   cancellation through both workflow and delegation wrappers.
-- [ ] Persist transfer and exact completion separately from synchronous lifecycle
+- [x] Persist transfer and exact completion separately from synchronous lifecycle
   settlement. Launch does not consume a one-shot handler. Actual valid success
   may consume it; uncertain effects remain reserved. Restart restores evidence
   and holds without replaying jobs or pretending the old execution is live.
-- [ ] Retain bounded attributed context references for delivery at a safe model
+- [x] Retain bounded attributed context references for delivery at a safe model
   boundary. Late results cannot rewrite an old tool result or authorize a gate.
   Reserve delivery durably; an interrupted delivery cannot be automatically sent
   twice. Command-shaped context is data and cannot invoke developer controls.
-- [ ] Implement source-supported explicit rewake through internal work admission.
+- [x] Implement source-supported explicit rewake through internal work admission.
   Ordinary async completion while idle queues context for the next eligible turn.
   Rewake retains the original task or child and remaining allowance; cancellation,
   changed ownership and exhausted corrections prevent it. It cannot allocate a
   new task, borrow another owner's budget or imply acceptance.
-- [ ] Quiesce admitted writers before verification, review, acceptance and owner
+- [x] Quiesce admitted writers before verification, review, acceptance and owner
   replacement. Test late completion after a new allocation, weak-owner loss,
   process cleanup, queue saturation, cancellation during UI backpressure and
   restart at transfer, completion and delivery boundaries.
-- [ ] Qualify configuration and first-line async output, deadlines and rewake
+- [x] Qualify configuration and first-line async output, deadlines and rewake
   against the pinned source runtimes. Keep source differences explicit, including
   Claude launch-time once consumption versus the host's actual-success rule.
   Then exercise production effects and downstream requests through native and
@@ -413,8 +429,8 @@ atomic citation policy, complete frame bounds, pre-reply buffering and dispatch
 deadlines. The [review](../reviews/plugin-post-tool-lifecycle.md) retains failure
 demonstrations, source qualification and static-check limitations.
 
-One-shot/asynchronous jobs, permission events, explicit batches and the remaining
-real transitions below are subsequent lifecycle work in this same commitment.
+Permission events, explicit batches and the remaining real transitions below
+are subsequent lifecycle work in this same commitment.
 This synchronous prerequisite cannot discharge their conformance obligations.
 
 **Files:** `src/plugins/lifecycle.rs`, `src/native.rs`, `src/session.rs`, `src/workflow/mod.rs`, `src/subagents/`, `src/adapters/`, `tests/plugin_lifecycle.rs`.
@@ -456,6 +472,8 @@ the busy-control rejection or through plugin/channel text interpreted as prompts
 - [ ] Include `tests/plugin_post_source_inputs.py --claude <qualified-2.1.267-binary>` in source qualification. It checks actual SDK tool correlation, success/failure event frames, downstream MCP replacements and interrupted correction with exact user-message acknowledgment against `tests/fixtures/plugins/claude-post-source.json`; it does not establish DemonCoder lifecycle delivery.
 - [ ] Include `tests/plugin_codex_post_source.py --codex <qualified-managed-binary>` in source qualification. It checks dynamic-tool correlation, successful post frames, the absence of post events on failed dynamic results, and interrupt acknowledgment plus terminal completion before a correction turn against `tests/fixtures/plugins/codex-post-source.json`.
 - [ ] Include `tests/plugin_once_source_inputs.py --claude <qualified-2.1.267-binary> --output <new-output-directory>` in source qualification. Require all seven source cases, their corruption controls and retained artifact hashes against `tests/fixtures/plugins/claude-once-source.json`. Source async launch consumption cannot substitute for DemonCoder's actual-success rule.
+- [ ] Include `tests/plugin_async_source_inputs.py --claude <qualified-2.1.267-binary> --output <new-output-directory>` in source qualification. Require first-line transfer, its synchronous control and explicit idle rewake controls, retained raw artifacts and corruption checks. Re-run the one-shot source fixture when its shared peer helper changes. These cases do not establish host async execution.
+- [ ] Include `tests/plugin_codex_async_source.py --codex <qualified-managed-binary> --output <new-output-directory>` in source qualification. Require deferred context, its synchronous and failure controls, explicit idle observation, retained raw artifacts and corruption checks. Re-run the original Codex post-tool source cases when their shared helper changes.
 - [ ] Run formatting, clippy, all existing regression tests, installed language services and the complete plugin gate. Commit implementation before Cairn; commit receipts and captured outputs afterward.
 - [ ] Perform specification and quality reviews followed by an adversarial whole-commitment review. Resolve findings as separate implementation actions and rerun affected evidence.
 - [ ] Install and verify the final executable. Follow Cairn until Done; only then integrate the feature branch with `git merge --no-ff` and report the complete commitment.

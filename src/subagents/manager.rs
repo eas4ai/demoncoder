@@ -549,6 +549,10 @@ impl Manager {
             }
         }.await;
         // Dropping the operation stops tools; close also shuts down backend owners.
+        let observers = self
+            .runtime
+            .stop_observers(Some(&format!("agent:{id}")), false)
+            .await;
         let closed = match session.as_mut() {
             Some(session) => tokio::time::timeout(Duration::from_secs(1), session.close())
                 .await
@@ -561,7 +565,7 @@ impl Manager {
                 return;
             }
         }
-        let result = result.and(closed);
+        let result = result.and(observers).and(closed);
         let transition = self.finish_job(id, &job, result);
         if transition.is_ok() {
             guard.armed = false;
@@ -605,6 +609,7 @@ impl Manager {
                     agent.outcome = "Integration stopped before durable completion. Inspect the parent workspace and retained child result; nothing will replay automatically.".into();
                     hold_stage(agent);
                 }
+                Ok(()) if matches!(agent.status, AgentStatus::Uncertain | AgentStatus::Cancelled) => { hold_stage(agent); }
                 Ok(()) if agent.orchestration.is_none() => {
                     if matches!(job, Job::Work) {
                         agent.status = AgentStatus::Stopped;
@@ -637,7 +642,7 @@ impl Manager {
                 }
                 Err(error) => {
                     agent.status = if uncertain
-                        || agent.status == AgentStatus::Preparing
+                        || matches!(agent.status, AgentStatus::Preparing | AgentStatus::Uncertain)
                     {
                         AgentStatus::Uncertain
                     } else {
@@ -763,6 +768,8 @@ impl Manager {
         session: &mut Option<Box<dyn Session>>,
         correction: Option<(u32, String)>,
     ) -> Result<()> {
+        let phase = format!("agent:{id}:worker");
+        let owner = self.runtime.observer_phase_owner(&phase)?;
         let agent = self.record(id)?;
         let identity = agent.worktree.as_ref().context("agent has no worktree")?;
         let prompt = match correction {
@@ -806,10 +813,35 @@ impl Manager {
         let (_sender, mut commands) = mpsc::channel(1);
         let session = session.as_mut().expect("worker session opened");
         let worker_events = events.with_identity(&self.connection_for(id)?);
+        self.runtime
+            .reopen_observer_admission(&format!("agent:{id}:worker"))?;
         ensure!(
             session.turn(prompt, &mut commands, &worker_events).await? == TurnEnd::Complete,
             "child did not complete"
         );
+        loop {
+            self.runtime.quiesce_observer_writers(&phase).await?;
+            self.runtime.drain_observers(&phase, &owner).await?;
+            let Some(delivery) =
+                self.runtime
+                    .reserve_observer_context(&phase, Some(&agent.identity), true)?
+            else {
+                break;
+            };
+            // The retained supervision ledger admitted this exact child, not a
+            // developer command or a new assignment/parent phase.
+            self.runtime.reopen_observer_admission(&phase)?;
+            ensure!(
+                session
+                    .turn(delivery.text.clone(), &mut commands, &worker_events)
+                    .await?
+                    == TurnEnd::Complete,
+                "child observer continuation did not complete"
+            );
+            session.settle_interruption()?;
+            events.checkpoint(session.checkpoint())?;
+            self.runtime.complete_observer_context(&delivery)?;
+        }
         session.settle_interruption()?;
         events.checkpoint(session.checkpoint())?;
         Ok(())
@@ -1280,10 +1312,14 @@ impl Manager {
             });
             (active, retained)
         };
+        let observers = self
+            .runtime
+            .stop_observers(Some(&format!("agent:{id}")), false)
+            .await;
         if let Some(active) = active {
             stop(active).await;
         }
-        retained
+        retained.and(observers)
     }
 
     pub async fn cancel_all(&self) -> Result<()> {
@@ -1296,8 +1332,9 @@ impl Manager {
             let active = std::mem::take(&mut *registered);
             (retained, active)
         };
+        let observers = self.runtime.stop_observers(Some("agent"), false).await;
         futures_util::future::join_all(active.into_values().map(stop)).await;
-        retained
+        retained.and(observers)
     }
 
     fn mark_stopping(&self) -> Result<()> {
@@ -1550,6 +1587,7 @@ impl ToolExtension for ParentTools {
 
 #[cfg(test)]
 mod tests {
+    include!("manager/observer_tests.rs");
     use super::*;
     use crate::workflow::{
         allocation::{Allocation, Limits},
@@ -1621,6 +1659,12 @@ mod tests {
     }
 
     async fn integration_fixture(orchestrated: bool) -> IntegrationFixture {
+        integration_fixture_with_record(orchestrated, "record").await
+    }
+    async fn integration_fixture_with_record(
+        orchestrated: bool,
+        record_name: &str,
+    ) -> IntegrationFixture {
         let root = tempfile::tempdir().unwrap();
         let workspace_root = root.path().join("workspace");
         std::fs::create_dir(&workspace_root).unwrap();
@@ -1646,7 +1690,11 @@ mod tests {
         let plan = worktree::build_delta(&identity, &request, &snapshot.digest)
             .await
             .unwrap();
-        let connection = connection();
+        let mut connection = connection();
+        if record_name != "record" {
+            connection.endpoint = Some("http://127.0.0.1:9/v1/responses".into());
+            connection.api_key = Some("test-key".into());
+        }
         let identity_record = Identity::from(&connection);
         let orchestration = orchestrated.then(|| {
             let mut state = OrchestrationState::new(Vec::new());
@@ -1692,7 +1740,8 @@ mod tests {
             decisions: Vec::new(),
             orchestration,
         };
-        let record_root = root.path().join("record");
+        let record_root = root.path().join(record_name);
+        std::fs::create_dir_all(record_root.parent().unwrap()).unwrap();
         let record = Record {
             plugin_activations: Vec::new(),
             capture_scope: Default::default(),

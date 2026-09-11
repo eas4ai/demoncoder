@@ -39,6 +39,7 @@ fn binding(runtime: &SharedRuntime, change: ActivationChange) -> OnceBinding {
 }
 fn declaration(binding: Option<OnceBinding>) -> Declaration {
     Declaration {
+        required_gate: true,
         source: binding.as_ref().map(OnceBinding::source),
         once: binding,
         identity: DeclarationIdentity {
@@ -77,6 +78,8 @@ fn owner(runtime: &SharedRuntime, name: &str, d: &Declaration) -> (u64, ToolCall
         .begin_plugin_plan(id, "plan".into(), vec![serde_json::to_value(d).unwrap()])
         .unwrap();
     let hook = HookReceipt {
+        required_gate: true,
+        observer: None,
         source: d.source.as_ref().map(|s| s.0.clone()),
         once: None,
         invocation: 0,
@@ -131,7 +134,8 @@ fn reopen(runtime: SharedRuntime) -> SharedRuntime {
     let path = runtime.directory().unwrap();
     drop(runtime);
     let store = Store::open(&path).unwrap();
-    let record = serde_json::from_value(store.read().unwrap()).unwrap();
+    let mut record = serde_json::from_value(store.read().unwrap()).unwrap();
+    super::super::plugin_observer::interrupt_restored(&mut record);
     SharedRuntime(Arc::new(std::sync::Mutex::new(
         crate::workflow::runtime::Runtime {
             store,
@@ -141,6 +145,7 @@ fn reopen(runtime: SharedRuntime) -> SharedRuntime {
             mutation_boundaries: Default::default(),
             service_slots: Arc::new(tokio::sync::Semaphore::new(8)),
             once_live: Default::default(),
+            observers: Default::default(),
         },
     )))
 }

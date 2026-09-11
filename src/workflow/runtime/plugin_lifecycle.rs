@@ -6,7 +6,7 @@ use crate::plugins::{
 };
 use anyhow::{Context, Result, ensure};
 
-mod owner;
+pub(super) mod owner;
 
 #[cfg(test)]
 #[path = "plugin_lifecycle/tests.rs"]
@@ -320,7 +320,8 @@ impl SharedRuntime {
                     .iter()
                     .any(|d| d["identity"] == declaration
                         && d["once"] == encoded_binding
-                        && d["source"] == encoded_source),
+                        && d["source"] == encoded_source
+                        && d["required_gate"] == hook.required_gate),
                 "post-tool declaration is not in frozen plan"
             );
             hook.invocation = lifecycle.hooks.len() as u32;
@@ -378,6 +379,7 @@ impl SharedRuntime {
                     && previous.declaration == hook.declaration
                     && previous.inspected == hook.inspected
                     && previous.class == hook.class
+                    && previous.required_gate == hook.required_gate
                     && previous.endpoint == hook.endpoint
                     && previous.once == hook.once
                     && previous.source == hook.source,
@@ -442,12 +444,15 @@ impl SharedRuntime {
             ensure!(
                 lifecycle.facts.event == event
                     && !lifecycle.settled
-                    && lifecycle.hooks.iter().all(|h| h.outcome.is_some()),
+                    && lifecycle
+                        .hooks
+                        .iter()
+                        .all(|h| h.outcome.is_some() || h.transferred()),
                 "post-tool effects lack retained outcomes"
             );
             super::plugin_once::validate_skips(record, &lifecycle.once_skips)?;
             let mut continuation = effects.continuation;
-            if lifecycle.hooks.iter().any(|h| h.uncertain_effects) {
+            if lifecycle.hooks.iter().any(|h| h.unresolved_effects()) {
                 continuation = PostContinuation::Held {
                     reason: "post-tool effects are uncertain; reconcile before continuing".into(),
                 };

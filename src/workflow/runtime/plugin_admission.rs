@@ -363,9 +363,8 @@ pub(super) fn validate_final_key(
         );
         validate_binding(operation, call, key, &plan.plan)?;
         ensure!(
-            plan.hooks
-                .iter()
-                .all(|h| h.outcome.is_some() && !h.uncertain_effects && h.hold.is_none()),
+            plan.hooks.iter().all(|h| h.transferred()
+                || (h.outcome.is_some() && !h.uncertain_effects && h.hold.is_none())),
             "plugin decision is unknown or held"
         );
     }
@@ -546,7 +545,8 @@ impl SharedRuntime {
                     .iter()
                     .any(|d| d["identity"] == declaration
                         && d["once"] == encoded_binding
-                        && d["source"] == encoded_source),
+                        && d["source"] == encoded_source
+                        && d["required_gate"] == hook.required_gate),
                 "hook package or generation is not part of the captured plan"
             );
             validate_binding(operation, call, &hook.inspected, &plan.plan)?;
@@ -607,6 +607,7 @@ impl SharedRuntime {
                     && previous.declaration == hook.declaration
                     && previous.endpoint == hook.endpoint
                     && previous.class == hook.class
+                    && previous.required_gate == hook.required_gate
                     && previous.once == hook.once
                     && previous.source == hook.source,
                 "duplicate or mismatched hook outcome"
@@ -682,7 +683,9 @@ impl SharedRuntime {
                 "final plugin key mismatch or duplicate freeze"
             );
             ensure!(
-                plan.hooks.iter().all(|h| h.outcome.is_some()),
+                plan.hooks
+                    .iter()
+                    .all(|h| h.outcome.is_some() || h.transferred()),
                 "plugin outcome unknown; no release"
             );
             let operation = record

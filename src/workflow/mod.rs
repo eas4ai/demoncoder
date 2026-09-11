@@ -169,6 +169,7 @@ impl WorkflowSession {
         if retain_native && let Some(checkpoint) = self.inner.checkpoint() {
             replacement.restore(&checkpoint, &[])?;
         }
+        self.runtime.stop_observers(None, false).await?;
         self.runtime
             .bind_creator(&selection.connection, replacement.checkpoint())?;
         if let Err(error) = self.inner.close().await {
@@ -327,6 +328,7 @@ impl WorkflowSession {
                 self.task.as_ref().is_none_or(|t| t.accepted.is_some()),
                 "current task is not accepted; continue it or use /abandon before starting another"
             );
+            self.runtime.stop_observers(None, false).await?;
             let snapshot = self.snapshot().await?;
             let (objective, linkage) = if let Some(candidate) = improvement {
                 match self
@@ -373,6 +375,12 @@ impl WorkflowSession {
                     !self.runtime.record()?.recovery_pending,
                     "reconcile interrupted or changed work before acceptance"
                 );
+                self.runtime.quiesce_observer_writers("worker").await?;
+                self.runtime.stop_observers(None, false).await?;
+                ensure!(
+                    !self.runtime.record()?.recovery_pending,
+                    "observer cancellation needs reconciliation before acceptance"
+                );
                 let snapshot = self.snapshot().await?;
                 self.task
                     .as_mut()
@@ -408,6 +416,7 @@ impl WorkflowSession {
                 self.review(commands, events).await
             }
             "/abandon" => {
+                self.runtime.stop_observers(None, false).await?;
                 self.runtime.archive()?;
                 self.task = None;
                 events
@@ -519,6 +528,7 @@ impl WorkflowSession {
         commands: &mut mpsc::Receiver<Command>,
         events: &EventSink,
     ) -> Result<TurnEnd> {
+        self.runtime.quiesce_observer_writers("worker").await?;
         let before = self.snapshot().await?;
         let task = self.task.as_mut().context("no task to verify")?;
         task.start_verification()?;
@@ -614,6 +624,7 @@ impl WorkflowSession {
             matches!(config.adapter.as_str(), "openai-api" | "anthropic-api"),
             "task reviewer must use a native API connection with enforceable call admission"
         );
+        self.runtime.quiesce_observer_writers("worker").await?;
         let after = self.snapshot().await?;
         let task = self.task.as_mut().context("no task to review")?;
         task.start_review()?;
@@ -783,10 +794,56 @@ impl Session for WorkflowSession {
         self.publish(&events).await?;
         result
     }
+    fn observer_notification(&self) -> Result<Option<std::sync::Arc<tokio::sync::Notify>>> {
+        self.runtime.observer_notification().map(Some)
+    }
+    fn observer_ready(&self) -> Result<bool> {
+        self.runtime.has_observer_rewake("worker")
+    }
+    async fn observer_turn(
+        &mut self,
+        commands: &mut mpsc::Receiver<Command>,
+        events: &EventSink,
+    ) -> Result<TurnEnd> {
+        let Some(delivery) = self.runtime.reserve_observer_context(
+            "worker",
+            Some(&runtime::Identity::from(&self.connection)),
+            true,
+        )?
+        else {
+            return Ok(TurnEnd::Complete);
+        };
+        // This typed path never enters the developer control parser or allocates work.
+        let events = events.with_identity(&self.connection);
+        let result = tokio::time::timeout(
+            self.runtime.remaining()?,
+            self.inner.turn(delivery.text.clone(), commands, &events),
+        )
+        .await
+        .context("original observer rewake allowance exhausted")
+        .and_then(|r| r);
+        self.inner.settle_interruption()?;
+        events.checkpoint(self.inner.checkpoint())?;
+        if matches!(result, Ok(TurnEnd::Complete)) {
+            self.runtime.complete_observer_context(&delivery)?;
+        }
+        let record = self.runtime.record()?;
+        self.task = record.task;
+        self.next_id = record.next_task;
+        if let Some(task) = &mut self.task {
+            task.stopped = true;
+        }
+        self.runtime.save_task(&self.task, self.next_id, None)?;
+        self.runtime.finish_phase()?;
+        result
+    }
     async fn close(&mut self) -> Result<()> {
-        self.inner.close().await
+        let observers = self.runtime.stop_observers(None, false).await;
+        let inner = self.inner.close().await;
+        observers.and(inner)
     }
     async fn cancel_background(&mut self) -> Result<()> {
+        self.runtime.stop_observers(None, false).await?;
         if self.runtime.record()?.delegation.is_none() {
             return Ok(());
         }

@@ -21,6 +21,8 @@ pub struct Matcher {
 }
 #[derive(Clone, Serialize)]
 pub struct Declaration {
+    /// Trusted requirement policy; source output cannot downgrade a gate.
+    pub required_gate: bool,
     /// Captured independently of once so removing once cannot erase an unknown fence.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source: Option<super::once::ActivationSource>,
@@ -45,6 +47,8 @@ pub struct Registration {
 }
 /// Facts are supplied by the host. Responses contain no identity or authority selector.
 pub struct HookInvocation {
+    pub(crate) required_gate: bool,
+    pub(crate) observer: Option<Arc<crate::workflow::runtime::plugin_observer::ObserverLease>>,
     pub invocation: u32,
     pub key: AdmissionKey,
     pub declaration: DeclarationIdentity,
@@ -66,6 +70,9 @@ pub struct CompletedTool {
 }
 #[async_trait::async_trait]
 pub trait HookRunner: Send + Sync {
+    fn observer_config(&self) -> Option<super::observer::ObserverConfig> {
+        None
+    }
     /// Production runners bind event identity into their immutable configuration.
     fn bound_event(&self) -> Option<HookEvent> {
         None
@@ -182,11 +189,10 @@ impl PreToolPlan {
                 );
             }
             ensure!(
-                event != HookEvent::PreToolUse || d.class != HandlerClass::Observer,
-                "pre-tool observers require later owned observer integration"
-            );
-            ensure!(
-                id.dialect == HookDialect::Native || d.class == HandlerClass::Combined,
+                id.dialect == HookDialect::Native
+                    || d.class == HandlerClass::Combined
+                    || (d.class == HandlerClass::Observer
+                        && registration.runner.observer_config().is_some()),
                 "source declarations retain combined semantics; explicit conversion is not integrated"
             );
             ensure!(

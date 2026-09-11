@@ -41,6 +41,7 @@ fn pre_acknowledgment_frame(message: Value) -> Result<Value> {
 }
 
 struct Codex {
+    observer_owner: crate::events::ObserverOwner,
     binary: PathBuf,
     workspace: PathBuf,
     model: Option<String>,
@@ -63,6 +64,7 @@ pub fn open(config: &Connection, workspace: &Path) -> Result<Box<dyn Session>> {
         bail!("Codex subscription connections use the app-server transport, not an API endpoint");
     }
     Ok(Box::new(Codex {
+        observer_owner: Default::default(),
         binary: executable(config.binary.as_deref(), "codex")?,
         workspace: workspace.to_owned(),
         model: config.model.clone(),
@@ -318,6 +320,15 @@ impl Codex {
             };
             let invocation_events = events.for_invocation(admission);
             let events = &invocation_events;
+            let observer_delivery = if handoff.is_none() && !crate::workflow::is_control(&prompt) {
+                events.observer_context()?
+            } else {
+                None
+            };
+            let outgoing_prompt = observer_delivery.as_ref().map_or_else(
+                || prompt.clone(),
+                |delivery| format!("{}\n{}", prompt, delivery.text),
+            );
             let request = if let Some(correction) = &handoff {
                 correction
                     .request
@@ -327,11 +338,14 @@ impl Codex {
                 json!({"id":id,"method":"thread/compact/start","params":{"threadId":self.thread}})
             } else {
                 json!({"id":id,"method":"turn/start","params":{
-                    "threadId":self.thread,"input":[{"type":"text","text":prompt}],
+                    "threadId":self.thread,"input":[{"type":"text","text":outgoing_prompt}],
                     "environments":[],"effort":self.effort,
                 }})
             };
             deadline.during(process.send(request)).await?;
+            if let Some(delivery) = &observer_delivery {
+                events.complete_observer_context(delivery)?;
+            }
             let mut turn: Option<String> = None;
             let mut corrections = Vec::new();
             let mut plugin_correction: Option<super::post_correction::ExternalCorrection> = None;
@@ -713,6 +727,7 @@ impl Session for Codex {
         commands: &mut mpsc::Receiver<Command>,
         events: &EventSink,
     ) -> Result<TurnEnd> {
+        self.observer_owner.capture(events);
         let (corrections, mut steering) = correction_channel();
         let outcome = {
             let run = self.run_turn(prompt, &mut steering, events);
@@ -731,7 +746,12 @@ impl Session for Codex {
         outcome
     }
 
+    async fn cancel_background(&mut self) -> Result<()> {
+        self.observer_owner.stop().await
+    }
+
     async fn close(&mut self) -> Result<()> {
+        let observers = self.observer_owner.stop().await;
         let result = super::process::stop_backend_and_services(
             &mut self.process,
             self.tools.stop_language_services(),
@@ -739,6 +759,6 @@ impl Session for Codex {
         .await;
         self.relay = None;
         // Keep backend-owned context for the next prompt after cancellation.
-        result
+        observers.and(result)
     }
 }

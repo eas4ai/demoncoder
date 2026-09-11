@@ -98,6 +98,7 @@ async fn cancel_final_release(block_capture: bool) {
             HookEvent::PostToolUse,
             vec![Registration {
                 declaration: Declaration {
+                    required_gate: true,
                     source: None,
                     once: None,
                     identity: DeclarationIdentity {

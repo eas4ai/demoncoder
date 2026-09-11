@@ -69,6 +69,9 @@ struct DispatchCase {
 }
 impl DispatchCase {
     fn new(event: HookEvent) -> Self {
+        Self::with_count(event, 2)
+    }
+    fn with_count(event: HookEvent, count: usize) -> Self {
         let root = tempfile::tempdir().unwrap();
         let storage = tempfile::tempdir().unwrap();
         let runtime = fixture(
@@ -100,11 +103,15 @@ impl DispatchCase {
             .for_invocation(Some(1));
         // Both operations are genuinely admitted before either lifecycle starts.
         // The second dispatch never creates or repeats an underlying tool effect.
-        let calls = ["first", "second"]
-            .into_iter()
+        let calls = (0..count)
+            .map(|index| match index {
+                0 => "first".to_string(),
+                1 => "second".to_string(),
+                _ => format!("operation-{index}"),
+            })
             .map(|name| {
                 let call = ToolCall {
-                    id: name.into(),
+                    id: name.clone(),
                     name: "write".into(),
                     arguments: json!({"path":name,"content":"original"}),
                 };
@@ -121,7 +128,7 @@ impl DispatchCase {
                     let (_, operation) = events.plugin_context().unwrap();
                     runtime.admit_tool(operation, &call).unwrap();
                     runtime.tool_effect(operation).unwrap();
-                    std::fs::write(root.path().join(name), "original").unwrap();
+                    std::fs::write(root.path().join(&name), "original").unwrap();
                     runtime.original_tool_result(operation, &result).unwrap();
                 }
                 (call, events, result)
@@ -446,3 +453,6 @@ async fn omitted_once_never_initializes_managed_mcp_before_pre_reservation() {
 async fn omitted_once_never_initializes_managed_mcp_before_post_reservation() {
     check_mcp_prepare(HookEvent::PostToolUse).await;
 }
+
+#[path = "observer_tests.rs"]
+mod observer_tests;
