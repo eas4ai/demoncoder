@@ -11,4 +11,10 @@ Record the actual native turn start in the existing durable operation store befo
 
 ## Realized by
 
-(none yet: recorded, not built)
+- 3870dfb7453df01cbc8e663d63ffcdf083a77acf Give native hooks a durable shared turn identity
+
+The native-turn review records actual-loop, source-framing, ownership, recovery
+and compatibility checks and independent specification and quality approval.
+The translated transcript path identifies host session evidence; upstream
+transcript file formats and actual external relay delivery remain separate
+compatibility work.

@@ -194,9 +194,11 @@ readiness for the overall commitment.
 ## Remaining commitment work
 
 The [durable native turn decision](../decisions/give-each-native-turn-a-durable-identity-before-hook-selection.md)
-remains unbuilt. Imported formats need one real native turn identity across
-submit, Stop, internal corrections and Stop-only configurations. Per-event
-operation IDs do not supply it. A package dialect does not select a backend.
+was subsequently built and reviewed in
+[the native turn stage](plugin-native-turn-identity.md). It supplies one real
+native turn identity across Submit, Stop, internal corrections and Stop-only
+configurations, with native source framing. A package dialect does not select a
+backend. Actual external relay delivery remains open.
 
 The approved [Claude](plugin-non-tool-source.md) and
 [Codex](plugin-codex-non-tool-source.md) source qualifications establish actual
