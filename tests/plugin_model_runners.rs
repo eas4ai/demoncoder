@@ -6,7 +6,7 @@ use demoncoder::{
         self,
         dispatch::*,
         gate_snapshot::GateReadSet,
-        hook_types::{HandlerKind, HookDialect},
+        hook_types::{HandlerKind, HookDialect, HookEvent},
         runners::{ModelConfig, ModelRunner},
     },
     session::Session,
@@ -1122,5 +1122,87 @@ fn registration_requires_a_host_model_and_never_executes_codex_source_tags() {
         let mut forbidden = config;
         forbidden.continue_on_block = true;
         assert!(try_register(declaration(kind, HookDialect::Native, 0), forbidden).is_err());
+    }
+}
+
+#[tokio::test]
+async fn native_non_tool_prompt_and_agent_use_real_model_admission() {
+    let _lock = FIXTURES.lock().await;
+    for kind in [HandlerKind::Prompt, HandlerKind::Agent] {
+        for allowance in [None, Some(4)] {
+            let server = Server::new("openai-api", |_, request| {
+                assert_eq!(request["model"], "explicit-hook-model");
+                let text = prompt(request);
+                assert!(text.contains("UserPromptSubmit"), "{text}");
+                assert!(text.contains("source"), "{text}");
+                json!({"ok":false,"reason":"non-tool model denied"})
+            });
+            let fixture = Fixture::new(allowance);
+            fixture
+                .runtime
+                .begin_phase("worker", Some("source"))
+                .unwrap();
+            let package = tempfile::tempdir().unwrap();
+            std::fs::create_dir(package.path().join(".claude-plugin")).unwrap();
+            std::fs::write(
+                package.path().join(".claude-plugin/plugin.json"),
+                r#"{"name":"model-fixture","version":"1.0.0"}"#,
+            )
+            .unwrap();
+            let package = Arc::new(
+                plugins::inspect(package.path(), &plugins::ImportOptions::default()).unwrap(),
+            );
+            let registration = ModelRunner::registration_for_event(
+                package,
+                declaration(kind, HookDialect::Native, 0),
+                HookEvent::UserPromptSubmit,
+                config(&server, "openai-api"),
+            )
+            .unwrap();
+            let mut tools = ToolExecutor::with_policy(
+                fixture.root.path(),
+                &AccessPolicy {
+                    supervisor: Some(env!("CARGO_BIN_EXE_demoncoder").into()),
+                    ..AccessPolicy::default()
+                },
+            )
+            .unwrap();
+            tools
+                .register_non_tool_plan(Arc::new(
+                    plugins::non_tool::NonToolPlan::new(
+                        HookEvent::UserPromptSubmit,
+                        vec![registration],
+                    )
+                    .unwrap(),
+                ))
+                .unwrap();
+            let results = fixture.run(tools, call()).await;
+            assert!(results.is_empty());
+            assert!(!fixture.root.path().join("result").exists());
+            assert_eq!(
+                server.count(),
+                usize::from(allowance.is_some()),
+                "{kind:?} {allowance:?}"
+            );
+            let record = fixture.record();
+            let receipt = record
+                .operations
+                .iter()
+                .find_map(|op| match &op.host_invocation {
+                    Some(demoncoder::workflow::runtime::HostInvocation::Lifecycle(receipt)) => {
+                        Some(receipt)
+                    }
+                    _ => None,
+                })
+                .unwrap();
+            assert!(receipt.settled && receipt.hold.is_some());
+            assert_eq!(receipt.hooks.len(), 1);
+            assert!(receipt.hooks[0].inspected.tool.is_none());
+            assert!(receipt.hooks[0].inspected.lifecycle.is_some());
+            if let Some(allocation) = &record.allocation {
+                assert_eq!(allocation.model_calls, 1);
+                assert_eq!(allocation.usage.reported_input, 11);
+            }
+        }
     }
 }

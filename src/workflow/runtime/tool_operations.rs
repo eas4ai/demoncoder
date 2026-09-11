@@ -11,6 +11,7 @@ pub enum HostInvocation {
     Model,
     Backend,
     Commands,
+    Lifecycle(Box<crate::plugins::receipts::NonToolReceipt>),
     PluginService {
         owner: u64,
         service: String,
@@ -56,9 +57,98 @@ pub(crate) enum ToolAdmission {
 }
 
 impl Operation {
+    pub(crate) fn non_tool_receipt(&self) -> Option<&crate::plugins::receipts::NonToolReceipt> {
+        match &self.host_invocation {
+            Some(HostInvocation::Lifecycle(receipt)) => Some(receipt),
+            _ => None,
+        }
+    }
+    pub(crate) fn non_tool_receipt_mut(
+        &mut self,
+    ) -> Option<&mut crate::plugins::receipts::NonToolReceipt> {
+        match &mut self.host_invocation {
+            Some(HostInvocation::Lifecycle(receipt)) => Some(receipt),
+            _ => None,
+        }
+    }
+    /// Inspect retained evidence without granting execution authority.
+    pub(crate) fn plugin_hooks(
+        &self,
+        event: crate::plugins::hook_types::HookEvent,
+    ) -> Option<&[crate::plugins::receipts::HookReceipt]> {
+        use crate::plugins::hook_types::HookEvent;
+        if let Some(receipt) = self.non_tool_receipt() {
+            return (receipt.facts.subject.occurrence.event() == event)
+                .then_some(receipt.hooks.as_slice());
+        }
+        let receipt = self.tool_receipt.as_ref()?;
+        match event {
+            HookEvent::PreToolUse => receipt
+                .plugin_admission
+                .as_ref()
+                .map(|p| p.hooks.as_slice()),
+            HookEvent::PostToolUse | HookEvent::PostToolUseFailure => receipt
+                .plugin_lifecycle
+                .as_ref()
+                .filter(|p| p.facts.event == event)
+                .map(|p| p.hooks.as_slice()),
+            _ => None,
+        }
+    }
+    pub(crate) fn all_plugin_hooks(
+        &self,
+    ) -> impl Iterator<Item = &crate::plugins::receipts::HookReceipt> {
+        self.tool_receipt
+            .iter()
+            .flat_map(|r| {
+                r.plugin_admission
+                    .iter()
+                    .flat_map(|p| &p.hooks)
+                    .chain(r.plugin_lifecycle.iter().flat_map(|p| &p.hooks))
+            })
+            .chain(self.non_tool_receipt().into_iter().flat_map(|p| &p.hooks))
+    }
+    pub(crate) fn all_plugin_hooks_mut(
+        &mut self,
+    ) -> impl Iterator<Item = &mut crate::plugins::receipts::HookReceipt> {
+        let lifecycle = match &mut self.host_invocation {
+            Some(HostInvocation::Lifecycle(r)) => Some(r),
+            _ => None,
+        };
+        self.tool_receipt
+            .iter_mut()
+            .flat_map(|r| {
+                r.plugin_admission
+                    .iter_mut()
+                    .flat_map(|p| &mut p.hooks)
+                    .chain(r.plugin_lifecycle.iter_mut().flat_map(|p| &mut p.hooks))
+            })
+            .chain(lifecycle.into_iter().flat_map(|p| &mut p.hooks))
+    }
+    pub(crate) fn plugin_once_skips(
+        &self,
+    ) -> impl Iterator<Item = &crate::plugins::once::OnceSkip> {
+        self.tool_receipt
+            .iter()
+            .flat_map(|r| {
+                r.plugin_admission
+                    .iter()
+                    .flat_map(|p| &p.once_skips)
+                    .chain(r.plugin_lifecycle.iter().flat_map(|p| &p.once_skips))
+            })
+            .chain(
+                self.non_tool_receipt()
+                    .into_iter()
+                    .flat_map(|p| &p.once_skips),
+            )
+    }
+
     pub(super) fn needs_reconciliation(&self) -> bool {
         !self.reconciled
             && (!self.complete
+                || self
+                    .non_tool_receipt()
+                    .is_some_and(|r| !r.settled || r.hooks.iter().any(|h| h.unresolved_effects()))
                 || self.tool_receipt.as_ref().is_some_and(|receipt| {
                     !receipt.observers_complete
                         || receipt.plugin_lifecycle.as_ref().is_some_and(|plan| {

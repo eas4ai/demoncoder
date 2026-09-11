@@ -44,11 +44,7 @@ fn text(hook: &HookReceipt) -> Result<String> {
             stderr
         })?);
     } else {
-        let event = match hook.inspected.event.as_str() {
-            "PreToolUse" => HookEvent::PreToolUse,
-            "PostToolUse" => HookEvent::PostToolUse,
-            _ => HookEvent::PostToolUseFailure,
-        };
+        let event = HookEvent::try_from(hook.inspected.event.as_str())?;
         let decoded = outcome.decode_for(
             &crate::plugins::profile::CompatibilityProfile::embedded()?,
             &hook.declaration,

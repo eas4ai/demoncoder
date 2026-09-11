@@ -29,8 +29,9 @@ fn key(runtime: &SharedRuntime, id: u64, call: &ToolCall) -> AdmissionKey {
         operation: id,
         source_operation: runtime.plugin_owner(id).unwrap().0,
         event: "PreToolUse".into(),
-        tool: call.name.clone(),
-        arguments: crate::plugins::admission::candidate_digest(call).unwrap(),
+        tool: Some(call.name.clone()),
+        lifecycle: None,
+        arguments: Some(crate::plugins::admission::candidate_digest(call).unwrap()),
         plan: "plan".into(),
         role: "worker".into(),
         workspace: (1, 2),
@@ -46,7 +47,7 @@ fn final_key_cannot_change_host_role_or_tool_identity() {
         let mut key = key(&runtime, id, &call);
         match field {
             "role" => key.role = "reviewer".into(),
-            "tool" => key.tool = "bash".into(),
+            "tool" => key.tool = Some("bash".into()),
             "session" => key.session = "different-session".into(),
             _ => key.event = "PostToolUse".into(),
         }
@@ -270,7 +271,7 @@ fn result_settlement_rejects_changed_reserved_identity_without_partial_mutation(
         let mut changed = completed_deny(first.clone());
         match field {
             "invocation" => changed.invocation = second.invocation,
-            "key" => changed.inspected.arguments = "different-candidate".into(),
+            "key" => changed.inspected.arguments = Some("different-candidate".into()),
             "class" => changed.class = HandlerClass::DecisionGate,
             "endpoint" => changed.endpoint = Some("different-endpoint".into()),
             "declaration" => changed.declaration.generation = "different-generation".into(),
@@ -678,5 +679,47 @@ fn ordinary_reconciliation_does_not_approve_unfinished_or_held_required_lifecycl
         let mut next = call;
         next.id = "different-tool".into();
         assert!(resumed.begin_tool("worker", source, &next).is_err());
+    }
+}
+
+#[test]
+fn reserved_hook_view_rejects_a_receipt_bound_to_a_different_event() {
+    for wrong_subject in [false, true] {
+        let root = tempfile::tempdir().unwrap();
+        let (runtime, id, call) = fixture(root.path());
+        reserve(&runtime, id, &call, 0);
+        runtime
+            .update(|record| {
+                let receipt = record
+                    .operations
+                    .iter_mut()
+                    .find(|o| o.id == id)
+                    .unwrap()
+                    .tool_receipt
+                    .as_mut()
+                    .unwrap()
+                    .plugin_admission
+                    .as_mut()
+                    .unwrap();
+                if wrong_subject {
+                    receipt.hooks[0].inspected.lifecycle = Some(LifecycleSubject {
+                        version: 1,
+                        occurrence: NonToolOccurrence::Stop {
+                            stop_hook_active: false,
+                            last_assistant_message: None,
+                        },
+                    });
+                } else {
+                    receipt.hooks[0].inspected.event = "Stop".into();
+                }
+                Ok(())
+            })
+            .unwrap();
+        assert!(
+            runtime
+                .plugin_hook_key(id, HookEvent::PreToolUse, 0)
+                .is_err(),
+            "a reserved hook from another event acquired the pre-tool capability"
+        );
     }
 }

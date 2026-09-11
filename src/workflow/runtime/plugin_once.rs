@@ -97,14 +97,9 @@ fn hooks(record: &Record) -> impl Iterator<Item = &HookReceipt> {
     record
         .operations
         .iter()
-        .filter_map(|o| o.tool_receipt.as_ref())
-        .flat_map(|r| {
-            r.plugin_admission
-                .iter()
-                .flat_map(|a| a.hooks.iter())
-                .chain(r.plugin_lifecycle.iter().flat_map(|l| l.hooks.iter()))
-        })
+        .flat_map(super::Operation::all_plugin_hooks)
 }
+
 fn unresolved(attempt: &OnceAttempt) -> bool {
     matches!(attempt.state, OnceState::Reserved | OnceState::Unknown)
         && attempt.reconciliation.is_none()
@@ -154,13 +149,7 @@ pub(super) fn reserve(
     let duplicate_skip = record
         .operations
         .iter()
-        .filter_map(|o| o.tool_receipt.as_ref())
-        .flat_map(|r| {
-            r.plugin_admission
-                .iter()
-                .flat_map(|a| &a.once_skips)
-                .chain(r.plugin_lifecycle.iter().flat_map(|a| &a.once_skips))
-        })
+        .flat_map(super::Operation::plugin_once_skips)
         .any(|skip| {
             skip.inspected.operation == hook.inspected.operation
                 && skip.inspected.event == hook.inspected.event
@@ -273,12 +262,18 @@ pub(super) fn settle_post(
     lifecycle: &mut crate::plugins::receipts::LifecycleReceipt,
     successful: &[u32],
 ) {
-    for hook in &mut lifecycle.hooks {
+    settle_hooks(&mut lifecycle.hooks, &lifecycle.proposals, successful);
+}
+pub(super) fn settle_hooks(
+    hooks: &mut [HookReceipt],
+    proposals: &[crate::plugins::receipts::AppliedProposal],
+    successful: &[u32],
+) {
+    for hook in hooks {
         if hook.once.is_none() || hook.observer.is_some() {
             continue;
         }
-        let applied = lifecycle
-            .proposals
+        let applied = proposals
             .iter()
             .filter(|p| p.invocation == hook.invocation)
             .all(|p| {
@@ -376,13 +371,9 @@ impl SharedRuntime {
                 .iter_mut()
                 .find(|o| o.id == target.reference.operation)
                 .expect("validated");
-            let tool = operation.tool_receipt.as_mut().expect("validated");
-            let hooks = if target.reference.event == "PreToolUse" {
-                &mut tool.plugin_admission.as_mut().expect("validated").hooks
-            } else {
-                &mut tool.plugin_lifecycle.as_mut().expect("validated").hooks
-            };
-            hooks[target.reference.invocation as usize]
+            operation.all_plugin_hooks_mut()
+                .find(|h| reference(h) == target.reference)
+                .expect("validated")
                 .once
                 .as_mut()
                 .expect("validated")
@@ -421,7 +412,7 @@ impl SharedRuntime {
             .lock()
             .map_err(|_| anyhow::anyhow!("runtime lock failed"))?;
         ensure!(!runtime.failed, "session persistence failed");
-        super::plugin_lifecycle::active(&runtime.record, operation, event)?;
+        super::plugin_admission::active_for_event(&runtime.record, operation, event)?;
         let mut owners = runtime
             .once_live
             .lock()

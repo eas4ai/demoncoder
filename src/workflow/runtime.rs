@@ -2,6 +2,7 @@
 mod delegation;
 pub(crate) mod plugin_admission;
 pub(crate) mod plugin_lifecycle;
+pub(crate) mod plugin_non_tool;
 pub(crate) mod plugin_observer;
 mod plugin_once;
 mod tool_operations;

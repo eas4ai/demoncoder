@@ -93,9 +93,13 @@ impl Manager {
                 )?,
                 "agent workspace must exclude private connection settings"
             );
+            // Non-tool gates keep immutable declarations; the actual child
+            // runtime binds them to this assignment before any runner executes.
+            let non_tools = connection.access.non_tools.clone();
             connection.access = crate::tools::AccessPolicy::worktree_only(
                 connection.access.credential_paths.clone(),
             );
+            connection.access.non_tools = non_tools;
         }
         runtime.configure_delegation(
             DelegationIdentity {
@@ -1588,6 +1592,7 @@ impl ToolExtension for ParentTools {
 #[cfg(test)]
 mod tests {
     include!("manager/observer_tests.rs");
+    include!("manager/non_tool_tests.rs");
     use super::*;
     use crate::workflow::{
         allocation::{Allocation, Limits},

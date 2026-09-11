@@ -45,6 +45,7 @@ fn executor(path: &Path) -> ToolExecutor {
             snapshot: None,
             post_tools: Vec::new(),
             pre_tool: None,
+            non_tools: Vec::new(),
             language_servers: Default::default(),
         },
     )

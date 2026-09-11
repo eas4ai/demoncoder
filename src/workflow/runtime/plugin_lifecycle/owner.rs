@@ -176,3 +176,32 @@ pub(in crate::workflow::runtime) fn charge_observer(
     )?;
     charge_owner(record, owner)
 }
+
+pub(in crate::workflow::runtime) fn non_tool_available(
+    record: &Record,
+    facts: &crate::plugins::receipts::NonToolFacts,
+) -> bool {
+    resolve_owner(
+        record,
+        facts.task,
+        &facts.role,
+        facts.operation,
+        true,
+        false,
+    )
+    .is_ok()
+}
+pub(in crate::workflow::runtime) fn charge_non_tool(
+    record: &mut Record,
+    facts: &crate::plugins::receipts::NonToolFacts,
+) -> Result<()> {
+    let owner = resolve_owner(
+        record,
+        facts.task,
+        &facts.role,
+        facts.operation,
+        true,
+        false,
+    )?;
+    charge_owner(record, owner)
+}

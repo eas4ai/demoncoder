@@ -156,7 +156,7 @@ fn overview(out: &mut Pager, record: &Record) -> fmt::Result {
             record.archived.len()
         )?;
     }
-    Ok(())
+    lifecycle_report(out, record, None)
 }
 
 fn task_report(out: &mut Pager, record: &Record, task: &Task, archived: bool) -> fmt::Result {
@@ -174,6 +174,7 @@ fn task_report(out: &mut Pager, record: &Record, task: &Task, archived: bool) ->
         )
     )?;
     quote(out, "Objective:", &task.objective)?;
+    lifecycle_report(out, record, Some(task.id))?;
     writeln!(
         out,
         "Connection: {} · model {}",
@@ -622,6 +623,61 @@ fn source(out: &mut Pager, evidence: &str) -> fmt::Result {
             quote(out, label.trim(), &text)?;
         } else {
             writeln!(out, "  | {line}")?;
+        }
+    }
+    Ok(())
+}
+
+fn lifecycle_report(out: &mut Pager, record: &Record, task: Option<u64>) -> fmt::Result {
+    for receipt in record
+        .operations
+        .iter()
+        .filter_map(|o| o.non_tool_receipt())
+        .filter(|r| r.facts.task == task)
+    {
+        writeln!(
+            out,
+            "\nLifecycle {} · operation {} · {}",
+            receipt.facts.subject.occurrence.event().as_str(),
+            receipt.facts.operation,
+            if receipt.hold.is_some() {
+                "unmet"
+            } else if receipt.settled {
+                "settled"
+            } else {
+                "pending; never replay automatically"
+            }
+        )?;
+        if let crate::plugins::receipts::NonToolOccurrence::UserPromptSubmit { prompt, .. } =
+            &receipt.facts.subject.occurrence
+        {
+            quote(
+                out,
+                "Original submitted prompt (retained even when blocked):",
+                prompt,
+            )?;
+        }
+        if let Some(reason) = &receipt.hold {
+            quote(out, "Unmet gate reason:", reason)?;
+        }
+        for message in &receipt.messages {
+            quote(
+                out,
+                &format!("Plugin-origin {}:", message.package),
+                &message.text,
+            )?;
+        }
+        for hook in &receipt.hooks {
+            if let Some(crate::plugins::receipts::RawOutcome::Failure { reason }) = &hook.outcome {
+                quote(
+                    out,
+                    &format!("Plugin-origin {} failure:", hook.declaration.package),
+                    reason,
+                )?;
+            }
+        }
+        for diagnostic in &receipt.diagnostics {
+            quote(out, "Hook diagnostic:", diagnostic)?;
         }
     }
     Ok(())

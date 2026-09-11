@@ -6,7 +6,7 @@ use demoncoder::{
         self,
         dispatch::*,
         gate_snapshot::GateReadSet,
-        hook_types::{HandlerKind, HookDialect},
+        hook_types::{HandlerKind, HookDialect, HookEvent},
         runners::{HttpConfig, HttpCredential, HttpRunner},
     },
     session::Session,
@@ -1064,4 +1064,79 @@ fn empty_raw_authority_rejected_for_revalidation_endpoint() {
     }
     assert_eq!(primary.count(), 0);
     assert_eq!(read_only.count(), 0);
+}
+
+#[tokio::test]
+async fn native_non_tool_http_frames_actual_submit_and_rejects_missing_owner_before_io() {
+    let _lock = FIXTURES.lock().await;
+    for allowance in [false, true] {
+        let peer = Peer::response(
+            200,
+            json!({"decision":"block","reason":"non-tool HTTP denied"})
+                .to_string()
+                .into_bytes(),
+        );
+        let fixture = Fixture::with_allowance(tempfile::tempdir().unwrap(), allowance);
+        fixture.runtime.begin_phase("worker", Some("test")).unwrap();
+        let source = tempfile::tempdir().unwrap();
+        std::fs::create_dir(source.path().join(".claude-plugin")).unwrap();
+        std::fs::write(
+            source.path().join(".claude-plugin/plugin.json"),
+            r#"{"name":"http-fixture","version":"1.0.0"}"#,
+        )
+        .unwrap();
+        let package =
+            Arc::new(plugins::inspect(source.path(), &plugins::ImportOptions::default()).unwrap());
+        let mut d = declaration("http", HookDialect::Native, HandlerClass::DecisionGate);
+        d.matcher = Matcher::default();
+        let registration = HttpRunner::registration_for_event(
+            package,
+            d,
+            HookEvent::UserPromptSubmit,
+            HttpConfig::new(peer.endpoint.clone()),
+            None,
+        )
+        .unwrap();
+        let mut tools = fixture.executor(vec![], false);
+        tools
+            .register_non_tool_plan(Arc::new(
+                plugins::non_tool::NonToolPlan::new(
+                    HookEvent::UserPromptSubmit,
+                    vec![registration],
+                )
+                .unwrap(),
+            ))
+            .unwrap();
+        assert!(fixture.run(tools, vec![call("result")]).await.is_empty());
+        assert!(!fixture.root.path().join("result").exists());
+        assert_eq!(peer.count(), usize::from(allowance));
+        if allowance {
+            let requests = peer.requests.lock().unwrap();
+            assert_eq!(requests[0].1["hook_event_name"], "UserPromptSubmit");
+            assert_eq!(requests[0].1["prompt"], "test");
+            assert!(requests[0].1.get("tool_name").is_none());
+            assert!(requests[0].1.get("tool_input").is_none());
+        }
+        let record = fixture.record();
+        let receipt = record
+            .operations
+            .iter()
+            .find_map(|op| match &op.host_invocation {
+                Some(demoncoder::workflow::runtime::HostInvocation::Lifecycle(receipt)) => {
+                    Some(receipt)
+                }
+                _ => None,
+            })
+            .unwrap();
+        if allowance {
+            assert!(receipt.settled && receipt.hold.is_some());
+        } else {
+            assert!(record.recovery_pending && !receipt.settled);
+            assert!(
+                serde_json::to_string(&receipt.hooks[0].outcome)
+                    .unwrap()
+                    .contains("owning allowance")
+            );
+        }
+    }
 }

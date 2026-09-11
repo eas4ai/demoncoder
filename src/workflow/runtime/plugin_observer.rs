@@ -110,30 +110,15 @@ fn hooks(record: &Record) -> impl Iterator<Item = &HookReceipt> {
     record
         .operations
         .iter()
-        .filter_map(|o| o.tool_receipt.as_ref())
-        .flat_map(|r| {
-            r.plugin_admission
-                .iter()
-                .flat_map(|p| p.hooks.iter())
-                .chain(r.plugin_lifecycle.iter().flat_map(|p| p.hooks.iter()))
-        })
+        .flat_map(super::Operation::all_plugin_hooks)
 }
 fn hooks_mut(record: &mut Record) -> impl Iterator<Item = &mut HookReceipt> {
     record
         .operations
         .iter_mut()
-        .filter_map(|o| o.tool_receipt.as_mut())
-        .flat_map(|r| {
-            r.plugin_admission
-                .iter_mut()
-                .flat_map(|p| p.hooks.iter_mut())
-                .chain(
-                    r.plugin_lifecycle
-                        .iter_mut()
-                        .flat_map(|p| p.hooks.iter_mut()),
-                )
-        })
+        .flat_map(super::Operation::all_plugin_hooks_mut)
 }
+
 fn key(hook: &HookReceipt) -> Key {
     (
         hook.inspected.operation,
@@ -321,13 +306,7 @@ impl ObserverLease {
                 RawOutcome::Failure { .. } | RawOutcome::CommandFailure { .. }
             );
             hook.outcome = Some(outcome.clone());
-            let event = if self.key.1 == "PreToolUse" {
-                HookEvent::PreToolUse
-            } else if self.key.1 == "PostToolUse" {
-                HookEvent::PostToolUse
-            } else {
-                HookEvent::PostToolUseFailure
-            };
+            let event = HookEvent::try_from(self.key.1.as_str())?;
             let profile = crate::plugins::profile::CompatibilityProfile::embedded()?;
             let context = crate::plugins::results::ResultContext {
                 role: crate::plugins::results::ResultRole::Observer,

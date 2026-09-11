@@ -222,15 +222,22 @@ impl ModelRunner {
             self.config.max_output_bytes,
             self.config.max_inspections,
         ));
-        ensure!(
-            crate::plugins::wire::measure(&invocation.candidate.arguments)?
-                <= self.config.max_input_bytes,
-            "model hook event exceeds input bound"
-        );
-        // Prose and event fields are serialized literally. Nothing becomes shell
-        // source or a model/connection selector. Required evidence is never clipped.
+        // Preserve the existing model-only pre-tool framing; non-tool events use
+        // the same typed framing and source-fact checks as transport runners.
         let event = if self.event == HookEvent::PreToolUse {
-            json!({"session_id":invocation.key.session,"hook_event_name":"PreToolUse","tool_name":invocation.candidate.name,"tool_input":invocation.candidate.arguments,"tool_use_id":invocation.candidate.id})
+            let candidate = invocation
+                .candidate
+                .as_ref()
+                .context("pre-tool model input lacks candidate")?;
+            ensure!(
+                invocation.lifecycle.is_none() && invocation.completed.is_none(),
+                "pre-tool model input has incompatible authority"
+            );
+            ensure!(
+                crate::plugins::wire::measure(&candidate.arguments)? <= self.config.max_input_bytes,
+                "model hook event exceeds input bound"
+            );
+            json!({"session_id":invocation.key.session,"hook_event_name":"PreToolUse","tool_name":candidate.name,"tool_input":candidate.arguments,"tool_use_id":candidate.id})
         } else {
             crate::plugins::wire::parse_json(&super::event::input(
                 invocation,

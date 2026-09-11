@@ -25,12 +25,19 @@ pub(super) fn input(
         transcript_path,
     } = config;
     use serde_json::json;
-    crate::plugins::wire::measure(&invocation.candidate.arguments)?;
+    if let Some(facts) = &invocation.lifecycle {
+        return non_tool_input(invocation, facts, profile, dialect, maximum);
+    }
+    let candidate = invocation
+        .candidate
+        .as_ref()
+        .context("tool event lacks a tool candidate")?;
+    crate::plugins::wire::measure(&candidate.arguments)?;
     let mut preflight = LimitedInput {
         bytes: Vec::new(),
         maximum,
     };
-    serde_json::to_writer(&mut preflight, &invocation.candidate.arguments)
+    serde_json::to_writer(&mut preflight, &candidate.arguments)
         .context("hook event input exceeds configured bound")?;
     drop(preflight);
     let event = invocation.events.plugin_event();
@@ -38,7 +45,7 @@ pub(super) fn input(
         invocation.key.event == event.as_str(),
         "hook event capability mismatch"
     );
-    let mut input = json!({"session_id":invocation.key.session,"cwd":invocation.host.workspace,"hook_event_name":event.as_str(),"tool_name":invocation.candidate.name,"tool_input":invocation.candidate.arguments,"tool_use_id":invocation.candidate.id});
+    let mut input = json!({"session_id":invocation.key.session,"cwd":invocation.host.workspace,"hook_event_name":event.as_str(),"tool_name":candidate.name,"tool_input":candidate.arguments,"tool_use_id":candidate.id});
     if event == HookEvent::PreToolUse {
         ensure!(
             invocation.completed.is_none(),
@@ -68,8 +75,8 @@ pub(super) fn input(
         ensure!(
             completed.facts.event == event
                 && completed.facts.operation == invocation.key.operation
-                && completed.original.call_id == invocation.candidate.id
-                && completed.original.tool == invocation.candidate.name
+                && completed.original.call_id == candidate.id
+                && completed.original.tool == candidate.name
                 && completed.original.success == (event == HookEvent::PostToolUse),
             "post-tool evidence identity mismatch"
         );
@@ -189,4 +196,92 @@ impl std::io::Write for LimitedInput {
     fn flush(&mut self) -> std::io::Result<()> {
         Ok(())
     }
+}
+
+fn non_tool_input(
+    invocation: &HookInvocation,
+    facts: &crate::plugins::receipts::NonToolFacts,
+    profile: &CompatibilityProfile,
+    dialect: HookDialect,
+    maximum: usize,
+) -> Result<Vec<u8>> {
+    use crate::plugins::receipts::{NonToolOccurrence, ObservedLifecycle};
+    use serde_json::json;
+    let event = facts.subject.occurrence.event();
+    ensure!(
+        invocation.candidate.is_none()
+            && invocation.completed.is_none()
+            && invocation.key.tool.is_none()
+            && invocation.key.arguments.is_none()
+            && invocation.key.lifecycle.as_ref() == Some(&facts.subject)
+            && invocation.key.event == event.as_str()
+            && invocation.events.plugin_event() == event
+            && invocation.key.operation == facts.operation
+            && invocation.key.session == facts.session,
+        "lifecycle input conflicts with its typed event capability"
+    );
+    let input = match dialect {
+        HookDialect::Native => {
+            let mut value = json!({"session_id":facts.session,"cwd":invocation.host.workspace,
+                "hook_event_name":event.as_str(),"demoncoder":facts});
+            match &facts.subject.occurrence {
+                NonToolOccurrence::UserPromptSubmit { prompt, .. } => {
+                    value["prompt"] = json!(prompt)
+                }
+                NonToolOccurrence::Stop {
+                    stop_hook_active,
+                    last_assistant_message,
+                } => {
+                    value["stop_hook_active"] = json!(stop_hook_active);
+                    if let Some(text) = last_assistant_message {
+                        value["last_assistant_message"] = json!(text);
+                    }
+                }
+            }
+            value
+        }
+        HookDialect::Claude => {
+            let Some(ObservedLifecycle::Claude(input)) = &facts.source else {
+                anyhow::bail!("Claude lifecycle input requires an observed source callback");
+            };
+            ensure!(
+                input["hook_event_name"] == event.as_str(),
+                "Claude observed lifecycle event differs"
+            );
+            profile.validate_claude_input(event, input)?;
+            input.clone()
+        }
+        HookDialect::Codex => {
+            let Some(ObservedLifecycle::Codex(input)) = &facts.source else {
+                anyhow::bail!("Codex lifecycle input requires an observed source callback");
+            };
+            ensure!(
+                input["hook_event_name"] == event.as_str(),
+                "Codex observed lifecycle event differs"
+            );
+            let name = match event {
+                HookEvent::UserPromptSubmit => "user-prompt-submit",
+                HookEvent::Stop => "stop",
+                _ => unreachable!(),
+            };
+            profile.validate_schema(
+                &SchemaKey::Codex {
+                    path: format!(
+                        "codex-rs/hooks/schema/generated/{name}.command.input.schema.json"
+                    ),
+                    definition: None,
+                },
+                input,
+            )?;
+            input.clone()
+        }
+    };
+    crate::plugins::wire::measure(&input)?;
+    let mut bytes = LimitedInput {
+        bytes: Vec::new(),
+        maximum,
+    };
+    serde_json::to_writer(&mut bytes, &input)
+        .context("hook lifecycle input exceeds configured bound")?;
+    Ok(bytes.bytes)
 }

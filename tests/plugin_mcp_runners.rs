@@ -6,7 +6,7 @@ use demoncoder::{
         self,
         dispatch::*,
         gate_snapshot::GateReadSet,
-        hook_types::{HandlerKind, HookDialect},
+        hook_types::{HandlerKind, HookDialect, HookEvent},
         runners::{HttpConfig, HttpCredential, McpBinding, McpConfig, McpRunner},
         services::{
             AdmittedTool, ManagedService, ManagedServices, ServiceConfig, ServiceIdentity,
@@ -2082,4 +2082,110 @@ async fn zero_traffic_observer_detects_a_bodyless_schema_get() {
         !peer.no_requests(),
         "zero-traffic observer missed a real bodyless GET"
     );
+}
+
+#[tokio::test]
+async fn native_non_tool_mcp_uses_reserved_owner_and_rejects_missing_allowance() {
+    let _lock = FIXTURES.lock().await;
+    for allowance in [false, true] {
+        let peer = Peer::new(|headers, request| {
+            if headers.starts_with("DELETE") || request.get("id").is_none() {
+                return (202, String::new(), vec![]);
+            }
+            let result = match request["method"].as_str().unwrap() {
+                "initialize" => {
+                    json!({"protocolVersion":"2025-11-25","capabilities":{"tools":{}},"serverInfo":{"name":"fixture","version":"1"}})
+                }
+                "tools/list" => json!({"tools":[metadata()]}),
+                "tools/call" => {
+                    assert_eq!(
+                        request["params"]["arguments"],
+                        json!({"event":"UserPromptSubmit","prompt":"test"})
+                    );
+                    json!({"content":[],"structuredContent":{"decision":"block","reason":"non-tool service denied"}})
+                }
+                other => panic!("unexpected method {other}"),
+            };
+            (
+                200,
+                "Content-Type: application/json\r\n".into(),
+                json!({"jsonrpc":"2.0","id":request["id"],"result":result})
+                    .to_string()
+                    .into_bytes(),
+            )
+        });
+        let fixture = Fixture::with_allowance(tempfile::tempdir().unwrap(), allowance);
+        fixture.runtime.begin_phase("worker", Some("test")).unwrap();
+        let package = package(HookDialect::Native);
+        let service = service(
+            &fixture,
+            package.clone(),
+            ServiceTransport::Http(HttpConfig::new(peer.endpoint.clone())),
+        );
+        let mut d = declaration("mcp", HookDialect::Native, HandlerClass::DecisionGate);
+        d.matcher = Matcher::default();
+        let registration = McpRunner::registration_for_event(
+            package,
+            d,
+            HookEvent::UserPromptSubmit,
+            McpBinding {
+                service: service.clone(),
+                tool: "gate".into(),
+                input: json!({"event":"${hook_event_name}","prompt":"${prompt}"}),
+            },
+            None,
+            McpConfig::default(),
+        )
+        .unwrap();
+        let mut tools = fixture.executor(vec![], false);
+        tools
+            .register_non_tool_plan(Arc::new(
+                plugins::non_tool::NonToolPlan::new(
+                    HookEvent::UserPromptSubmit,
+                    vec![registration],
+                )
+                .unwrap(),
+            ))
+            .unwrap();
+        let results = fixture.run(tools, vec![call("result")]).await;
+        assert!(results.is_empty());
+        assert!(!fixture.root.path().join("result").exists());
+        if allowance {
+            assert_eq!(
+                peer.methods(),
+                [
+                    "initialize",
+                    "notifications/initialized",
+                    "tools/list",
+                    "tools/call"
+                ]
+            );
+        } else {
+            assert!(peer.no_requests(), "missing owner performed service I/O");
+        }
+        let record = fixture.record();
+        let receipt = record
+            .operations
+            .iter()
+            .find_map(|op| match &op.host_invocation {
+                Some(demoncoder::workflow::runtime::HostInvocation::Lifecycle(receipt)) => {
+                    Some(receipt)
+                }
+                _ => None,
+            })
+            .unwrap();
+        if allowance {
+            assert!(receipt.settled && receipt.hold.is_some());
+        } else {
+            assert!(record.recovery_pending && !receipt.settled);
+            assert!(
+                serde_json::to_string(&receipt.hooks[0].outcome)
+                    .unwrap()
+                    .contains("owning allowance")
+            );
+        }
+        assert_eq!(receipt.hooks.len(), 1);
+        assert!(receipt.hooks[0].inspected.tool.is_none());
+        service.stop().await.unwrap();
+    }
 }

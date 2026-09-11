@@ -122,25 +122,103 @@ impl Session for NativeSession {
 }
 
 impl NativeSession {
+    async fn lifecycle(
+        &mut self,
+        occurrence: crate::plugins::receipts::NonToolOccurrence,
+        commands: &mut mpsc::Receiver<Command>,
+        corrections: &mut Vec<String>,
+        events: &EventSink,
+    ) -> Result<std::result::Result<Option<crate::plugins::non_tool::NonToolOutcome>, TurnEnd>>
+    {
+        // Controls queued before entry win even if the hook future is immediately ready.
+        while let Ok(command) = commands.try_recv() {
+            if let Some(end) = control(Some(command), corrections, events)? {
+                return Ok(Err(end));
+            }
+        }
+        let dispatch = self.tools.dispatch_non_tool(occurrence, events);
+        tokio::pin!(dispatch);
+        loop {
+            tokio::select! {
+                biased;
+                command = commands.recv() => if let Some(end) = control(command, corrections, events)? { return Ok(Err(end)); },
+                result = &mut dispatch => return result.map(Ok),
+            }
+        }
+    }
+    async fn submit_prompt(
+        &mut self,
+        prompt: String,
+        correction: bool,
+        commands: &mut mpsc::Receiver<Command>,
+        corrections: &mut Vec<String>,
+        events: &EventSink,
+    ) -> Result<Option<TurnEnd>> {
+        let submitted = if correction {
+            prompt.clone()
+        } else {
+            events.submitted_prompt(&prompt).to_owned()
+        };
+        let outcome = match self
+            .lifecycle(
+                crate::plugins::receipts::NonToolOccurrence::UserPromptSubmit {
+                    prompt: submitted,
+                    correction,
+                },
+                commands,
+                corrections,
+                events,
+            )
+            .await?
+        {
+            Ok(outcome) => outcome,
+            Err(end) => return Ok(Some(end)),
+        };
+        if let Some(reason) = outcome.as_ref().and_then(|o| o.hold.as_ref()) {
+            anyhow::bail!("UserPromptSubmit blocked: {reason}");
+        }
+        self.tools.set_intent(&prompt);
+        self.model.prompt(prompt);
+        if let Some(outcome) = outcome
+            && !outcome.context.is_empty()
+        {
+            self.model.prompt(outcome.context);
+        }
+        Ok(None)
+    }
     async fn run_turn(
         &mut self,
         prompt: String,
         commands: &mut mpsc::Receiver<Command>,
         events: &EventSink,
     ) -> Result<TurnEnd> {
-        self.tools.set_intent(&prompt);
-        self.model.prompt(prompt);
+        let mut corrections = Vec::new();
+        if events.is_plugin_prompt() {
+            self.model.prompt(prompt);
+        } else if let Some(end) = self
+            .submit_prompt(prompt, false, commands, &mut corrections, events)
+            .await?
+        {
+            return Ok(end);
+        }
+        let mut stop_hook_active = false;
         events.checkpoint(self.checkpoint())?;
         loop {
-            let mut corrections = Vec::new();
             while let Ok(command) = commands.try_recv() {
                 if let Some(end) = control(Some(command), &mut corrections, events)? {
                     return Ok(end);
                 }
             }
-            for correction in corrections.drain(..) {
-                self.tools.set_intent(&correction);
-                self.model.prompt(correction);
+            while !corrections.is_empty() {
+                for correction in std::mem::take(&mut corrections) {
+                    if let Some(end) = self
+                        .submit_prompt(correction, true, commands, &mut corrections, events)
+                        .await?
+                    {
+                        return Ok(end);
+                    }
+                    stop_hook_active = false;
+                }
             }
             if let Some(delivery) = events.observer_context()? {
                 self.model.prompt(delivery.text.clone());
@@ -251,13 +329,57 @@ impl NativeSession {
                 false
             };
             let corrected = !corrections.is_empty() || delivered;
-            for correction in corrections {
-                self.tools.set_intent(&correction);
-                self.model.prompt(correction);
+            while !corrections.is_empty() {
+                for correction in std::mem::take(&mut corrections) {
+                    if let Some(end) = self
+                        .submit_prompt(correction, true, commands, &mut corrections, events)
+                        .await?
+                    {
+                        return Ok(end);
+                    }
+                    stop_hook_active = false;
+                }
             }
             events.checkpoint(self.checkpoint())?;
             if finished && !corrected {
-                return Ok(TurnEnd::Complete);
+                let outcome = match self
+                    .lifecycle(
+                        crate::plugins::receipts::NonToolOccurrence::Stop {
+                            stop_hook_active,
+                            last_assistant_message: None,
+                        },
+                        commands,
+                        &mut corrections,
+                        events,
+                    )
+                    .await?
+                {
+                    Ok(outcome) => outcome,
+                    Err(end) => return Ok(end),
+                };
+                // A control arriving with hook completion wins before any correction is charged.
+                while let Ok(command) = commands.try_recv() {
+                    if let Some(end) = control(Some(command), &mut corrections, events)? {
+                        return Ok(end);
+                    }
+                }
+                if let Some(outcome) = outcome {
+                    if let Some(reason) = outcome.hold {
+                        anyhow::bail!("Stop gate unmet: {reason}");
+                    }
+                    if outcome.correction {
+                        let (runtime, _) = events.for_non_tool_context(outcome.operation)?;
+                        runtime.admit_non_tool_correction(outcome.operation)?;
+                        // Internal plugin correction is attributed context, not a developer submission or control.
+                        self.model.prompt(format!("[Plugin-origin Stop correction] Continue the original task to address the unmet Stop gate.\n{}", outcome.context));
+                        stop_hook_active = true;
+                        events.checkpoint(self.checkpoint())?;
+                        continue;
+                    }
+                }
+                if corrections.is_empty() {
+                    return Ok(TurnEnd::Complete);
+                }
             }
         }
     }
@@ -596,3 +718,6 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod non_tool_tests;

@@ -48,6 +48,8 @@ pub struct AccessPolicy {
     pub post_tools: Vec<Arc<crate::plugins::lifecycle::PostToolPlan>>,
     /// Frozen host-owned pre-tool admission plan.
     pub pre_tool: Option<Arc<crate::plugins::dispatch::PreToolPlan>>,
+    /// Frozen host-owned native prompt/Stop plans. Source callback wiring is separate.
+    pub non_tools: Vec<Arc<crate::plugins::non_tool::NonToolPlan>>,
 }
 
 impl Default for AccessPolicy {
@@ -65,6 +67,7 @@ impl Default for AccessPolicy {
             snapshot: None,
             post_tools: Vec::new(),
             pre_tool: None,
+            non_tools: Vec::new(),
         }
     }
 }
@@ -252,6 +255,7 @@ impl ToolExecutor {
                     && access.extension.is_none()
                     && !access.language_servers.enabled()
                     && access.lifecycle.is_none()
+                    && access.non_tools.is_empty()
                     && access.post_tools.is_empty()
                     && access.pre_tool.is_none()),
             "snapshot hook policy cannot inherit live tools, extensions, language services or lifecycle dispatch"
@@ -266,6 +270,17 @@ impl ToolExecutor {
                         .iter()
                         .all(|earlier| earlier.plan.event != plan.plan.event)),
             "post-tool plans repeat an event or exceed supported events"
+        );
+        ensure!(
+            access.non_tools.len() <= 2
+                && access
+                    .non_tools
+                    .iter()
+                    .enumerate()
+                    .all(|(index, plan)| access.non_tools[..index]
+                        .iter()
+                        .all(|earlier| earlier.plan.event != plan.plan.event)),
+            "non-tool plans repeat an event or exceed supported events"
         );
         access.language_servers.validate()?;
         ensure!(
@@ -467,6 +482,53 @@ impl ToolExecutor {
         Ok(())
     }
 
+    pub fn register_non_tool_plan(
+        &mut self,
+        plan: Arc<crate::plugins::non_tool::NonToolPlan>,
+    ) -> Result<()> {
+        ensure!(
+            self.access.snapshot.is_none(),
+            "snapshot tools cannot dispatch lifecycle hooks"
+        );
+        ensure!(
+            !self
+                .access
+                .non_tools
+                .iter()
+                .any(|p| p.plan.event == plan.plan.event),
+            "lifecycle event already registered"
+        );
+        self.access.non_tools.push(plan);
+        Ok(())
+    }
+    pub(crate) async fn dispatch_non_tool(
+        &self,
+        occurrence: crate::plugins::receipts::NonToolOccurrence,
+        events: &EventSink,
+    ) -> Result<Option<crate::plugins::non_tool::NonToolOutcome>> {
+        let Some(plan) = self
+            .access
+            .non_tools
+            .iter()
+            .find(|p| p.plan.event == occurrence.event())
+        else {
+            return Ok(None);
+        };
+        ensure!(
+            self.access.snapshot.is_none(),
+            "snapshot tools cannot dispatch lifecycle hooks"
+        );
+        let metadata = self.root.metadata()?;
+        plan.dispatch(
+            occurrence,
+            events,
+            self.gate_workspace.clone(),
+            (metadata.dev(), metadata.ino()),
+            self,
+        )
+        .await
+        .map(Some)
+    }
     pub fn register_post_tool_plan(
         &mut self,
         plan: Arc<crate::plugins::lifecycle::PostToolPlan>,

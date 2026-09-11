@@ -53,7 +53,8 @@ pub struct HookInvocation {
     pub key: AdmissionKey,
     pub declaration: DeclarationIdentity,
     pub endpoint: Option<String>,
-    pub candidate: ToolCall,
+    pub candidate: Option<ToolCall>,
+    pub lifecycle: Option<NonToolFacts>,
     pub snapshot: Arc<GateSnapshot>,
     /// Present only on host-created post-operation invocations.
     pub completed: Option<CompletedTool>,

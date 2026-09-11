@@ -294,6 +294,45 @@ partial change cannot leak into a later persisted record.
 
 ## 10. Real host lifecycle transitions
 
+### Typed non-tool lifecycle ownership
+
+Decision: [typed lifecycle operations](../decisions/bind-non-tool-hooks-to-typed-lifecycle-operations.md).
+This is the next part of the active lifecycle item. All remaining lifecycle
+families and source qualifications stay required in this commitment.
+The [Claude source qualification](../reviews/plugin-non-tool-source.md) passed
+three no-tool cases and 31 corruption checks, with independent specification
+and quality approval. It establishes genuine SDK framing and source behavior;
+production lifecycle delivery remains part of the unchecked work below.
+The [Codex source qualification](../reviews/plugin-codex-non-tool-source.md) also
+passed three cases and 30 corruption checks with both independent approvals.
+Dialect does not select the backend: native occurrences use genuine host facts
+when translated into imported schemas, while external occurrences use correlated
+backend observations. Missing external facts must never be invented.
+
+The [native runtime review](../reviews/plugin-non-tool-runtime.md) records
+specification approval after child ownership and cleanup-oracle repairs. The
+broad check had one test-helper failure; final affected checks passed after its
+repair. Quality review then found incorrect event decoding in asynchronous
+Submit/Stop completion and delivery. A regression reproduced the wrong once
+outcome; its repair passed affected checks and both follow-up reviews. The
+runtime review retains exact candidate hashes and test chronology. Remaining
+tasks stay unchecked until implementation and required reviews are complete.
+
+- [x] Add typed non-tool occurrences to the existing operation ledger and a
+  shared reserved-hook view. Preserve old records, tool admission proofs,
+  once reservations, uncertain effects and asynchronous owner traversal.
+- [x] Dispatch actual UserPromptSubmit and ordinary Stop inside the owned
+  worker turn. Keep blocked prompts inspectable and Stop corrections before
+  stopped/phase completion, within the original correction and spending limits.
+  Cancellation and shutdown must not enter or wait for a Stop correction.
+- [ ] Add the [durable native turn identity](../decisions/give-each-native-turn-a-durable-identity-before-hook-selection.md) before optional hook selection. Preserve it through Stop corrections and Stop-only configurations. Plugin-origin work records a real turn without fabricating a developer submission. Use this identity and real host transcript/model/policy for source-format translation.
+- [ ] Frame native events from host facts. Obtain actual source facts before
+  claiming Claude or Codex framing; never fabricate a tool call, backend turn,
+  transcript path or source session. Test command-shaped context as data.
+- [ ] Demonstrate rejection before model work, corrected-pass and always-block
+  termination, cancellation, stale ownership and interrupted reservation recovery.
+  Run affected regressions and independent specification then quality review.
+
 ### Durable synchronous one-shot prerequisite
 
 Decision: [activation and exact outcomes](../decisions/bind-one-shot-hooks-to-durable-activation-and-exact-outcomes.md).
@@ -474,6 +513,8 @@ the busy-control rejection or through plugin/channel text interpreted as prompts
 - [ ] Include `tests/plugin_once_source_inputs.py --claude <qualified-2.1.267-binary> --output <new-output-directory>` in source qualification. Require all seven source cases, their corruption controls and retained artifact hashes against `tests/fixtures/plugins/claude-once-source.json`. Source async launch consumption cannot substitute for DemonCoder's actual-success rule.
 - [ ] Include `tests/plugin_async_source_inputs.py --claude <qualified-2.1.267-binary> --output <new-output-directory>` in source qualification. Require first-line transfer, its synchronous control and explicit idle rewake controls, retained raw artifacts and corruption checks. Re-run the one-shot source fixture when its shared peer helper changes. These cases do not establish host async execution.
 - [ ] Include `tests/plugin_codex_async_source.py --codex <qualified-managed-binary> --output <new-output-directory>` in source qualification. Require deferred context, its synchronous and failure controls, explicit idle observation, retained raw artifacts and corruption checks. Re-run the original Codex post-tool source cases when their shared helper changes.
+- [ ] Include `tests/plugin_non_tool_source_inputs.py --claude <qualified-binary> --output <new-directory>` for actual no-tool SDK submit/Stop frames, source denial and correction, with its corrupted-evidence controls and shared post-tool regression. Source transport success on denial does not satisfy a host gate.
+- [ ] Include `tests/plugin_codex_non_tool_source.py --codex <qualified-managed-binary> --output <new-directory>` for actual command-hook submit/Stop frames, source denial and correction, raw identity/correction correlation and corruption controls. Re-run post-tool and async source cases when the shared peer changes.
 - [ ] Run formatting, clippy, all existing regression tests, installed language services and the complete plugin gate. Commit implementation before Cairn; commit receipts and captured outputs afterward.
 - [ ] Perform specification and quality reviews followed by an adversarial whole-commitment review. Resolve findings as separate implementation actions and rerun affected evidence.
 - [ ] Install and verify the final executable. Follow Cairn until Done; only then integrate the feature branch with `git merge --no-ff` and report the complete commitment.

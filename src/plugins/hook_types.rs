@@ -49,6 +49,17 @@ names!(HookEvent {
    MessageDisplay => "MessageDisplay",
    Interrupt => "Interrupt",
 });
+impl TryFrom<&str> for HookEvent {
+    type Error = anyhow::Error;
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        Self::ALL
+            .iter()
+            .copied()
+            .find(|event| event.as_str() == value)
+            .ok_or_else(|| anyhow::anyhow!("unknown hook event: {value}"))
+    }
+}
+
 names!(Applicability { Run => "run", SourceNonexecuting => "source-nonexecuting", NoSourceHandler => "no-source-handler", NoSourceEvent => "no-source-event" });
 
 /// Outcomes describe requested behavior, never execute it or grant host authority.
@@ -115,5 +126,19 @@ impl ModelVerdict {
     }
     pub fn impossible(&self) -> bool {
         self.impossible
+    }
+}
+
+#[cfg(test)]
+mod event_tests {
+    use super::HookEvent;
+    #[test]
+    fn exact_hook_event_conversion_never_defaults_unknown_names() {
+        for event in HookEvent::ALL {
+            assert_eq!(HookEvent::try_from(event.as_str()).unwrap(), *event);
+        }
+        for name in ["", "UnknownEvent", "stop", "Stop ", "PostToolUseFailure\0"] {
+            assert!(HookEvent::try_from(name).is_err());
+        }
     }
 }

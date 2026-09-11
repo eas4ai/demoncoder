@@ -81,7 +81,14 @@ async fn case_with_content(
     let hook = runner(move |invocation| {
         let completed = invocation.completed.as_ref().unwrap();
         if rewritten {
-            assert_eq!(invocation.candidate.arguments["path"], "rewritten");
+            assert_eq!(
+                invocation
+                    .candidate
+                    .as_ref()
+                    .expect("tool invocation")
+                    .arguments["path"],
+                "rewritten"
+            );
         }
         if let demoncoder::plugins::receipts::ToolRepresentation::ClaudeMcp {
             tool_use_id,

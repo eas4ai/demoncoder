@@ -113,7 +113,12 @@ fn decision(choice: &str) -> RawOutcome {
     output(json!({"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":choice}}))
 }
 fn rewrite(input: &HookInvocation, path: &str) -> RawOutcome {
-    let mut arguments = input.candidate.arguments.clone();
+    let mut arguments = input
+        .candidate
+        .as_ref()
+        .expect("tool invocation")
+        .arguments
+        .clone();
     arguments["path"] = json!(path);
     output(json!({"hookSpecificOutput":{"hookEventName":"PreToolUse","updatedInput":arguments}}))
 }
@@ -237,11 +242,15 @@ async fn final_candidate_generated_policy_blocks_actual_write() {
             "policy",
             HandlerClass::DecisionGate,
             runner(|i| {
-                decision(if i.candidate.arguments["path"] == "generated" {
-                    "deny"
-                } else {
-                    "allow"
-                })
+                decision(
+                    if i.candidate.as_ref().expect("tool invocation").arguments["path"]
+                        == "generated"
+                    {
+                        "deny"
+                    } else {
+                        "allow"
+                    },
+                )
             }),
         );
         let transform = registration(
@@ -281,11 +290,13 @@ async fn generic_hooks_finish_before_final_plugin_decisions() {
         "policy",
         HandlerClass::DecisionGate,
         runner(|i| {
-            decision(if i.candidate.arguments["path"] == "generated" {
-                "deny"
-            } else {
-                "allow"
-            })
+            decision(
+                if i.candidate.as_ref().expect("tool invocation").arguments["path"] == "generated" {
+                    "deny"
+                } else {
+                    "allow"
+                },
+            )
         }),
     )]);
     executor.add_hook(Box::new(Rewriter));
@@ -414,7 +425,10 @@ async fn stale_combined_handler_never_reexecutes_and_explicit_endpoint_can_reval
         });
         let count = combined.count.clone();
         let readonly = runner(|i| {
-            assert_eq!(i.candidate.arguments["path"], "final");
+            assert_eq!(
+                i.candidate.as_ref().expect("tool invocation").arguments["path"],
+                "final"
+            );
             decision("allow")
         });
         let readcount = readonly.count.clone();
@@ -469,7 +483,10 @@ async fn source_concurrent_group_starts_together_and_conflicting_rewrites_hold()
     for (index, path) in [(0, "left"), (1, "right")] {
         let run = Arc::new(Runner {
             action: Box::new(move |i| {
-                assert_eq!(i.candidate.arguments["path"], "source");
+                assert_eq!(
+                    i.candidate.as_ref().expect("tool invocation").arguments["path"],
+                    "source"
+                );
                 rewrite(i, path)
             }),
             count: Arc::new(AtomicUsize::new(0)),
@@ -501,7 +518,9 @@ async fn repeated_candidate_and_four_revision_limit_never_release_last_write() {
     for cycle in [false, true] {
         let f = Fixture::new();
         let transform = runner(move |i| {
-            let old = i.candidate.arguments["path"].as_str().unwrap();
+            let old = i.candidate.as_ref().expect("tool invocation").arguments["path"]
+                .as_str()
+                .unwrap();
             let path = if cycle {
                 if old == "source" {
                     "other".into()
@@ -1003,7 +1022,12 @@ async fn source_read_only_revalidation_preserves_concurrent_startup() {
             "source",
             HandlerClass::Combined,
             runner(|i| {
-                let mut args = i.candidate.arguments.clone();
+                let mut args = i
+                    .candidate
+                    .as_ref()
+                    .expect("tool invocation")
+                    .arguments
+                    .clone();
                 args["path"] = json!("final");
                 output(
                     json!({"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow","updatedInput":args}}),
@@ -1018,7 +1042,10 @@ async fn source_read_only_revalidation_preserves_concurrent_startup() {
         r.declaration.read_only_endpoint = Some("inspect-final".into());
         r.revalidation = Some(Arc::new(Runner {
             action: Box::new(|i| {
-                assert_eq!(i.candidate.arguments["path"], "final");
+                assert_eq!(
+                    i.candidate.as_ref().expect("tool invocation").arguments["path"],
+                    "final"
+                );
                 decision("allow")
             }),
             count: Arc::new(AtomicUsize::new(0)),
@@ -1127,7 +1154,10 @@ async fn path_matchers_use_admitted_targets_for_existing_and_new_files() {
                         _ => "leaf-alias".to_owned(),
                     };
                     let run = runner(move |input| {
-                        assert_eq!(input.candidate.arguments["path"], "generated/file");
+                        assert_eq!(
+                            input.candidate.as_ref().expect("tool invocation").arguments["path"],
+                            "generated/file"
+                        );
                         decision(if allowed { "allow" } else { "deny" })
                     });
                     let count = run.count.clone();
@@ -1204,7 +1234,10 @@ async fn rewritten_aliases_are_normalized_before_later_matchers() {
                 "generated//file"
             };
             let deny = runner(|input| {
-                assert_eq!(input.candidate.arguments["path"], "generated/file");
+                assert_eq!(
+                    input.candidate.as_ref().expect("tool invocation").arguments["path"],
+                    "generated/file"
+                );
                 decision("deny")
             });
             let count = deny.count.clone();

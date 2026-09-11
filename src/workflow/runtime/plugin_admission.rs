@@ -77,9 +77,7 @@ pub(super) fn validate_model_admission(
         record.allocation.is_some(),
         "model hook requires an owning task or explicitly configured session allowance"
     );
-    let invocation = hook_receipts(receipt, hook.event)
-        .and_then(|hooks| hooks.iter().find(|h| h.invocation == hook.invocation))
-        .context("model hook lacks a reserved invocation")?;
+    let invocation = receipt.invocation(hook.invocation)?;
     ensure!(
         invocation.inspected == hook.key,
         "model hook capability belongs to a different admission or session"
@@ -278,35 +276,94 @@ impl SharedRuntime {
     }
 }
 
+/// A borrowed reservation capability. Tool owners keep their distinct admission
+/// proofs; runners only receive the event's own retained hook reservations.
+pub(super) struct ReservedHooks<'a> {
+    hooks: &'a [HookReceipt],
+    operation: u64,
+    source_operation: u64,
+    event: HookEvent,
+    role: &'a str,
+    subject: Option<&'a LifecycleSubject>,
+    declaration_role: &'a str,
+}
+impl<'a> ReservedHooks<'a> {
+    fn invocation(&self, invocation: u32) -> Result<&'a HookReceipt> {
+        let hook = self
+            .hooks
+            .get(invocation as usize)
+            .context("hook reservation missing")?;
+        ensure!(
+            hook.invocation == invocation
+                && hook.inspected.operation == self.operation
+                && hook.inspected.source_operation == self.source_operation
+                && hook.inspected.event == self.event.as_str()
+                && hook.inspected.role == self.role
+                && hook.declaration.role == self.declaration_role
+                && hook.inspected.lifecycle.as_ref() == self.subject
+                && hook.inspected.tool.is_none() == self.subject.is_some()
+                && hook.inspected.arguments.is_none() == self.subject.is_some(),
+            "hook reservation belongs to a different event or owner"
+        );
+        Ok(hook)
+    }
+}
+
 pub(super) fn active_for_event(
     record: &Record,
     id: u64,
     event: HookEvent,
-) -> Result<&super::ToolReceipt> {
-    if event == HookEvent::PreToolUse {
-        return active(record, id);
-    }
-    super::plugin_lifecycle::active(record, id, event)?;
-    record
-        .operations
-        .iter()
-        .find(|o| o.id == id)
-        .and_then(|o| o.tool_receipt.as_ref())
-        .context("post-tool receipt missing")
-}
-fn hook_receipts(receipt: &super::ToolReceipt, event: HookEvent) -> Option<&[HookReceipt]> {
-    if event == HookEvent::PreToolUse {
-        receipt
-            .plugin_admission
-            .as_ref()
-            .map(|p| p.hooks.as_slice())
-    } else {
-        receipt
-            .plugin_lifecycle
-            .as_ref()
-            .filter(|p| p.facts.event == event)
-            .map(|p| p.hooks.as_slice())
-    }
+) -> Result<ReservedHooks<'_>> {
+    let (hooks, source_operation, role, subject, declaration_role) =
+        if event == HookEvent::PreToolUse {
+            let receipt = active(record, id)?;
+            let operation = record
+                .operations
+                .iter()
+                .find(|o| o.id == id)
+                .expect("validated");
+            (
+                receipt
+                    .plugin_admission
+                    .as_ref()
+                    .map_or(&[][..], |p| p.hooks.as_slice()),
+                receipt.invocation,
+                operation.phase.as_str(),
+                None,
+                operation.phase.as_str(),
+            )
+        } else if matches!(event, HookEvent::UserPromptSubmit | HookEvent::Stop) {
+            let receipt = super::plugin_non_tool::active(record, id, event)?;
+            (
+                receipt.hooks.as_slice(),
+                receipt.facts.operation,
+                receipt.facts.role.as_str(),
+                Some(&receipt.facts.subject),
+                receipt
+                    .facts
+                    .declaration_role
+                    .as_deref()
+                    .unwrap_or("worker"),
+            )
+        } else {
+            let receipt = super::plugin_lifecycle::active(record, id, event)?;
+            (
+                receipt.hooks.as_slice(),
+                receipt.facts.source_operation,
+                receipt.facts.role.as_str(),
+                None,
+                receipt.facts.role.as_str(),
+            )
+        };
+    Ok(ReservedHooks {
+        hooks,
+        operation: id,
+        source_operation,
+        event,
+        role,
+        subject,
+        declaration_role,
+    })
 }
 
 fn active(record: &Record, id: u64) -> Result<&super::ToolReceipt> {
@@ -391,8 +448,10 @@ fn validate_binding(
     ensure!(
         call.id == receipt.original_call.id
             && call.name == receipt.original_call.name
-            && key.tool == call.name
-            && key.arguments == crate::plugins::admission::candidate_digest(call)?,
+            && key.lifecycle.is_none()
+            && key.tool.as_deref() == Some(call.name.as_str())
+            && key.arguments.as_deref()
+                == Some(crate::plugins::admission::candidate_digest(call)?.as_str()),
         "plugin final key has a different candidate"
     );
     Ok(())
@@ -435,11 +494,7 @@ impl SharedRuntime {
     ) -> Result<AdmissionKey> {
         let record = self.record()?;
         let receipt = active_for_event(&record, id, event)?;
-        Ok(hook_receipts(receipt, event)
-            .and_then(|hooks| hooks.get(invocation as usize))
-            .context("hook reservation missing")?
-            .inspected
-            .clone())
+        Ok(receipt.invocation(invocation)?.inspected.clone())
     }
     pub(crate) fn plugin_owner(&self, id: u64) -> Result<(u64, String)> {
         let runtime = self
@@ -724,8 +779,7 @@ impl SharedRuntime {
             .operations
             .iter()
             .find(|o| o.id == owner)
-            .and_then(|o| o.tool_receipt.as_ref())
-            .and_then(|r| hook_receipts(r, event))
+            .and_then(|o| o.plugin_hooks(event))
             .and_then(|hooks| hooks.get(invocation as usize))
             .context("cancelled hook receipt missing")?
             .clone();
@@ -738,6 +792,8 @@ impl SharedRuntime {
         hook.uncertain_effects = true;
         if event == HookEvent::PreToolUse {
             self.finish_plugin_hook(owner, hook)
+        } else if matches!(event, HookEvent::UserPromptSubmit | HookEvent::Stop) {
+            self.finish_non_tool_hook(owner, event, hook)
         } else {
             self.finish_post_hook(owner, event, hook)
         }

@@ -140,6 +140,7 @@ pub struct Envelope {
 /// One ordered publication path for both retained events and the UI.
 #[derive(Clone)]
 pub struct EventSink {
+    prompt_origin: Option<PromptOrigin>,
     connection: String,
     sender: mpsc::Sender<Envelope>,
     log: Option<Arc<Mutex<File>>>,
@@ -152,6 +153,12 @@ pub struct EventSink {
     hook_model: Option<crate::workflow::runtime::plugin_admission::ModelAdmission>,
     plugin_event: crate::plugins::hook_types::HookEvent,
     tool_representation: crate::plugins::receipts::ToolRepresentation,
+}
+
+#[derive(Clone)]
+enum PromptOrigin {
+    Developer(String),
+    PluginContext,
 }
 
 /// A session retains cancellation authority without keeping its runtime alive.
@@ -198,6 +205,7 @@ impl EventSink {
             })
             .transpose()?;
         Ok(Self {
+            prompt_origin: None,
             connection,
             sender,
             log,
@@ -213,6 +221,27 @@ impl EventSink {
         })
     }
 
+    pub(crate) fn with_submitted_prompt(&self, text: String) -> Self {
+        Self {
+            prompt_origin: Some(PromptOrigin::Developer(text)),
+            ..self.clone()
+        }
+    }
+    pub(crate) fn with_plugin_prompt(&self) -> Self {
+        Self {
+            prompt_origin: Some(PromptOrigin::PluginContext),
+            ..self.clone()
+        }
+    }
+    pub(crate) fn is_plugin_prompt(&self) -> bool {
+        matches!(self.prompt_origin, Some(PromptOrigin::PluginContext))
+    }
+    pub(crate) fn submitted_prompt<'a>(&'a self, fallback: &'a str) -> &'a str {
+        match &self.prompt_origin {
+            Some(PromptOrigin::Developer(text)) => text,
+            _ => fallback,
+        }
+    }
     pub(crate) fn observer_context(
         &self,
     ) -> Result<Option<crate::workflow::runtime::plugin_observer::ContextDelivery>> {
@@ -282,6 +311,7 @@ impl EventSink {
 
     pub(crate) fn child(&self, phase: &str, sender: mpsc::Sender<Envelope>) -> Self {
         Self {
+            prompt_origin: None,
             connection: phase.into(),
             sender,
             log: None,
@@ -381,6 +411,56 @@ impl EventSink {
         }
     }
 
+    pub(crate) fn for_non_tool_context(
+        &self,
+        operation: u64,
+    ) -> Result<(crate::workflow::runtime::SharedRuntime, u64)> {
+        let runtime = self
+            .runtime
+            .as_ref()
+            .context("lifecycle requires a durable runtime")?;
+        anyhow::ensure!(
+            runtime
+                .record()?
+                .operations
+                .iter()
+                .any(|o| o.id == operation
+                    && o.phase == self.phase
+                    && o.non_tool_receipt().is_some()),
+            "lifecycle belongs to another phase"
+        );
+        Ok((runtime.clone(), operation))
+    }
+    pub(crate) fn for_non_tool(
+        &self,
+        occurrence: crate::plugins::receipts::NonToolOccurrence,
+        plan: String,
+        declarations: Vec<serde_json::Value>,
+    ) -> Result<(Self, crate::plugins::receipts::NonToolFacts)> {
+        anyhow::ensure!(
+            self.hook_model.is_none(),
+            "recursive or non-worker lifecycle dispatch is unavailable"
+        );
+        let runtime = self
+            .runtime
+            .as_ref()
+            .context("lifecycle requires a durable runtime")?;
+        let facts = runtime.begin_non_tool_as(
+            &self.phase,
+            self.identity.as_ref(),
+            occurrence,
+            plan,
+            declarations,
+        )?;
+        Ok((
+            Self {
+                tool_operation: Some(facts.operation),
+                plugin_event: facts.subject.occurrence.event(),
+                ..self.clone()
+            },
+            facts,
+        ))
+    }
     pub(crate) fn plugin_context(&self) -> Result<(crate::workflow::runtime::SharedRuntime, u64)> {
         Ok((
             self.runtime
@@ -390,7 +470,7 @@ impl EventSink {
                 .transpose()?
                 .context("plugin admission requires a durable runtime")?,
             self.tool_operation
-                .context("plugin admission requires a correlated tool operation")?,
+                .context("plugin admission requires a correlated operation")?,
         ))
     }
 

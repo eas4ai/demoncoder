@@ -1,3 +1,5 @@
+#[path = "support/owned_process.rs"]
+mod owned_process;
 use demoncoder::{
     config::Connection,
     events::{Envelope, EventSink},

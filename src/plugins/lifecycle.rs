@@ -228,7 +228,7 @@ impl Drop for CaptureCancellation {
         self.0.store(true, Ordering::Release);
     }
 }
-async fn capture(
+pub(crate) async fn capture(
     plan: &PreToolPlan,
     workspace: Arc<GateWorkspace>,
     reads: GateReadSet,
@@ -366,8 +366,9 @@ impl PostToolPlan {
                 operation,
                 source_operation: facts.source_operation,
                 event: event.as_str().into(),
-                tool: call.name.clone(),
-                arguments: candidate_digest(call)?,
+                tool: Some(call.name.clone()),
+                lifecycle: None,
+                arguments: Some(candidate_digest(call)?),
                 plan: self.plan.digest.clone(),
                 role: facts.role.clone(),
                 workspace: expected_workspace,
@@ -409,7 +410,8 @@ impl PostToolPlan {
                     key: key.clone(),
                     declaration: declaration.identity.clone(),
                     endpoint: None,
-                    candidate: call.clone(),
+                    candidate: Some(call.clone()),
+                    lifecycle: None,
                     snapshot: snapshots
                         .get(&digest(&declaration.reads)?)
                         .expect("captured")

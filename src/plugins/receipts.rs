@@ -41,13 +41,92 @@ pub struct AdmissionKey {
     pub operation: u64,
     pub source_operation: u64,
     pub event: String,
-    pub tool: String,
-    pub arguments: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub arguments: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lifecycle: Option<LifecycleSubject>,
     pub plan: String,
     pub role: String,
     pub workspace: (u64, u64),
     pub inputs: Vec<(String, String)>,
     pub external: Option<String>,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NonToolFacts {
+    /// Host binding; declaration identity remains immutable across child execution.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub declaration_role: Option<String>,
+    /// Fingerprint of the existing child assignment and fixed owning allocation, never spending.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub child_owner: Option<String>,
+
+    pub host_transcript_path: String,
+    pub host_model: Option<String>,
+    pub host_permission_mode: String,
+    /// Only actual adapter callback input can populate this source capability.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<ObservedLifecycle>,
+    pub session: String,
+    pub operation: u64,
+    pub task: Option<u64>,
+    pub role: String,
+    pub subject: LifecycleSubject,
+    pub workspace: (u64, u64),
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(tag = "dialect", content = "input", rename_all = "snake_case")]
+pub enum ObservedLifecycle {
+    Claude(Value),
+    Codex(Value),
+}
+/// Uses the existing Operation/store and HookReceipt history. This is not a
+/// model/backend/tool invocation and carries no permission to create one.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NonToolReceipt {
+    pub correction_required: bool,
+    pub version: u32,
+    pub facts: NonToolFacts,
+    pub plan: String,
+    pub declarations: Vec<Value>,
+    pub hooks: Vec<HookReceipt>,
+    pub once_skips: Vec<super::once::OnceSkip>,
+    pub proposals: Vec<AppliedProposal>,
+    pub messages: Vec<PluginMessage>,
+    pub diagnostics: Vec<String>,
+    pub hold: Option<String>,
+    pub settled: bool,
+    pub correction_admitted: bool,
+}
+/// A real host boundary, never an empty or fabricated ToolCall.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "event")]
+pub enum NonToolOccurrence {
+    UserPromptSubmit {
+        prompt: String,
+        correction: bool,
+    },
+    Stop {
+        stop_hook_active: bool,
+        last_assistant_message: Option<String>,
+    },
+}
+impl NonToolOccurrence {
+    pub(crate) fn event(&self) -> super::hook_types::HookEvent {
+        match self {
+            Self::UserPromptSubmit { .. } => super::hook_types::HookEvent::UserPromptSubmit,
+            Self::Stop { .. } => super::hook_types::HookEvent::Stop,
+        }
+    }
+}
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct LifecycleSubject {
+    pub version: u32,
+    pub occurrence: NonToolOccurrence,
 }
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -359,3 +438,22 @@ fn required_gate_default() -> bool {
 }
 
 mod migration;
+
+#[cfg(test)]
+mod occurrence_tests {
+    use super::*;
+    #[test]
+    fn non_tool_key_has_no_tool_identity_and_preserves_legacy_keys() {
+        let base = serde_json::json!({"session":"s","operation":2,"source_operation":2,
+            "event":"UserPromptSubmit","plan":"p","role":"worker","workspace":[1,2],
+            "inputs":[],"external":null,"lifecycle":{"version":1,"occurrence":{
+                "event":"UserPromptSubmit","prompt":"actual prompt","correction":false}}});
+        let key: AdmissionKey = serde_json::from_value(base.clone()).expect("typed non-tool key");
+        assert_eq!(serde_json::to_value(key).unwrap(), base);
+        let legacy = serde_json::json!({"session":"s","operation":2,"source_operation":1,
+            "event":"PreToolUse","tool":"read","arguments":"digest","plan":"p",
+            "role":"worker","workspace":[1,2],"inputs":[],"external":null});
+        let key: AdmissionKey = serde_json::from_value(legacy.clone()).unwrap();
+        assert_eq!(serde_json::to_value(key).unwrap(), legacy);
+    }
+}

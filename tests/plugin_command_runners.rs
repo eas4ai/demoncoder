@@ -2012,3 +2012,70 @@ async fn admitted_snapshots_and_packages_run_under_an_isolated_descriptor_limit(
     }
     temporary.close().unwrap();
 }
+
+#[tokio::test]
+async fn native_prompt_command_receives_real_non_tool_input_and_blocks_before_model() {
+    use demoncoder::plugins::{hook_types::HookEvent, non_tool::NonToolPlan};
+    use demoncoder::workflow::runtime::HostInvocation;
+    let _lock = FIXTURES.lock().await;
+    let fixture = Fixture::new();
+    fixture.runtime.begin_phase("worker", Some("test")).unwrap();
+    let (_source, package) = package(
+        HookDialect::Native,
+        r#"import json,sys
+x=json.load(sys.stdin)
+assert x['hook_event_name']=='UserPromptSubmit'
+assert x['prompt']=='test'
+assert not any(k in x for k in ['tool_name','tool_input','tool_use_id','turn_id'])
+assert x['session_id']==x['demoncoder']['session']
+assert x['demoncoder']['subject']['version']==1
+assert x['demoncoder']['host_transcript_path']
+print(json.dumps({'decision':'block','reason':'real confined lifecycle rejection'}))
+"#,
+    );
+    let mut d = declaration("native-submit", HookDialect::Native, HandlerClass::Combined);
+    d.matcher = Matcher::default();
+    let registration = CommandRunner::registration_for_event(
+        package,
+        d,
+        HookEvent::UserPromptSubmit,
+        python_config(),
+        None,
+    )
+    .unwrap();
+    let mut executor = fixture.executor(vec![], false);
+    executor
+        .register_non_tool_plan(Arc::new(
+            NonToolPlan::new(HookEvent::UserPromptSubmit, vec![registration]).unwrap(),
+        ))
+        .unwrap();
+    assert!(
+        fixture
+            .run(executor, vec![call("must-not-execute")])
+            .await
+            .is_empty()
+    );
+    assert!(!fixture.root.path().join("must-not-execute").exists());
+    let record = fixture.record();
+    assert!(!record.operations.iter().any(|o| matches!(
+        o.host_invocation,
+        Some(HostInvocation::Model | HostInvocation::Backend)
+    )));
+    let Some(HostInvocation::Lifecycle(receipt)) = &record.operations[0].host_invocation else {
+        panic!("typed lifecycle receipt missing");
+    };
+    assert!(
+        receipt
+            .hold
+            .as_ref()
+            .unwrap()
+            .contains("real confined lifecycle rejection")
+    );
+    assert!(matches!(
+        &receipt.hooks[0].outcome,
+        Some(RawOutcome::Command {
+            exit_code: Some(0),
+            ..
+        })
+    ));
+}

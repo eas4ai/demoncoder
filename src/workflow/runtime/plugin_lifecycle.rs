@@ -73,6 +73,22 @@ pub(super) fn ensure_continuation(record: &Record, phase: &str) -> Result<()> {
 }
 
 fn ensure_continuation_except(record: &Record, phase: &str, correction: Option<u64>) -> Result<()> {
+    if let Some(receipt) = record
+        .operations
+        .iter()
+        .rev()
+        .filter(|o| o.phase == phase)
+        .find_map(|o| o.non_tool_receipt())
+    {
+        ensure!(receipt.settled, "lifecycle gate is unfinished");
+        if let Some(reason) = &receipt.hold {
+            anyhow::bail!("lifecycle gate remains unmet: {reason}");
+        }
+        ensure!(
+            !receipt.correction_required || receipt.correction_admitted,
+            "Stop correction has not been admitted"
+        );
+    }
     for operation in record
         .operations
         .iter()
@@ -114,6 +130,10 @@ impl SharedRuntime {
             .lock()
             .map_err(|_| anyhow::anyhow!("runtime lock failed"))?;
         ensure!(!runtime.failed, "session persistence failed");
+        if matches!(event, HookEvent::UserPromptSubmit | HookEvent::Stop) {
+            let receipt = super::plugin_non_tool::active(&runtime.record, id, event)?;
+            return Ok((receipt.facts.operation, receipt.facts.role.clone()));
+        }
         let lifecycle = active(&runtime.record, id, event)?;
         Ok((
             lifecycle.facts.source_operation,
@@ -306,9 +326,10 @@ impl SharedRuntime {
                     && hook.inspected.role == lifecycle.facts.role
                     && hook.declaration.role == lifecycle.facts.role
                     && hook.inspected.plan == lifecycle.plan
-                    && hook.inspected.tool == call.name
-                    && hook.inspected.arguments
-                        == crate::plugins::admission::candidate_digest(call)?,
+                    && hook.inspected.lifecycle.is_none()
+                    && hook.inspected.tool.as_deref() == Some(call.name.as_str())
+                    && hook.inspected.arguments.as_deref()
+                        == Some(crate::plugins::admission::candidate_digest(call)?.as_str()),
                 "post-tool hook binding mismatch"
             );
             let declaration = serde_json::to_value(&hook.declaration)?;

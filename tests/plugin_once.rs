@@ -527,7 +527,7 @@ async fn consumed_combined_hook_is_exempt_but_a_new_activation_cannot_approve_a_
         if turn > 0 {
             let mut d = declaration("rewrite", 1, None);
             d.class = HandlerClass::Transformer;
-            registrations.push(callback(d,|input|{let mut arguments=input.candidate.arguments.clone();arguments["path"]=json!("rewritten");RawOutcome::Callback{value:json!({"hookSpecificOutput":{"hookEventName":"PreToolUse","updatedInput":arguments}})}},Arc::new(std::sync::atomic::AtomicUsize::new(0))));
+            registrations.push(callback(d,|input|{let mut arguments=input.candidate.as_ref().expect("tool invocation").arguments.clone();arguments["path"]=json!("rewritten");RawOutcome::Callback{value:json!({"hookSpecificOutput":{"hookEventName":"PreToolUse","updatedInput":arguments}})}},Arc::new(std::sync::atomic::AtomicUsize::new(0))));
         }
         let results = f
             .run(

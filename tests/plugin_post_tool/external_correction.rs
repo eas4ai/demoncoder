@@ -3,7 +3,10 @@ use demoncoder::{
     session::Command,
     workflow::{allocation::Limits, state::Task, workspace},
 };
-use std::{os::unix::fs::PermissionsExt, time::Duration};
+use std::{
+    os::unix::fs::PermissionsExt,
+    time::{Duration, Instant},
+};
 
 struct PendingLifecycle {
     lock: Arc<tokio::sync::Mutex<()>>,
@@ -26,6 +29,8 @@ const BACKEND: &str = r#"#!/usr/bin/python3
 import json,sys,pathlib,uuid,os,time
 root=pathlib.Path.cwd()
 (root/'backend-pid').write_text(str(os.getpid()))
+(root/'backend-start-stat').write_text(pathlib.Path('/proc/self/stat').read_text())
+(root/'supervisor-start-stat').write_text(pathlib.Path(f'/proc/{os.getppid()}/stat').read_text())
 case=json.loads((root/'case.json').read_text())
 adapter,mode=case['adapter'],case['mode']
 if '--demoncoder-compaction-capability' in sys.argv:
@@ -398,7 +403,9 @@ async fn case_with_notification_order(
     });
     let has_steering = steering_task.is_some();
     let _command_keepalive = tx.clone();
+    let cancellation_started = Arc::new(Mutex::new(None));
     let cancellation = cancel.map(|marker| {
+        let cancellation_started = cancellation_started.clone();
         let path = f.root.path().join(marker);
         tokio::spawn(async move {
             tokio::time::timeout(Duration::from_secs(5), async {
@@ -408,6 +415,7 @@ async fn case_with_notification_order(
             })
             .await
             .expect("backend did not reach cancellation boundary");
+            *cancellation_started.lock().unwrap() = Some(Instant::now());
             tx.send(Command::Cancel).await.unwrap();
         })
     });
@@ -418,22 +426,26 @@ async fn case_with_notification_order(
     } else {
         &mut fallback_commands
     };
-    let outcome = tokio::time::timeout(
-        Duration::from_secs(
-            if delayed_response || matches!(
-                mode,
-                "silent-ack"
-                    | "noisy-interrupt"
-                    | "noisy-ack"
-                    | "blocked-write"
-                    | "blocked-context"
-                    | "ack-clears-deadline"
-            ) {
+    let enclosing_deadline = Instant::now()
+        + Duration::from_secs(
+            if delayed_response
+                || matches!(
+                    mode,
+                    "silent-ack"
+                        | "noisy-interrupt"
+                        | "noisy-ack"
+                        | "blocked-write"
+                        | "blocked-context"
+                        | "ack-clears-deadline"
+                )
+            {
                 36
             } else {
                 8
             },
-        ),
+        );
+    let outcome = tokio::time::timeout_at(
+        tokio::time::Instant::from_std(enclosing_deadline),
         async {
             let fill_publication = async {
                 while !f.root.path().join("interrupt-seen").exists() {
@@ -456,18 +468,55 @@ async fn case_with_notification_order(
         },
     )
     .await;
-    if (delayed_response
+    let cancelled_at = *cancellation_started.lock().unwrap();
+    if ((delayed_response
         || matches!(
             mode,
             "silent-ack" | "noisy-interrupt" | "noisy-ack" | "blocked-write" | "blocked-context"
         ))
-        && outcome.as_ref().is_ok_and(|r| r.is_err())
+        && outcome.as_ref().is_ok_and(|r| r.is_err()))
+        || cancelled_at.is_some()
     {
-        let pid = std::fs::read_to_string(f.root.path().join("backend-pid")).unwrap();
-        assert!(
-            !std::path::Path::new(&format!("/proc/{pid}")).exists(),
-            "timeout must reap backend before returning"
-        );
+        let backend = super::owned_process::Identity::parse(
+            &std::fs::read_to_string(f.root.path().join("backend-start-stat")).unwrap(),
+        )
+        .unwrap();
+        // Claude post-hook sessions use the configured supervisor. Codex's
+        // non-snapshot session spawns the backend directly; its supervisor
+        // setting only selects the relay executable (see each adapter spawn).
+        if adapter == "claude" {
+            let supervisor = super::owned_process::Identity::parse(
+                &std::fs::read_to_string(f.root.path().join("supervisor-start-stat")).unwrap(),
+            )
+            .unwrap();
+            assert_eq!(
+                backend.parent, supervisor.pid,
+                "source backend parent changed"
+            );
+            assert_eq!(
+                backend.group, supervisor.pid,
+                "source backend escaped supervised group"
+            );
+            supervisor.reaped().unwrap_or_else(|e| {
+                panic!("direct supervisor not reaped on turn return: {adapter}/{mode}: {e:#}")
+            });
+        } else {
+            assert_eq!(
+                backend.group, backend.pid,
+                "direct backend escaped owned group"
+            );
+            backend.reaped().unwrap_or_else(|e| {
+                panic!("direct backend not reaped on turn return: {adapter}/{mode}: {e:#}")
+            });
+        }
+        // No fresh grace after return. Hidden correction starts retain the
+        // original whole-turn bound; explicit Cancel has an observed send.
+        let deadline = cancelled_at.map_or(enclosing_deadline, |at| {
+            (at + Duration::from_secs(2)).min(enclosing_deadline)
+        });
+        backend.stopped_by(deadline).await.unwrap_or_else(|e| {
+            panic!("owned work outlived enclosing/cancellation deadline: {adapter}/{mode}: {e:#}")
+        });
     }
     session.close().await.unwrap();
     if mode.contains("-relay-") {

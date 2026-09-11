@@ -464,6 +464,8 @@ impl WorkflowSession {
         commands: &mut mpsc::Receiver<Command>,
         events: &EventSink,
     ) -> Result<TurnEnd> {
+        let submitted_events = events.with_submitted_prompt(prompt.clone());
+        let events = &submitted_events;
         let runtime = self.runtime.clone();
         let root = self.workspace.clone();
         let objective = self
@@ -814,7 +816,7 @@ impl Session for WorkflowSession {
             return Ok(TurnEnd::Complete);
         };
         // This typed path never enters the developer control parser or allocates work.
-        let events = events.with_identity(&self.connection);
+        let events = events.with_identity(&self.connection).with_plugin_prompt();
         let result = tokio::time::timeout(
             self.runtime.remaining()?,
             self.inner.turn(delivery.text.clone(), commands, &events),
