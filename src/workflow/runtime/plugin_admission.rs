@@ -332,7 +332,10 @@ pub(super) fn active_for_event(
                 None,
                 operation.phase.as_str(),
             )
-        } else if matches!(event, HookEvent::UserPromptSubmit | HookEvent::Stop) {
+        } else if matches!(
+            event,
+            HookEvent::UserPromptSubmit | HookEvent::Stop | HookEvent::StopFailure
+        ) {
             let receipt = super::plugin_non_tool::active(record, id, event)?;
             (
                 receipt.hooks.as_slice(),
@@ -792,7 +795,10 @@ impl SharedRuntime {
         hook.uncertain_effects = true;
         if event == HookEvent::PreToolUse {
             self.finish_plugin_hook(owner, hook)
-        } else if matches!(event, HookEvent::UserPromptSubmit | HookEvent::Stop) {
+        } else if matches!(
+            event,
+            HookEvent::UserPromptSubmit | HookEvent::Stop | HookEvent::StopFailure
+        ) {
             self.finish_non_tool_hook(owner, event, hook)
         } else {
             self.finish_post_hook(owner, event, hook)

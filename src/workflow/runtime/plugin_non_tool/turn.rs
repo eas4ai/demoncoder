@@ -90,6 +90,7 @@ impl SharedRuntime {
                     workspace: (metadata.dev(), metadata.ino()),
                     child_owner,
                     end: None,
+                    diagnostics: vec![],
                 })),
                 complete: false,
                 reconciled: false,
@@ -115,6 +116,78 @@ impl SharedRuntime {
             );
             turn.end = Some(end);
             operation.complete = true;
+            Ok(())
+        })
+    }
+
+    /// Diagnostics cannot grant execution, including after allowance exhaustion.
+    pub(crate) fn native_turn_diagnostic(
+        &self,
+        id: u64,
+        phase: &str,
+        identity: Option<&super::super::Identity>,
+        message: &str,
+    ) -> Result<()> {
+        self.update(|record| {
+            let operation = record
+                .operations
+                .iter()
+                .rev()
+                .find(|o| {
+                    o.phase == phase
+                        && matches!(o.host_invocation, Some(HostInvocation::NativeTurn(_)))
+                })
+                .context("native turn missing")?;
+            let Some(HostInvocation::NativeTurn(turn)) = &operation.host_invocation else {
+                anyhow::bail!("native turn kind changed");
+            };
+            ensure!(
+                operation.id == id
+                    && !operation.reconciled
+                    && turn.version == 1
+                    && turn.diagnostics.len() < 8
+                    && operation.phase == phase
+                    && operation.identity.as_ref() == Some(identity.unwrap_or(&record.identity))
+                    && turn.task == record.task.as_ref().map(|t| t.id)
+                    && turn.end.is_none_or(|end| end == NativeTurnEnd::Failed),
+                "native turn diagnostics unavailable"
+            );
+            if phase == "worker" {
+                ensure!(
+                    record.phase.as_deref() == turn.owner_phase.as_deref(),
+                    "native cleanup phase changed"
+                );
+            } else {
+                let child_id = super::delegation::agent_id(phase)
+                    .context("native cleanup child phase invalid")?;
+                let child = record
+                    .agents
+                    .iter()
+                    .find(|a| a.id == child_id)
+                    .context("native cleanup child missing")?;
+                ensure!(
+                    turn.child_owner.as_ref() == Some(&owner::child_fingerprint(record, child)?),
+                    "native cleanup child assignment changed"
+                );
+            }
+            let message = if message.len() > 4096 {
+                let mut end = 4096 - " [truncated]".len();
+                while !message.is_char_boundary(end) {
+                    end -= 1;
+                }
+                format!("{} [truncated]", &message[..end])
+            } else {
+                message.to_owned()
+            };
+            let operation = record
+                .operations
+                .iter_mut()
+                .find(|o| o.id == id)
+                .expect("validated");
+            let Some(HostInvocation::NativeTurn(turn)) = &mut operation.host_invocation else {
+                unreachable!("validated")
+            };
+            turn.diagnostics.push(message);
             Ok(())
         })
     }

@@ -166,6 +166,7 @@ fn declaration(name: &str, dialect: HookDialect, class: HandlerClass) -> Declara
         class,
         priority: 0,
         matcher: Matcher {
+            error_category: None,
             tool: Some("write".into()),
             path: None,
         },
@@ -2187,5 +2188,118 @@ async fn native_non_tool_mcp_uses_reserved_owner_and_rejects_missing_allowance()
         assert_eq!(receipt.hooks.len(), 1);
         assert!(receipt.hooks[0].inspected.tool.is_none());
         service.stop().await.unwrap();
+    }
+}
+
+struct FailedNative;
+#[async_trait::async_trait]
+impl Model for FailedNative {
+    fn prompt(&mut self, _: String) {}
+    fn results(&mut self, _: Vec<ToolResult>) {
+        panic!("no tools")
+    }
+    async fn response(&mut self, _: &EventSink) -> anyhow::Result<Vec<ToolCall>> {
+        Err(demoncoder::native::provider_response_failure(
+            anyhow::anyhow!("actual provider error"),
+        ))
+    }
+}
+#[tokio::test]
+async fn native_stop_failure_mcp_uses_original_owner_without_correction() {
+    let _lock = FIXTURES.lock().await;
+    for malformed in [false, true] {
+        let peer = Peer::new(move |headers, request| {
+            if headers.starts_with("DELETE") || request.get("id").is_none() {
+                return (202, String::new(), vec![]);
+            }
+            let result = match request["method"].as_str().unwrap() {
+                "initialize" => {
+                    json!({"protocolVersion":"2025-11-25","capabilities":{"tools":{}},"serverInfo":{"name":"fixture","version":"1"}})
+                }
+                "tools/list" => json!({"tools":[metadata()]}),
+                "tools/call" => {
+                    assert_eq!(
+                        request["params"]["arguments"],
+                        json!({"event":"StopFailure","category":"unknown","details":"actual provider error"})
+                    );
+                    json!({"content":[],"structuredContent":if malformed { json!({"unknown":"invalid observer output"}) }else{json!({})}})
+                }
+                other => panic!("unexpected method {other}"),
+            };
+            (
+                200,
+                "Content-Type: application/json\r\n".into(),
+                json!({"jsonrpc":"2.0","id":request["id"],"result":result})
+                    .to_string()
+                    .into_bytes(),
+            )
+        });
+        let fixture = Fixture::with_allowance(tempfile::tempdir().unwrap(), true);
+        fixture
+            .runtime
+            .begin_phase("worker", Some("original"))
+            .unwrap();
+        let package = package(HookDialect::Native);
+        let service = service(
+            &fixture,
+            package.clone(),
+            ServiceTransport::Http(HttpConfig::new(peer.endpoint.clone())),
+        );
+        let mut d = declaration("mcp", HookDialect::Native, HandlerClass::Observer);
+        d.matcher = Matcher::default();
+        let registration=McpRunner::registration_for_event(package,d,HookEvent::StopFailure,McpBinding{service,tool:"gate".into(),input:json!({"event":"${hook_event_name}","category":"${error}","details":"${error_details}"})},None,McpConfig::default()).unwrap();
+        let mut tools = fixture.executor(vec![], false);
+        tools
+            .register_non_tool_plan(Arc::new(
+                plugins::non_tool::NonToolPlan::new(HookEvent::StopFailure, vec![registration])
+                    .unwrap(),
+            ))
+            .unwrap();
+        let mut session = NativeSession::with_tools(Box::new(FailedNative), tools);
+        let (_sender, mut commands) = mpsc::channel(4);
+        assert_eq!(
+            session
+                .turn("original".into(), &mut commands, &fixture.events)
+                .await
+                .err()
+                .unwrap()
+                .to_string(),
+            "actual provider error"
+        );
+        assert_eq!(
+            peer.methods(),
+            [
+                "initialize",
+                "notifications/initialized",
+                "tools/list",
+                "tools/call"
+            ]
+        );
+        let record = fixture.record();
+        let receipt = record
+            .operations
+            .iter()
+            .find_map(|o| match &o.host_invocation {
+                Some(demoncoder::workflow::runtime::HostInvocation::Lifecycle(r)) => Some(r),
+                _ => None,
+            })
+            .unwrap();
+        assert!(
+            !receipt.correction_required && !receipt.correction_admitted && receipt.hold.is_none()
+        );
+        if malformed {
+            assert!(!receipt.settled && record.recovery_pending);
+            assert!(matches!(
+                receipt.hooks[0].outcome,
+                Some(RawOutcome::Failure { .. })
+            ));
+        } else {
+            assert!(receipt.settled);
+            assert!(matches!(
+                receipt.hooks[0].outcome,
+                Some(RawOutcome::Mcp { .. })
+            ));
+        }
+        assert_eq!(record.allocation.unwrap().model_calls, 1);
     }
 }

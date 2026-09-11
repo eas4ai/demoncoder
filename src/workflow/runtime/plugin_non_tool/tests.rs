@@ -3,6 +3,61 @@ use crate::plugins::hook_types::{HandlerKind, HookDialect};
 use serde_json::json;
 
 #[test]
+fn native_failure_diagnostics_reject_later_phase_and_turn_and_bound_text() {
+    for change in ["phase", "turn", "task"] {
+        let root = tempfile::tempdir().unwrap();
+        let state = tempfile::tempdir().unwrap();
+        let mut record = crate::inspection::tests::record(root.path());
+        record.phase = Some("worker".into());
+        let runtime = SharedRuntime::for_test(&state.path().join("record"), record).unwrap();
+        let task = crate::workflow::state::Task::new(
+            1,
+            "original".into(),
+            vec![],
+            crate::workflow::workspace::capture(root.path()).unwrap(),
+            1,
+        )
+        .unwrap();
+        runtime.save_task(&Some(task), 2, None).unwrap();
+        let id = runtime
+            .begin_native_turn("worker", None, NativeTurnOrigin::Developer)
+            .unwrap();
+        runtime
+            .finish_native_turn(id, NativeTurnEnd::Failed)
+            .unwrap();
+        runtime
+            .native_turn_diagnostic(id, "worker", None, &"é".repeat(4096))
+            .unwrap();
+        let record = runtime.record().unwrap();
+        let Some(HostInvocation::NativeTurn(turn)) = &record.operations[0].host_invocation else {
+            panic!("turn")
+        };
+        assert!(turn.diagnostics[0].len() <= 4096 && turn.diagnostics[0].ends_with(" [truncated]"));
+        if change == "turn" {
+            runtime
+                .begin_native_turn("worker", None, NativeTurnOrigin::Developer)
+                .unwrap();
+        } else {
+            runtime
+                .update(|r| {
+                    if change == "phase" {
+                        r.phase = None;
+                    } else {
+                        r.task.as_mut().unwrap().id = 2;
+                    }
+                    Ok(())
+                })
+                .unwrap();
+        }
+        assert!(
+            runtime
+                .native_turn_diagnostic(id, "worker", None, "stale cleanup")
+                .is_err()
+        );
+    }
+}
+
+#[test]
 fn native_turn_bare_owner_never_borrows_a_later_phase() {
     for with_task in [false, true] {
         let root = tempfile::tempdir().unwrap();

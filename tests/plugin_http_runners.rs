@@ -162,6 +162,7 @@ fn declaration(name: &str, dialect: HookDialect, class: HandlerClass) -> Declara
         class,
         priority: 0,
         matcher: Matcher {
+            error_category: None,
             tool: Some("write".into()),
             path: None,
         },
@@ -1138,5 +1139,312 @@ async fn native_non_tool_http_frames_actual_submit_and_rejects_missing_owner_bef
                     .contains("owning allowance")
             );
         }
+    }
+}
+
+struct FailedNative;
+#[async_trait::async_trait]
+impl Model for FailedNative {
+    fn prompt(&mut self, _: String) {}
+    fn results(&mut self, _: Vec<ToolResult>) {
+        panic!("no tools")
+    }
+    async fn response(&mut self, _: &EventSink) -> anyhow::Result<Vec<ToolCall>> {
+        Err(demoncoder::native::provider_response_failure(
+            anyhow::anyhow!("actual provider error"),
+        ))
+    }
+}
+#[tokio::test]
+async fn native_stop_failure_http_observes_without_replacing_failure() {
+    let _lock = FIXTURES.lock().await;
+    let peer = Peer::response(
+        200,
+        json!({"decision":"block","reason":"cannot retry"})
+            .to_string()
+            .into_bytes(),
+    );
+    let fixture = Fixture::with_allowance(tempfile::tempdir().unwrap(), true);
+    fixture
+        .runtime
+        .begin_phase("worker", Some("original"))
+        .unwrap();
+    let source = tempfile::tempdir().unwrap();
+    std::fs::create_dir(source.path().join(".claude-plugin")).unwrap();
+    std::fs::write(
+        source.path().join(".claude-plugin/plugin.json"),
+        r#"{"name":"http-failure","version":"1.0.0"}"#,
+    )
+    .unwrap();
+    let package =
+        Arc::new(plugins::inspect(source.path(), &plugins::ImportOptions::default()).unwrap());
+    let mut d = declaration("http", HookDialect::Native, HandlerClass::Observer);
+    d.matcher = Matcher::default();
+    let registration = HttpRunner::registration_for_event(
+        package,
+        d,
+        HookEvent::StopFailure,
+        HttpConfig::new(peer.endpoint.clone()),
+        None,
+    )
+    .unwrap();
+    let mut tools = fixture.executor(vec![], false);
+    tools
+        .register_non_tool_plan(Arc::new(
+            plugins::non_tool::NonToolPlan::new(HookEvent::StopFailure, vec![registration])
+                .unwrap(),
+        ))
+        .unwrap();
+    let mut session = NativeSession::with_tools(Box::new(FailedNative), tools);
+    let (_sender, mut commands) = mpsc::channel(4);
+    assert_eq!(
+        session
+            .turn("original".into(), &mut commands, &fixture.events)
+            .await
+            .err()
+            .unwrap()
+            .to_string(),
+        "actual provider error"
+    );
+    assert_eq!(peer.count(), 1);
+    let requests = peer.requests.lock().unwrap();
+    let input = &requests[0].1;
+    assert_eq!(input["hook_event_name"], "StopFailure");
+    assert_eq!(input["error"], "unknown");
+    assert!(input.get("last_assistant_message").is_none());
+    let record = fixture.record();
+    assert_eq!(record.allocation.unwrap().model_calls, 1);
+}
+
+struct ProviderOriginObserver(Arc<std::sync::atomic::AtomicUsize>);
+#[async_trait::async_trait]
+impl HookRunner for ProviderOriginObserver {
+    fn side_effect_free(&self) -> bool {
+        true
+    }
+    async fn run(&self, _: &HookInvocation) -> anyhow::Result<RawOutcome> {
+        self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Ok(RawOutcome::Callback { value: json!({}) })
+    }
+}
+
+async fn actual_provider_origin_case(
+    adapter: &str,
+    peer: &Peer,
+    metadata: bool,
+    close_after_request: Arc<Mutex<Option<mpsc::Receiver<demoncoder::events::Envelope>>>>,
+    close_sink: bool,
+    persistence_fault: Option<Arc<Mutex<Option<std::path::PathBuf>>>>,
+) -> (String, usize) {
+    let root = tempfile::tempdir().unwrap();
+    let endpoint = peer.endpoint.split("/hook/").next().unwrap().to_owned() + "/v1/messages";
+    let mut connection: Connection = serde_json::from_value(json!({
+        "adapter":adapter,"model":"fixture","api_key":"fixture-key","endpoint":endpoint,
+        "max_output_tokens":if metadata {None} else {Some(128)}
+    }))
+    .unwrap();
+    let count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let mut d = declaration("origin", HookDialect::Native, HandlerClass::Observer);
+    d.matcher = Matcher::default();
+    connection.access.non_tools.push(Arc::new(
+        plugins::non_tool::NonToolPlan::new(
+            HookEvent::StopFailure,
+            vec![Registration {
+                declaration: d,
+                runner: Arc::new(ProviderOriginObserver(count.clone())),
+                revalidation: None,
+            }],
+        )
+        .unwrap(),
+    ));
+    let (runtime, _) = SharedRuntime::open(root.path(), &connection, None).unwrap();
+    runtime
+        .allocate(demoncoder::workflow::allocation::Limits::default(), None)
+        .unwrap();
+    runtime.begin_phase("worker", Some("original")).unwrap();
+    let mut session = demoncoder::adapters::builtins()
+        .unwrap()
+        .open(&connection, root.path())
+        .unwrap();
+    let (tx, rx) = mpsc::channel(256);
+    *close_after_request.lock().unwrap() = Some(rx);
+    let events = EventSink::new("origin".into(), tx, None)
+        .unwrap()
+        .with_runtime(runtime.clone());
+    if let Some(path) = &persistence_fault {
+        *path.lock().unwrap() = Some(runtime.directory().unwrap().join("state.json"));
+    }
+    let (_sender, mut commands) = mpsc::channel(4);
+    let error = tokio::time::timeout(
+        Duration::from_secs(10),
+        session.turn("original".into(), &mut commands, &events),
+    )
+    .await
+    .unwrap()
+    .err()
+    .unwrap();
+    if close_sink {
+        assert!(error.to_string().contains("closed"), "{error:#}");
+    }
+    if persistence_fault.is_none() {
+        let record = runtime.record().unwrap();
+        assert_eq!(record.allocation.unwrap().model_calls, 1);
+    }
+    let result = (
+        format!("{error:#}"),
+        count.load(std::sync::atomic::Ordering::SeqCst),
+    );
+    std::fs::remove_dir_all(runtime.directory().unwrap()).unwrap();
+    result
+}
+
+#[tokio::test]
+async fn native_stop_failure_actual_adapter_transport_protocol_and_metadata_origins() {
+    let _lock = FIXTURES.lock().await;
+    for adapter in ["openai-api", "anthropic-api"] {
+        let transport = Peer::new(|_| {});
+        let (error, count) = actual_provider_origin_case(
+            adapter,
+            &transport,
+            false,
+            Arc::new(Mutex::new(None)),
+            false,
+            None,
+        )
+        .await;
+        assert!(error.contains("provider request failed"), "{error}");
+        assert_eq!(transport.count(), 1);
+        assert_eq!(count, 1);
+        for (status, body, expected) in [
+            (503, b"provider refused".to_vec(), "HTTP 503"),
+            (
+                200,
+                b"data: not-json\n\n".to_vec(),
+                "invalid provider stream event",
+            ),
+            (
+                200,
+                format!("data: {}\n\n", json!({"type":"error"})).into_bytes(),
+                if adapter == "openai-api" {
+                    "did not complete"
+                } else {
+                    "stream error"
+                },
+            ),
+        ] {
+            let peer = Peer::response(status, body);
+            let (error, count) = actual_provider_origin_case(
+                adapter,
+                &peer,
+                false,
+                Arc::new(Mutex::new(None)),
+                false,
+                None,
+            )
+            .await;
+            assert!(error.contains(expected), "{error}");
+            assert_eq!(peer.count(), 1);
+            assert_eq!(count, 1, "{adapter}: {error}");
+        }
+    }
+    for (status, body, expected) in [
+        (503, b"no metadata".to_vec(), "HTTP 503"),
+        (200, b"invalid".to_vec(), "not valid JSON"),
+        (200, b"{}".to_vec(), "positive max_tokens"),
+    ] {
+        let peer = Peer::response(status, body);
+        let (error, count) = actual_provider_origin_case(
+            "anthropic-api",
+            &peer,
+            true,
+            Arc::new(Mutex::new(None)),
+            false,
+            None,
+        )
+        .await;
+        assert!(
+            error.contains("Set max_output_tokens") && error.contains(expected),
+            "{error}"
+        );
+        assert_eq!(peer.count(), 1);
+        assert!(
+            peer.requests.lock().unwrap()[0]
+                .0
+                .starts_with("GET /v1/models/fixture ")
+        );
+        assert_eq!(count, 1);
+    }
+}
+
+#[tokio::test]
+async fn native_stop_failure_actual_adapter_post_response_sink_failure_is_local() {
+    let _lock = FIXTURES.lock().await;
+    for adapter in ["openai-api", "anthropic-api"] {
+        let receiver = Arc::new(Mutex::new(None));
+        let close = receiver.clone();
+        let frame = if adapter == "openai-api" {
+            json!({"type":"response.completed","response":{"output":[],"usage":{}}})
+        } else {
+            json!({"type":"message_stop"})
+        };
+        let body = format!("data: {frame}\n\n");
+        let peer = Peer::new(move |stream| {
+            use std::io::Write;
+            drop(close.lock().unwrap().take());
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            )
+            .unwrap();
+        });
+        let (_, count) =
+            actual_provider_origin_case(adapter, &peer, false, receiver, true, None).await;
+        assert_eq!(peer.count(), 1);
+        assert_eq!(
+            count, 0,
+            "{adapter}: successful provider response followed by local delivery failure"
+        );
+    }
+}
+
+#[tokio::test]
+async fn native_stop_failure_actual_adapter_post_response_persistence_failure_is_local() {
+    let _lock = FIXTURES.lock().await;
+    for adapter in ["openai-api", "anthropic-api"] {
+        let path: Arc<Mutex<Option<std::path::PathBuf>>> = Arc::new(Mutex::new(None));
+        let fault = path.clone();
+        let frame = if adapter == "openai-api" {
+            json!({"type":"response.completed","response":{"output":[],"usage":{}}})
+        } else {
+            json!({"type":"message_stop"})
+        };
+        let body = format!("data: {frame}\n\n");
+        let peer = Peer::new(move |stream| {
+            use std::io::Write;
+            let path = fault.lock().unwrap().take().unwrap();
+            std::fs::remove_file(&path).unwrap();
+            std::fs::create_dir(&path).unwrap();
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            )
+            .unwrap();
+        });
+        let (error, count) = actual_provider_origin_case(
+            adapter,
+            &peer,
+            false,
+            Arc::new(Mutex::new(None)),
+            false,
+            Some(path),
+        )
+        .await;
+        assert!(error.contains("session persistence failed"), "{error}");
+        assert_eq!(peer.count(), 1);
+        assert_eq!(count, 0, "{adapter}: {error}");
     }
 }

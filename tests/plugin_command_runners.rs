@@ -148,6 +148,7 @@ fn declaration(name: &str, dialect: HookDialect, class: HandlerClass) -> Declara
         class,
         priority: 0,
         matcher: Matcher {
+            error_category: None,
             tool: Some("write".into()),
             path: None,
         },
@@ -2085,6 +2086,142 @@ print(json.dumps({'decision':'block','reason':'real confined lifecycle rejection
 }
 
 struct ActualAssistant;
+
+struct FailingProvider(Arc<std::sync::atomic::AtomicUsize>);
+#[async_trait::async_trait]
+impl Model for FailingProvider {
+    fn prompt(&mut self, _: String) {}
+    fn results(&mut self, _: Vec<ToolResult>) {
+        panic!("provider failure has no tools")
+    }
+    async fn response(&mut self, events: &EventSink) -> anyhow::Result<Vec<ToolCall>> {
+        self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        events
+            .emit(demoncoder::events::Event::Text {
+                text: "Known partial answer".into(),
+            })
+            .await?;
+        Err(demoncoder::native::provider_response_failure(
+            anyhow::anyhow!("provider said authentication_failed without a typed category"),
+        ))
+    }
+}
+
+#[tokio::test]
+async fn native_stop_failure_command_effect_preserves_provider_error_and_exact_owner() {
+    use demoncoder::plugins::{hook_types::HookEvent, non_tool::NonToolPlan};
+    use demoncoder::workflow::runtime::HostInvocation;
+    let _lock = FIXTURES.lock().await;
+    for (dialect, mode) in [
+        (HookDialect::Native, "pass"),
+        (HookDialect::Native, "malformed"),
+        (HookDialect::Native, "fail"),
+        (HookDialect::Claude, "pass"),
+    ] {
+        let fixture = Fixture::new();
+        fixture
+            .runtime
+            .begin_phase("worker", Some("original task"))
+            .unwrap();
+        fixture
+            .runtime
+            .allocate(demoncoder::workflow::allocation::Limits::default(), None)
+            .unwrap();
+        let before = fixture.record().allocation.unwrap();
+        std::fs::create_dir(fixture.root.path().join("effects")).unwrap();
+        let code = format!(
+            r#"import json,sys,pathlib
+x=json.load(sys.stdin)
+assert x['hook_event_name']=='StopFailure'
+assert x['error']=='unknown'
+assert x['error_details']=='provider said authentication_failed without a typed category'
+assert x['last_assistant_message']=='Known partial answer'
+assert not any(k in x for k in ['tool_name','tool_input','tool_use_id'])
+pathlib.Path('effects/observed').write_text(json.dumps(x))
+if {mode:?}=='fail': sys.exit(7)
+print('not json' if {mode:?}=='malformed' else json.dumps({{'decision':'block','reason':'must never retry'}}))
+"#
+        );
+        let (_source, captured) = package(dialect, &code);
+        let mut d = declaration("failure-observer", dialect, HandlerClass::Combined);
+        d.required_gate = false;
+        d.matcher = Matcher::default();
+        let mut config = python_config();
+        config.write_paths = vec!["effects".into()];
+        let registration = CommandRunner::registration_for_event(
+            captured,
+            d,
+            HookEvent::StopFailure,
+            config,
+            None,
+        )
+        .unwrap();
+        let mut tools = fixture.executor(vec![], false);
+        tools
+            .register_non_tool_plan(Arc::new(
+                NonToolPlan::new(HookEvent::StopFailure, vec![registration]).unwrap(),
+            ))
+            .unwrap();
+        let requests = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let mut session =
+            NativeSession::with_tools(Box::new(FailingProvider(requests.clone())), tools);
+        let (_sender, mut commands) = mpsc::channel(4);
+        let error = session
+            .turn("original task".into(), &mut commands, &fixture.events)
+            .await
+            .err()
+            .unwrap();
+        assert_eq!(
+            error.to_string(),
+            "provider said authentication_failed without a typed category"
+        );
+        assert_eq!(requests.load(std::sync::atomic::Ordering::SeqCst), 1);
+        let input: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(fixture.root.path().join("effects/observed")).unwrap(),
+        )
+        .unwrap();
+        let record = fixture.record();
+        let lifecycle: Vec<_> = record
+            .operations
+            .iter()
+            .filter_map(|o| match &o.host_invocation {
+                Some(HostInvocation::Lifecycle(r)) => Some(r),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(lifecycle.len(), 1);
+        let receipt = lifecycle[0];
+        assert_eq!(receipt.hooks.len(), 1);
+        assert!(!receipt.correction_admitted && !receipt.correction_required);
+        assert!(receipt.facts.source.is_none() && receipt.facts.callback.is_none());
+        assert_eq!(
+            receipt.facts.provenance.as_deref(),
+            Some("native_host_translation_v1")
+        );
+        let owner = record
+            .operations
+            .iter()
+            .find(|o| Some(o.id) == receipt.facts.native_turn)
+            .unwrap();
+        assert_eq!(
+            serde_json::to_value(&owner.host_invocation).unwrap()["native_turn"]["end"],
+            "failed"
+        );
+        assert_eq!(receipt.facts.role, owner.phase);
+        if dialect == HookDialect::Native {
+            assert_eq!(input["demoncoder"]["native_turn"], owner.id);
+        }
+        assert!(
+            matches!(receipt.hooks[0].outcome,Some(RawOutcome::Command { exit_code:Some(code),.. }) if code==if mode=="fail" {7}else{0})
+        );
+        let after = record.allocation.unwrap();
+        assert_eq!(
+            (after.started_ms, after.deadline_ms),
+            (before.started_ms, before.deadline_ms)
+        );
+        assert_eq!(after.model_calls, 1);
+    }
+}
 #[async_trait::async_trait]
 impl Model for ActualAssistant {
     fn prompt(&mut self, _: String) {}
@@ -2189,6 +2326,9 @@ print(json.dumps({'systemMessage':json.dumps(x)}))
             let event = receipt.facts.subject.occurrence.clone();
             let mut expected = json!({"session_id":receipt.facts.session,"cwd":fixture.root.path(),"transcript_path":receipt.facts.host_transcript_path,"permission_mode":"default"});
             match event {
+                demoncoder::plugins::receipts::NonToolOccurrence::StopFailure { .. } => {
+                    panic!("ordinary success cannot produce StopFailure")
+                }
                 demoncoder::plugins::receipts::NonToolOccurrence::UserPromptSubmit {
                     prompt,
                     ..

@@ -94,7 +94,23 @@ pub(super) fn resolve<'a>(record: &'a Record, phase: &str) -> Result<Owner<'a>> 
         allocation.remaining_ms()? > 0,
         "child lifecycle allocation expired"
     );
-    let fingerprint = crate::plugins::admission::digest(&(
+    let fingerprint = child_fingerprint(record, child)?;
+    Ok(Owner {
+        identity: &child.identity,
+        root: &worktree.root,
+        child: Some(fingerprint),
+    })
+}
+pub(super) fn child_fingerprint(
+    record: &Record,
+    child: &crate::subagents::state::AgentRecord,
+) -> Result<String> {
+    let worktree = child.worktree.as_ref().context("child worktree missing")?;
+    let allocation = record
+        .allocation
+        .as_ref()
+        .context("child allocation missing")?;
+    crate::plugins::admission::digest(&(
         child.id,
         child.parent_task,
         &child.request,
@@ -121,12 +137,7 @@ pub(super) fn resolve<'a>(record: &'a Record, phase: &str) -> Result<Owner<'a>> 
             .delegation
             .as_ref()
             .map(|d| (&d.orchestration, d.backend_limit)),
-    ))?;
-    Ok(Owner {
-        identity: &child.identity,
-        root: &worktree.root,
-        child: Some(fingerprint),
-    })
+    ))
 }
 pub(super) fn validate(
     record: &Record,

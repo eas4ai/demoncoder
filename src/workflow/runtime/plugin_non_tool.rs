@@ -154,10 +154,11 @@ impl SharedRuntime {
                     && a.model_calls < a.limits.model_calls
                     && a.tool_calls < a.limits.tool_calls
             }),
-            correction_available: super::plugin_lifecycle::owner::non_tool_available(
-                &record,
-                &active(&record, id, event)?.facts,
-            ),
+            correction_available: event != HookEvent::StopFailure
+                && super::plugin_lifecycle::owner::non_tool_available(
+                    &record,
+                    &active(&record, id, event)?.facts,
+                ),
             ..Default::default()
         })
     }
@@ -290,6 +291,11 @@ impl SharedRuntime {
     ) -> Result<NonToolFacts> {
         use std::os::unix::fs::MetadataExt;
         let native_turn = origin.native_turn;
+        ensure!(
+            occurrence.event() != HookEvent::StopFailure
+                || (native_turn.is_some() && origin.source.is_none()),
+            "StopFailure requires its original native turn"
+        );
         ensure!(
             native_turn.is_none() || origin.source.is_none(),
             "lifecycle has conflicting native and source owners"

@@ -18,6 +18,8 @@ pub use super::receipts::{DeclarationIdentity, HandlerClass, RawOutcome, Scope};
 pub struct Matcher {
     pub tool: Option<String>,
     pub path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error_category: Option<String>,
 }
 #[derive(Clone, Serialize)]
 pub struct Declaration {
@@ -95,6 +97,7 @@ pub trait HookRunner: Send + Sync {
 pub(crate) struct Handler {
     pub registration: Registration,
     path: Option<GlobMatcher>,
+    error_category: Option<jsonschema::Validator>,
 }
 pub struct PreToolPlan {
     pub(crate) event: HookEvent,
@@ -222,6 +225,7 @@ impl PreToolPlan {
                 &d.external_precondition,
                 &d.matcher.tool,
                 &d.matcher.path,
+                &d.matcher.error_category,
             ]
             .into_iter()
             .flatten()
@@ -271,7 +275,28 @@ impl PreToolPlan {
                         .map(|g| g.compile_matcher())
                 })
                 .transpose()?;
-            handlers.push(Handler { registration, path });
+            ensure!(
+                event == HookEvent::StopFailure || d.matcher.error_category.is_none(),
+                "error category matcher requires StopFailure"
+            );
+            let error_category = d
+                .matcher
+                .error_category
+                .as_ref()
+                .map(|pattern| {
+                    jsonschema::options()
+                        .with_pattern_options(
+                            jsonschema::PatternOptions::fancy_regex().backtrack_limit(10_000),
+                        )
+                        .build(&serde_json::json!({"type":"string","pattern":pattern}))
+                        .map_err(|error| anyhow::anyhow!("invalid error category pattern: {error}"))
+                })
+                .transpose()?;
+            handlers.push(Handler {
+                registration,
+                path,
+                error_category,
+            });
         }
         let digest = super::admission::digest(&(event, &declarations))?;
         Ok(Self {
@@ -285,6 +310,16 @@ impl PreToolPlan {
     }
 }
 impl Handler {
+    pub(crate) fn matches_non_tool(&self, occurrence: &NonToolOccurrence) -> bool {
+        self.error_category
+            .as_ref()
+            .is_none_or(|pattern| match occurrence {
+                NonToolOccurrence::StopFailure { error, .. } => {
+                    pattern.is_valid(&serde_json::json!(error))
+                }
+                _ => false,
+            })
+    }
     pub(crate) fn matches(&self, call: &ToolCall) -> bool {
         let m = &self.registration.declaration.matcher;
         m.tool.as_ref().is_none_or(|tool| tool == &call.name)

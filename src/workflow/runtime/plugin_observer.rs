@@ -269,8 +269,12 @@ impl ObserverLease {
                 allocation_started_ms,
                 deadline_ms,
                 status: Status::Running,
-                delivery: Delivery::Pending,
-                rewake: self.config.rewake,
+                delivery: if hook.inspected.event == "StopFailure" {
+                    Delivery::Withheld
+                } else {
+                    Delivery::Pending
+                },
+                rewake: self.config.rewake && hook.inspected.event != "StopFailure",
                 launch_marker: marker.clone(),
             });
             *target = record;

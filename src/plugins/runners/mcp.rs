@@ -274,7 +274,14 @@ impl McpRunner {
                 &self.profile,
                 &self.identity,
                 self.event,
-                &crate::plugins::results::ResultContext::default()
+                &crate::plugins::results::ResultContext {
+                    role: if invocation.required_gate {
+                        crate::plugins::results::ResultRole::RequiredGate
+                    } else {
+                        crate::plugins::results::ResultRole::Observer
+                    },
+                    ..Default::default()
+                }
             )
             .failed(),
             "MCP returned an invalid source result"

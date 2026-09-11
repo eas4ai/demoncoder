@@ -645,6 +645,9 @@ fn lifecycle_report(out: &mut Pager, record: &Record, task: Option<u64>) -> fmt:
                 turn.end,
                 turn.owner_phase.as_deref().unwrap_or("no workflow phase")
             )?;
+            for diagnostic in &turn.diagnostics {
+                quote(out, "Turn diagnostic:", diagnostic)?;
+            }
         }
     }
     for receipt in record

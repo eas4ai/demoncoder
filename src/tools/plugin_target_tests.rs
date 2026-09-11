@@ -68,6 +68,7 @@ async fn final_rescan_rechecks_file_and_parent_after_await_before_actual_write()
                     class: HandlerClass::DecisionGate,
                     priority: 0,
                     matcher: Matcher {
+                        error_category: None,
                         tool: Some("write".into()),
                         path: Some("generated/file".into()),
                     },

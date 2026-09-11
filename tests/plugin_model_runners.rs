@@ -1215,3 +1215,108 @@ async fn native_non_tool_prompt_and_agent_use_real_model_admission() {
         }
     }
 }
+
+struct FailedNative;
+#[async_trait::async_trait]
+impl Model for FailedNative {
+    fn prompt(&mut self, _: String) {}
+    fn results(&mut self, _: Vec<ToolResult>) {
+        panic!("no tools")
+    }
+    async fn response(&mut self, _: &EventSink) -> anyhow::Result<Vec<ToolCall>> {
+        Err(demoncoder::native::provider_response_failure(
+            anyhow::anyhow!("actual provider error"),
+        ))
+    }
+}
+#[tokio::test]
+async fn native_stop_failure_prompt_and_agent_spend_only_original_allowance() {
+    let _lock = FIXTURES.lock().await;
+    for kind in [HandlerKind::Prompt, HandlerKind::Agent] {
+        let server = Server::new("openai-api", |_, request| {
+            let text = prompt(request);
+            assert!(
+                text.contains("StopFailure") && text.contains("actual provider error"),
+                "{text}"
+            );
+            json!({"ok":false,"reason":"observer cannot retry original provider"})
+        });
+        let fixture = Fixture::new(Some(4));
+        fixture
+            .runtime
+            .begin_phase("worker", Some("original"))
+            .unwrap();
+        let before = fixture.record().allocation.unwrap();
+        let source = tempfile::tempdir().unwrap();
+        std::fs::create_dir(source.path().join(".claude-plugin")).unwrap();
+        std::fs::write(
+            source.path().join(".claude-plugin/plugin.json"),
+            r#"{"name":"model-failure","version":"1.0.0"}"#,
+        )
+        .unwrap();
+        let package =
+            Arc::new(plugins::inspect(source.path(), &plugins::ImportOptions::default()).unwrap());
+        let mut d = declaration(kind, HookDialect::Native, 0);
+        d.required_gate = false;
+        let registration = ModelRunner::registration_for_event(
+            package,
+            d,
+            HookEvent::StopFailure,
+            config(&server, "openai-api"),
+        )
+        .unwrap();
+        let mut tools = ToolExecutor::with_policy(
+            fixture.root.path(),
+            &AccessPolicy {
+                supervisor: Some(env!("CARGO_BIN_EXE_demoncoder").into()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        tools
+            .register_non_tool_plan(Arc::new(
+                plugins::non_tool::NonToolPlan::new(HookEvent::StopFailure, vec![registration])
+                    .unwrap(),
+            ))
+            .unwrap();
+        let mut session = NativeSession::with_tools(Box::new(FailedNative), tools);
+        let (_sender, mut commands) = mpsc::channel(4);
+        assert_eq!(
+            session
+                .turn("original".into(), &mut commands, &fixture.events)
+                .await
+                .err()
+                .unwrap()
+                .to_string(),
+            "actual provider error"
+        );
+        assert_eq!(server.count(), 1, "{kind:?}");
+        let record = fixture.record();
+        let receipt = record
+            .operations
+            .iter()
+            .find_map(|o| match &o.host_invocation {
+                Some(demoncoder::workflow::runtime::HostInvocation::Lifecycle(r)) => Some(r),
+                _ => None,
+            })
+            .unwrap();
+        assert!(
+            receipt.settled
+                && !receipt.correction_required
+                && !receipt.correction_admitted
+                && receipt.hold.is_none()
+        );
+        assert!(
+            matches!(receipt.hooks[0].outcome, Some(RawOutcome::Model { .. })),
+            "{:?}",
+            receipt.hooks[0].outcome
+        );
+        let after = record.allocation.unwrap();
+        assert_eq!(after.model_calls, 2);
+        assert_eq!(after.usage.reported_input, 11);
+        assert_eq!(
+            (after.started_ms, after.deadline_ms),
+            (before.started_ms, before.deadline_ms)
+        );
+    }
+}

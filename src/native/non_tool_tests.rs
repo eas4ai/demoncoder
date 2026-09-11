@@ -14,6 +14,8 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering},
 };
 
+mod stop_failure;
+
 struct Counting {
     requests: Arc<AtomicUsize>,
     prompts: Arc<Mutex<Vec<String>>>,

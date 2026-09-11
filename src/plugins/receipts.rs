@@ -158,6 +158,8 @@ pub struct NativeTurn {
     pub workspace: (u64, u64),
     pub child_owner: Option<String>,
     pub end: Option<NativeTurnEnd>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub diagnostics: Vec<String>,
 }
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -206,12 +208,19 @@ pub enum NonToolOccurrence {
         stop_hook_active: bool,
         last_assistant_message: Option<String>,
     },
+    StopFailure {
+        /// Model::response currently exposes no typed backend error category.
+        error: String,
+        error_details: String,
+        last_assistant_message: Option<String>,
+    },
 }
 impl NonToolOccurrence {
     pub(crate) fn event(&self) -> super::hook_types::HookEvent {
         match self {
             Self::UserPromptSubmit { .. } => super::hook_types::HookEvent::UserPromptSubmit,
             Self::Stop { .. } => super::hook_types::HookEvent::Stop,
+            Self::StopFailure { .. } => super::hook_types::HookEvent::StopFailure,
         }
     }
 }

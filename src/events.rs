@@ -554,6 +554,12 @@ impl EventSink {
             facts,
         ))
     }
+    pub(crate) fn native_failure_diagnostic(&self, message: String) -> Result<()> {
+        if let (Some(runtime), Some(turn)) = (&self.runtime, self.native_turn) {
+            runtime.native_turn_diagnostic(turn, &self.phase, self.identity.as_ref(), &message)?;
+        }
+        self.emit_advisory(Event::Error { message })
+    }
     pub(crate) fn plugin_context(&self) -> Result<(crate::workflow::runtime::SharedRuntime, u64)> {
         Ok((
             self.runtime

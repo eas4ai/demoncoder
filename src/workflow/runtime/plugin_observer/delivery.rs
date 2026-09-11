@@ -6,6 +6,7 @@ pub(crate) struct ContextDelivery {
 }
 fn eligible(record: &Record, hook: &HookReceipt, phase: &str, rewake: bool) -> bool {
     hook.inspected.role == phase
+        && hook.inspected.event != "StopFailure"
         && hook.observer.as_ref().is_some_and(|o| {
             o.status == Status::Completed
                 && o.delivery == Delivery::Pending

@@ -2,7 +2,7 @@ use super::http;
 use crate::{
     config::Connection,
     events::{ContextUsage, Event, EventSink},
-    native::{Model, NativeSession},
+    native::{Model, NativeSession, provider_response_failure},
     session::Session,
     tools::{ToolCall, ToolExecutor, ToolResult},
 };
@@ -117,17 +117,18 @@ impl Model for OpenAi {
             .post(self.endpoint.clone())
             .bearer_auth(&self.key)
             .json(&body);
-        let stream = http::json_events(http::response(request).await?);
+        let stream = http::json_events(http::provider_response(request).await?);
         tokio::pin!(stream);
         while let Some(event) = stream.next().await {
-            let event = event?;
+            let event = event.map_err(provider_response_failure)?;
             match event["type"].as_str() {
                 Some("response.output_text.delta") => {
                     events
                         .emit(Event::Text {
                             text: event["delta"]
                                 .as_str()
-                                .context("missing text delta")?
+                                .context("missing text delta")
+                                .map_err(provider_response_failure)?
                                 .to_owned(),
                         })
                         .await?
@@ -136,24 +137,29 @@ impl Model for OpenAi {
                     let response = &event["response"];
                     let output = response["output"]
                         .as_array()
-                        .context("missing response output")?;
+                        .context("missing response output")
+                        .map_err(provider_response_failure)?;
                     let mut calls = Vec::new();
                     for item in output {
                         if item["type"] == "function_call" {
                             calls.push(ToolCall {
                                 id: item["call_id"]
                                     .as_str()
-                                    .context("missing OpenAI call ID")?
+                                    .context("missing OpenAI call ID")
+                                    .map_err(provider_response_failure)?
                                     .into(),
                                 name: item["name"]
                                     .as_str()
-                                    .context("missing OpenAI tool name")?
+                                    .context("missing OpenAI tool name")
+                                    .map_err(provider_response_failure)?
                                     .into(),
                                 arguments: serde_json::from_str(
                                     item["arguments"]
                                         .as_str()
-                                        .context("missing OpenAI tool arguments")?,
-                                )?,
+                                        .context("missing OpenAI tool arguments")
+                                        .map_err(provider_response_failure)?,
+                                )
+                                .map_err(provider_response_failure)?,
                             });
                         }
                     }
@@ -192,20 +198,24 @@ impl Model for OpenAi {
                         })
                         .await?;
                     if event["response"]["incomplete_details"]["reason"] == "max_output_tokens" {
-                        bail!(
+                        return Err(provider_response_failure(anyhow::anyhow!(
                             "OpenAI response reached its output limit; no tool calls from this response were executed. Request a smaller continuation or adjust an explicit max_output_tokens setting."
-                        );
+                        )));
                     }
-                    bail!(
+                    return Err(provider_response_failure(anyhow::anyhow!(
                         "OpenAI response is incomplete; no tool calls from this response were executed"
-                    );
+                    )));
                 }
                 Some("response.failed" | "error") => {
-                    bail!("OpenAI did not complete the response")
+                    return Err(provider_response_failure(anyhow::anyhow!(
+                        "OpenAI did not complete the response"
+                    )));
                 }
                 _ => {}
             }
         }
-        bail!("OpenAI stream ended without a completed response")
+        Err(provider_response_failure(anyhow::anyhow!(
+            "OpenAI stream ended without a completed response"
+        )))
     }
 }

@@ -20,8 +20,16 @@ pub struct NonToolPlan {
 impl NonToolPlan {
     pub fn new(event: HookEvent, registrations: Vec<Registration>) -> Result<Self> {
         ensure!(
-            matches!(event, HookEvent::UserPromptSubmit | HookEvent::Stop),
-            "non-tool plan requires UserPromptSubmit or Stop"
+            matches!(
+                event,
+                HookEvent::UserPromptSubmit | HookEvent::Stop | HookEvent::StopFailure
+            ),
+            "non-tool plan requires UserPromptSubmit, Stop or StopFailure"
+        );
+        ensure!(
+            event != HookEvent::StopFailure
+                || registrations.iter().all(|r| !r.declaration.required_gate),
+            "StopFailure is observation only"
         );
         ensure!(
             registrations
@@ -199,6 +207,9 @@ impl NonToolPlan {
         let mut groups: Vec<Vec<usize>> = Vec::new();
         let mut named = BTreeMap::new();
         for (index, handler) in self.plan.handlers.iter().enumerate() {
+            if !handler.matches_non_tool(&facts.subject.occurrence) {
+                continue;
+            }
             let d = &handler.registration.declaration;
             if let Some(group) = &d.concurrent_group {
                 let position = *named

@@ -228,6 +228,17 @@ fn non_tool_input(
                 NonToolOccurrence::UserPromptSubmit { prompt, .. } => {
                     value["prompt"] = json!(prompt)
                 }
+                NonToolOccurrence::StopFailure {
+                    error,
+                    error_details,
+                    last_assistant_message,
+                } => {
+                    value["error"] = json!(error);
+                    value["error_details"] = json!(error_details);
+                    if let Some(text) = last_assistant_message {
+                        value["last_assistant_message"] = json!(text);
+                    }
+                }
                 NonToolOccurrence::Stop {
                     stop_hook_active,
                     last_assistant_message,
@@ -264,7 +275,7 @@ fn non_tool_input(
             let name = match event {
                 HookEvent::UserPromptSubmit => "user-prompt-submit",
                 HookEvent::Stop => "stop",
-                _ => unreachable!(),
+                _ => anyhow::bail!("Codex has no source input schema for this lifecycle event"),
             };
             profile.validate_schema(
                 &SchemaKey::Codex {
@@ -322,6 +333,21 @@ fn translated_non_tool_input(
     }
     match &facts.subject.occurrence {
         NonToolOccurrence::UserPromptSubmit { prompt, .. } => input["prompt"] = json!(prompt),
+        NonToolOccurrence::StopFailure {
+            error,
+            error_details,
+            last_assistant_message,
+        } => {
+            ensure!(
+                dialect == HookDialect::Claude,
+                "StopFailure has no Codex source event"
+            );
+            input["error"] = json!(error);
+            input["error_details"] = json!(error_details);
+            if let Some(text) = last_assistant_message {
+                input["last_assistant_message"] = json!(text);
+            }
+        }
         NonToolOccurrence::Stop {
             stop_hook_active,
             last_assistant_message,
@@ -384,6 +410,9 @@ fn translated_source_input(
     }
     match &facts.subject.occurrence {
         NonToolOccurrence::UserPromptSubmit { prompt, .. } => input["prompt"] = json!(prompt),
+        NonToolOccurrence::StopFailure { .. } => {
+            anyhow::bail!("external StopFailure callback is not implemented")
+        }
         NonToolOccurrence::Stop {
             stop_hook_active,
             last_assistant_message,

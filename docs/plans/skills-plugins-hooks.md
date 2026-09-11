@@ -343,6 +343,42 @@ tasks stay unchecked until implementation and required reviews are complete.
   termination, cancellation, stale ownership and interrupted reservation recovery.
   Run affected regressions and independent specification then quality review.
 
+### Native failed-turn observation prerequisite
+
+Decision: [observe actual provider failures](../decisions/observe-native-provider-failures-before-ending-their-original-turn.md).
+The next part of the active lifecycle item is native StopFailure for a returned
+provider error while its original durable turn remains live. Preserve the error,
+owner and remaining allocation; observer results cannot continue work or change
+failure into success. Admission, hook, persistence and tool errors must not be
+misreported as provider failures. Cancellation retains priority and observers
+cannot recursively generate another StopFailure.
+
+Implementation and verification passed for this prerequisite. Production tests
+observe native provider failure, actual hook effects, failed/malformed observer
+results, cancellation, no task continuation or model retry, and truthful handling
+of expired ownership. Explicit model handlers retain their declared, charged use.
+Outer timeouts that drop the turn future, session lifetime
+ownership, Interrupt and actual external source events remain required later.
+Fresh specification and quality reviews passed. The final full Rust suite passed
+841 tests with 17 ignored and no failures; Clippy and formatting passed.
+The [review](../reviews/plugin-native-stop-failure.md) retains the meaningful
+failing controls, static findings and precise evidence limits. These development
+checks do not replace the complete commitment's Cairn evidence.
+The [error-category matcher](../decisions/match-failed-turn-observers-against-their-recorded-error-category.md)
+uses the existing bounded regex implementation, is valid only for StopFailure,
+and preserves older declaration bytes when absent. Shutdown during a failed-turn
+observer closes and drains the existing command receiver so the outer session
+still terminates while the original provider error is preserved.
+Bounded diagnostics on the original turn must survive reopening and appear in
+inspection, including when observation cannot execute or cleanup fails.
+An actual MCP observer call exposed validation that always used the required-gate
+role. The runner must validate against its admitted invocation role; tests must
+retain strict gate checks and reject forbidden observer decisions.
+Fresh review also found local event errors inside `Model::response`. The
+[provider-origin marker](../decisions/mark-provider-response-failures-at-actual-adapter-transport-and-protocol-boundaries.md)
+must distinguish actual transport/protocol failures from local output,
+persistence and validation failures, preserving the original returned error.
+
 ### Durable synchronous one-shot prerequisite
 
 Decision: [activation and exact outcomes](../decisions/bind-one-shot-hooks-to-durable-activation-and-exact-outcomes.md).

@@ -9,6 +9,31 @@ use async_trait::async_trait;
 use std::{collections::VecDeque, path::Path};
 use tokio::sync::mpsc;
 
+/// Explicit origin marker for errors returned by a provider transport or protocol boundary.
+/// Adapters must leave local configuration, event delivery and persistence errors unmarked.
+#[derive(Debug)]
+pub struct ProviderResponseFailure(anyhow::Error);
+impl std::fmt::Display for ProviderResponseFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(&self.0, f)
+    }
+}
+impl std::error::Error for ProviderResponseFailure {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(self.0.as_ref())
+    }
+}
+pub fn provider_response_failure(error: impl Into<anyhow::Error>) -> anyhow::Error {
+    anyhow::Error::new(ProviderResponseFailure(error.into()))
+}
+/// Add adapter guidance inside the origin marker, retaining the original cause.
+pub(crate) fn provider_failure_context(error: anyhow::Error, guidance: String) -> anyhow::Error {
+    match error.downcast::<ProviderResponseFailure>() {
+        Ok(failure) => provider_response_failure(failure.0.context(guidance)),
+        Err(error) => error.context(guidance),
+    }
+}
+
 #[async_trait]
 pub trait Model: Send {
     fn checkpoint(&self) -> Option<serde_json::Value> {
@@ -101,9 +126,14 @@ impl Session for NativeSession {
         events: &EventSink,
     ) -> Result<TurnEnd> {
         self.observer_owner.capture(events);
-        let outcome = match events.begin_native_turn() {
+        let mut provider_failed = false;
+        let turn = events.begin_native_turn();
+        let failure_events = turn.as_ref().unwrap_or(events).clone();
+        let outcome = match turn {
             Ok(turn_events) => {
-                let outcome = self.run_turn(prompt, commands, &turn_events).await;
+                let outcome = self
+                    .run_turn(prompt, commands, &turn_events, &mut provider_failed)
+                    .await;
                 use crate::plugins::receipts::NativeTurnEnd;
                 let end = match &outcome {
                     Ok(TurnEnd::Complete) => NativeTurnEnd::Complete,
@@ -111,15 +141,20 @@ impl Session for NativeSession {
                     Ok(TurnEnd::Shutdown) => NativeTurnEnd::Shutdown,
                     Err(_) => NativeTurnEnd::Failed,
                 };
-                turn_events.finish_native_turn(end).and(outcome)
+                let finished = turn_events.finish_native_turn(end);
+                preserve_provider_failure(finished, provider_failed, &turn_events).and(outcome)
             }
             Err(error) => Err(error),
         };
-        self.settle_interruption()?;
+        preserve_provider_failure(self.settle_interruption(), provider_failed, &failure_events)?;
         if !matches!(outcome, Ok(TurnEnd::Complete)) {
-            self.close().await?;
+            preserve_provider_failure(self.close().await, provider_failed, &failure_events)?;
         }
-        events.checkpoint(self.checkpoint())?;
+        preserve_provider_failure(
+            events.checkpoint(self.checkpoint()),
+            provider_failed,
+            &failure_events,
+        )?;
         outcome
     }
 
@@ -135,6 +170,37 @@ impl Session for NativeSession {
 }
 
 impl NativeSession {
+    async fn observe_provider_failure(
+        &mut self,
+        error: &anyhow::Error,
+        commands: &mut mpsc::Receiver<Command>,
+        events: &EventSink,
+        response_events: &EventSink,
+    ) -> Result<()> {
+        use crate::plugins::{hook_types::HookEvent, receipts::NonToolOccurrence};
+        if !self.tools.has_non_tool_plan(HookEvent::StopFailure) {
+            return Ok(());
+        }
+        let occurrence = NonToolOccurrence::StopFailure {
+            error: "unknown".into(),
+            error_details: format!("{error:#}"),
+            last_assistant_message: response_events.assistant_text()?,
+        };
+        // Failure is already decided. Controls may cancel observation, but neither
+        // plugin output nor newly submitted text can start a correction or retry.
+        while let Ok(command) = commands.try_recv() {
+            failure_control(Some(command), commands)?;
+        }
+        let dispatch = self.tools.dispatch_non_tool(occurrence, events);
+        tokio::pin!(dispatch);
+        loop {
+            tokio::select! {
+                biased;
+                command = commands.recv() => failure_control(command, commands)?,
+                result = &mut dispatch => return result.map(|_| ()),
+            }
+        }
+    }
     async fn lifecycle(
         &mut self,
         occurrence: crate::plugins::receipts::NonToolOccurrence,
@@ -204,6 +270,7 @@ impl NativeSession {
         prompt: String,
         commands: &mut mpsc::Receiver<Command>,
         events: &EventSink,
+        provider_failed: &mut bool,
     ) -> Result<TurnEnd> {
         let mut corrections = Vec::new();
         if events.is_plugin_prompt() {
@@ -243,6 +310,9 @@ impl NativeSession {
             let response_events = if self
                 .tools
                 .has_non_tool_plan(crate::plugins::hook_types::HookEvent::Stop)
+                || self
+                    .tools
+                    .has_non_tool_plan(crate::plugins::hook_types::HookEvent::StopFailure)
             {
                 invocation_events.capture_assistant_text()
             } else {
@@ -259,11 +329,29 @@ impl NativeSession {
                     }
                 }
             };
-            events.finish_model(admission)?;
+            let settled = events.finish_model(admission);
             // A returned provider error has no pending native tool effects. Keep
             // the error, but settle its admission; cancellation exits above and
             // deliberately leaves the interrupted request uncertain.
-            let calls = calls?;
+            let calls = match calls {
+                Ok(calls) => {
+                    settled?;
+                    calls
+                }
+                Err(error) => {
+                    let error = match error.downcast::<ProviderResponseFailure>() {
+                        Ok(failure) => failure.0,
+                        Err(error) => return Err(error),
+                    };
+                    *provider_failed = true;
+                    let observation = match settled {
+                        Ok(()) => self.observe_provider_failure(&error, commands, events, &response_events).await,
+                        Err(error) => Err(error.context("provider admission could not be settled; StopFailure was not dispatched")),
+                    };
+                    preserve_provider_failure(observation, true, events)?;
+                    return Err(error);
+                }
+            };
             let finished = calls.is_empty();
             anyhow::ensure!(
                 finished || self.tools.tools_enabled(),
@@ -404,6 +492,55 @@ impl NativeSession {
             }
         }
     }
+}
+
+fn preserve_provider_failure(
+    result: Result<()>,
+    provider_failed: bool,
+    events: &EventSink,
+) -> Result<()> {
+    if !provider_failed {
+        return result;
+    }
+    if let Err(error) = result {
+        // Retention failure latches the runtime itself. Never replace the actual
+        // provider error with an observer, transport or cleanup error.
+        let _ = events.native_failure_diagnostic(format!(
+            "StopFailure observation or cleanup incomplete: {error:#}"
+        ));
+    }
+    Ok(())
+}
+
+fn failure_control(command: Option<Command>, commands: &mut mpsc::Receiver<Command>) -> Result<()> {
+    match command {
+        Some(Command::Shutdown) => {
+            // Returning the provider error must not swallow the outer session's
+            // shutdown signal. Closing this same receiver makes its next recv
+            // take the existing command-channel shutdown path.
+            commands.close();
+            while let Ok(command) = commands.try_recv() {
+                if let Command::Submit { reply, .. } = command {
+                    let _ = reply.send(Err("Session is shutting down"));
+                }
+            }
+            anyhow::bail!(
+                "StopFailure observation stopped for shutdown; original provider failure retained"
+            );
+        }
+        Some(Command::Cancel) | None => {
+            anyhow::bail!("StopFailure observation cancelled; original provider failure retained")
+        }
+        Some(Command::Submit { reply, .. }) => {
+            let _ = reply.send(Err(
+                "Provider failed; submit a new turn after failure cleanup",
+            ));
+        }
+        Some(Command::Prompt(_)) => anyhow::bail!(
+            "StopFailure observation stopped by new input; original provider failure retained"
+        ),
+    }
+    Ok(())
 }
 
 fn control(
