@@ -11,4 +11,4 @@ Add an optional error_category matcher only for StopFailure declarations. Omit t
 
 ## Realized by
 
-(none yet: recorded, not built)
+- 5cfa22fe8c71fae48348d253c74966efe4e06b90 Observe native provider failures under their original turn owner
