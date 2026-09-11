@@ -166,7 +166,9 @@ def verify(events, requests, fixture, mode, trace):
                    for block in message["content"] if block.get("type") == "text")
 
 
-def run_case(binary, root, fixture, mode):
+def run_case(binary, root, fixture, mode, *, lifecycle=None):
+    if lifecycle not in [None, "pass", "submit-deny", "stop-correct"]:
+        raise ValueError("unknown lifecycle source case")
     (root / "home").mkdir(parents=True)
     (root / "work").mkdir()
     requests, errors, events, trace, request_metadata = [], [], [], [], []
@@ -187,7 +189,7 @@ def run_case(binary, root, fixture, mode):
                     if self.headers.get(name) is not None}})
                 trace.append({"direction": "model", "message": request})
                 requests.append(request)
-                if len(requests) == 1:
+                if len(requests) == 1 and lifecycle is None:
                     block = {"type": "tool_use", "id": fixture["tool_use_id"],
                              "name": fixture["tool_name"], "input": {}}
                     delta = {"type": "input_json_delta", "partial_json": json.dumps(fixture["arguments"])}
@@ -231,6 +233,9 @@ def run_case(binary, root, fixture, mode):
                "--strict-mcp-config", "--mcp-config", json.dumps({"mcpServers": {
                    "demoncoder": {"type": "sdk", "name": "demoncoder"}}}),
                "--setting-sources", "", "--permission-prompt-tool", "stdio"]
+    if lifecycle is not None:
+        (root / "inputs.json").write_text(json.dumps({"command": command, "environment": environment,
+                                                     "case": lifecycle}, indent=2) + "\n")
     process = None
     selector = selectors.DefaultSelector()
     try:
@@ -248,6 +253,9 @@ def run_case(binary, root, fixture, mode):
 
             hooks = {event: [{"matcher": fixture["tool_name"], "hookCallbackIds": [event], "timeout": 5}]
                      for event in ["PreToolUse", "PostToolUse", "PostToolUseFailure"]}
+            if lifecycle is not None:
+                hooks = {event: [{"hookCallbackIds": [event], "timeout": 5}]
+                         for event in ["UserPromptSubmit", "Stop"]}
             send({"type": "control_request", "request_id": "initialize",
                   "request": {"subtype": "initialize", "hooks": hooks, "skills": []}})
             selector.register(process.stdout, selectors.EVENT_READ)
@@ -305,6 +313,11 @@ def run_case(binary, root, fixture, mode):
                                   "request": {"subtype": "interrupt"}})
                             continue
                         answer = {}
+                        if (lifecycle == "submit-deny" and request["callback_id"] == "UserPromptSubmit"):
+                            answer = {"decision": "block", "reason": "SOURCE_SUBMIT_DENY"}
+                        elif (lifecycle == "stop-correct" and request["callback_id"] == "Stop"
+                              and len(requests) == 1):
+                            answer = {"decision": "block", "reason": "SOURCE_STOP_CORRECTION"}
                         if mode in fixture["replacement_cases"] and request["callback_id"] == "PostToolUse":
                             answer = {"hookSpecificOutput": {"hookEventName": "PostToolUse",
                                       "updatedMCPToolOutput": fixture["replacement_cases"][mode]}}
@@ -332,6 +345,8 @@ def run_case(binary, root, fixture, mode):
                     send({"type": "control_response", "response": {"subtype": "success",
                           "request_id": message["request_id"], "response": answer}})
             assert complete and not errors, f"incomplete local exchange: {errors}"
+            if lifecycle is not None:
+                return {"case": lifecycle, "model_requests": len(requests), "errors": errors}
             verify(events, requests, fixture, mode, trace)
             changed = copy.deepcopy(events)
             call = next(item["request"]["message"] for item in changed
