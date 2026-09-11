@@ -152,7 +152,9 @@ def verify(hooks, requests, calls, fixture, success, thread, turn, cwd, transcri
     assert results[0]["output"] == fixture["response"]
 
 
-def run_case(binary, root, fixture, success, correction=False, *, observer=None):
+def run_case(binary, root, fixture, success, correction=False, *, observer=None, lifecycle=None):
+    if lifecycle not in [None, "pass", "submit-deny", "stop-correct"] or (lifecycle and (observer or correction)):
+        raise ValueError("invalid lifecycle source case")
     root.mkdir()
     home, cwd = root / "codex-home", root / "work"
     home.mkdir()
@@ -160,14 +162,24 @@ def run_case(binary, root, fixture, success, correction=False, *, observer=None)
     fake_codex_auth(home)
     script = root / "capture.py"
     script.write_text(CAPTURE + (OBSERVER_CAPTURE.replace("EXIT_CODE", str(observer.exit_code))
-                                if observer else ""))
+                                 if observer else ""))
+    if lifecycle:
+        script.write_text(CAPTURE + '\nimport time\n'
+                          'with Path(sys.argv[1] + ".times").open("a") as output:\n'
+                          '    output.write(json.dumps({"event":message,"time":time.monotonic()}) + "\\n")\n'
+                          + 'mode=' + repr(lifecycle) + '\n'
+                          'if mode == "submit-deny" and message["hook_event_name"] == "UserPromptSubmit":\n'
+                          '    print(json.dumps({"decision":"block","reason":"CODEX_SOURCE_SUBMIT_DENY"}),flush=True)\n'
+                          'elif mode == "stop-correct" and message["hook_event_name"] == "Stop" and not message["stop_hook_active"]:\n'
+                          '    print(json.dumps({"decision":"block","reason":"CODEX_SOURCE_STOP_CORRECTION"}),flush=True)\n')
     hook_path = root / "hooks.jsonl"
     command = shlex.join(["/usr/bin/python3", str(script), str(hook_path)])
     config = 'model="gpt-5.4"\ncli_auth_credentials_store="file"\n[features]\nenable_request_compression=false\nhooks=true\n'
-    for event in ["PreToolUse", "PostToolUse"]:
+    for event in (["UserPromptSubmit", "Stop"] if lifecycle else ["PreToolUse", "PostToolUse"]):
         asynchronous = (',async=' + str(observer.asynchronous).lower()
                         if observer and event == "PostToolUse" else '')
-        config += '[[hooks.' + event + ']]\nmatcher="capture"\nhooks=[{type="command",command=' + json.dumps(command) + ',timeout=5' + asynchronous + '}]\n'
+        matcher = '' if lifecycle else 'matcher="capture"\n'
+        config += '[[hooks.' + event + ']]\n' + matcher + 'hooks=[{type="command",command=' + json.dumps(command) + ',timeout=5' + asynchronous + '}]\n'
     (home / "config.toml").write_text(config)
     requests, errors, events, calls, trace = [], [], [], [], []
 
@@ -197,7 +209,7 @@ def run_case(binary, root, fixture, success, correction=False, *, observer=None)
                 requests.append(data)
                 item = ({"type": "function_call", "id": "fc_source", "call_id": fixture["tool_use_id"],
                          "name": fixture["tool_name"], "arguments": json.dumps(fixture["arguments"])}
-                        if len(requests) == 1 else {"type": "message", "id": "msg_source", "role": "assistant",
+                         if len(requests) == 1 and not lifecycle else {"type": "message", "id": "msg_source", "role": "assistant",
                          "content": [{"type": "output_text", "text": "done"}]})
                 self.send_header("Content-Type", "text/event-stream")
                 self.end_headers()
@@ -232,6 +244,9 @@ def run_case(binary, root, fixture, success, correction=False, *, observer=None)
                     'tools.experimental_request_user_input.enabled=false', 'tools.update_plan.enabled=false',
                     'orchestrator.skills.enabled=false', 'orchestrator.mcp.enabled=false']:
         args += ["-c", setting]
+    if lifecycle:
+        (root / "inputs.json").write_text(json.dumps({"command": args, "environment": environment,
+                                                     "case": lifecycle}, indent=2) + "\n")
     process = None
     selector = selectors.DefaultSelector()
     try:
@@ -334,6 +349,9 @@ def run_case(binary, root, fixture, success, correction=False, *, observer=None)
                         correction_sent = True
             assert finished and not errors, f"incomplete local exchange: {errors}"
             hooks = [json.loads(line) for line in hook_path.read_text().splitlines()]
+            if lifecycle:
+                return {"case": lifecycle, "thread": thread, "turn": turn, "transcript": transcript,
+                        "model_requests": len(requests), "errors": errors}
             if observer:
                 verify(hooks, requests[:2], calls, fixture, success, thread, turn, cwd, transcript)
                 assert len(requests) == 3 and observer_followup
