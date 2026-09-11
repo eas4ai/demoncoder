@@ -22,4 +22,4 @@ existing generic HTTP helper's behavior for its other callers.
 
 ## Realized by
 
-5cfa22fe8c71fae48348d253c74966efe4e06b90 Observe native provider failures under their original turn owner
+- 5cfa22fe8c71fae48348d253c74966efe4e06b90 Observe native provider failures under their original turn owner
