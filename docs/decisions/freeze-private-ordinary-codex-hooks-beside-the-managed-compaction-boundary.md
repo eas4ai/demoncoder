@@ -11,4 +11,4 @@ Add a separately retained patch after the existing pinned managed-compaction pat
 
 ## Realized by
 
-(none yet: recorded, not built)
+- 122aa6e934dff272d8dfa0f3bb511a493a27a2cf Add immutable private Submit and Stop boundary to managed Codex

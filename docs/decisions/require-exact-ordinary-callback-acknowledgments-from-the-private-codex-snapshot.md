@@ -11,4 +11,4 @@ Use CODEX_DEMONCODER_ORDINARY_RELAY for a separate demoncoder-ordinary-v1 startu
 
 ## Realized by
 
-(none yet: recorded, not built)
+- 122aa6e934dff272d8dfa0f3bb511a493a27a2cf Add immutable private Submit and Stop boundary to managed Codex

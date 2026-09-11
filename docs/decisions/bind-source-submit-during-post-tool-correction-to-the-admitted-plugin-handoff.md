@@ -11,4 +11,4 @@ Pinned Claude emits UserPromptSubmit for the host post-tool correction before it
 
 ## Realized by
 
-(none yet: recorded, not built)
+- d7c10a6a59c3ab93b5dda1c772808a90379f4d0a Bind Claude Submit and Stop callbacks to durable backend owners
