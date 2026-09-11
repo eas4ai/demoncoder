@@ -3,6 +3,7 @@ use super::{HostInvocation, Operation, Record, SharedRuntime, delegation};
 use crate::plugins::{hook_types::HookEvent, receipts::*};
 use anyhow::{Context, Result, ensure};
 mod owner;
+mod turn;
 
 pub(super) fn active(record: &Record, id: u64, event: HookEvent) -> Result<&NonToolReceipt> {
     let operation = record
@@ -150,12 +151,13 @@ impl SharedRuntime {
         plan: String,
         declarations: Vec<serde_json::Value>,
     ) -> Result<NonToolFacts> {
-        self.begin_non_tool_as(phase, None, occurrence, plan, declarations)
+        self.begin_non_tool_as(phase, None, None, occurrence, plan, declarations)
     }
     pub(crate) fn begin_non_tool_as(
         &self,
         phase: &str,
         identity: Option<&super::Identity>,
+        native_turn: Option<u64>,
         occurrence: NonToolOccurrence,
         plan: String,
         declarations: Vec<serde_json::Value>,
@@ -189,6 +191,20 @@ impl SharedRuntime {
             let execution_identity = owner.identity.clone();
             let workspace = owner.root.to_owned();
             let child_owner = owner.child;
+            if let Some(turn) = native_turn {
+                let turn = turn::validate(record, turn, phase)?;
+                ensure!(
+                    turn.origin == NativeTurnOrigin::Developer
+                        || !matches!(
+                            occurrence,
+                            NonToolOccurrence::UserPromptSubmit {
+                                correction: false,
+                                ..
+                            }
+                        ),
+                    "plugin-origin turn cannot fabricate an initial developer submission"
+                );
+            }
             ensure!(
                 record.operations.len() < 4096,
                 "session operation history is full"
@@ -203,6 +219,8 @@ impl SharedRuntime {
                 std::fs::metadata(&workspace).context("lifecycle workspace unavailable")?;
             let id = record.operations.len() as u64 + 1;
             let facts = NonToolFacts {
+                native_turn,
+                provenance: native_turn.map(|_| "native_host_translation_v1".into()),
                 declaration_role: Some("worker".into()),
                 child_owner,
                 host_transcript_path: host_transcript_path.clone(),
@@ -274,7 +292,7 @@ impl SharedRuntime {
             let key = &hook.inspected;
             ensure!(
                 key.operation == id
-                    && key.source_operation == id
+                    && key.source_operation == receipt.facts.native_turn.unwrap_or(id)
                     && key.session == receipt.facts.session
                     && key.event == event.as_str()
                     && key.role == receipt.facts.role

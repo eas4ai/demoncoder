@@ -117,7 +117,11 @@ async fn blocked_native_prompt_never_reaches_model_and_remains_inspectable() {
     assert_eq!(requests.load(Ordering::SeqCst), 0);
     assert!(prompts.lock().unwrap().is_empty());
     let record = runtime.record().unwrap();
-    let receipt = record.operations[0].non_tool_receipt().unwrap();
+    let receipt = record
+        .operations
+        .iter()
+        .find_map(|o| o.non_tool_receipt())
+        .unwrap();
     assert!(receipt.hold.as_ref().unwrap().contains("visible rejection"));
     assert!(
         serde_json::to_string(&receipt.facts)
@@ -238,6 +242,18 @@ async fn stop_round(always: bool) {
     assert_eq!(gates.load(Ordering::SeqCst), 2);
     let record = runtime.record().unwrap();
     assert_eq!(record.task.as_ref().unwrap().corrections, 1);
+    let receipts: Vec<_> = record
+        .operations
+        .iter()
+        .filter_map(|o| o.non_tool_receipt())
+        .collect();
+    assert_eq!(
+        receipts.len(),
+        2,
+        "Stop corrections must not fabricate Submit"
+    );
+    assert!(receipts[0].facts.native_turn.is_some());
+    assert_eq!(receipts[0].facts.native_turn, receipts[1].facts.native_turn);
     assert!(record.task.as_ref().unwrap().stopped);
     assert!(record.task.as_ref().unwrap().accepted.is_none());
     assert_eq!(
@@ -519,49 +535,59 @@ impl HookRunner for RejectCorrection {
 }
 #[tokio::test]
 async fn actual_developer_correction_is_gated_before_its_model_injection() {
-    let root = tempfile::tempdir().unwrap();
-    let state = tempfile::tempdir().unwrap();
-    let mut record = crate::inspection::tests::record(root.path());
-    record.phase = Some("worker".into());
-    let runtime = SharedRuntime::for_test(&state.path().join("record"), record).unwrap();
-    let mut tools = ToolExecutor::new(root.path()).unwrap();
-    tools
-        .register_non_tool_plan(plan(
-            HookEvent::UserPromptSubmit,
-            Arc::new(RejectCorrection),
-        ))
-        .unwrap();
-    let requests = Arc::new(AtomicUsize::new(0));
-    let prompts = Arc::new(Mutex::new(vec![]));
-    let (commands, mut command_rx) = mpsc::channel(4);
-    let (tx, _rx) = mpsc::channel(256);
-    let mut session = NativeSession::with_tools(
-        Box::new(CorrectionModel {
-            commands,
-            prompts: prompts.clone(),
-            requests: requests.clone(),
-        }),
-        tools,
-    );
-    let events = EventSink::new("developer-correction".into(), tx, None)
-        .unwrap()
-        .with_runtime(runtime.clone());
-    assert!(
-        session
-            .turn("original prompt".into(), &mut command_rx, &events)
-            .await
-            .is_err()
-    );
-    assert_eq!(requests.load(Ordering::SeqCst), 1);
-    assert_eq!(&*prompts.lock().unwrap(), &["original prompt"]);
-    let record = runtime.record().unwrap();
-    let receipts = record
-        .operations
-        .iter()
-        .filter_map(|o| o.non_tool_receipt())
-        .collect::<Vec<_>>();
-    assert_eq!(receipts.len(), 2);
-    assert_eq!(receipts[1].hold.as_deref(), Some("correction rejected"));
+    for plugin_origin in [false, true] {
+        let root = tempfile::tempdir().unwrap();
+        let state = tempfile::tempdir().unwrap();
+        let mut record = crate::inspection::tests::record(root.path());
+        record.phase = Some("worker".into());
+        let runtime = SharedRuntime::for_test(&state.path().join("record"), record).unwrap();
+        let mut tools = ToolExecutor::new(root.path()).unwrap();
+        tools
+            .register_non_tool_plan(plan(
+                HookEvent::UserPromptSubmit,
+                Arc::new(RejectCorrection),
+            ))
+            .unwrap();
+        let requests = Arc::new(AtomicUsize::new(0));
+        let prompts = Arc::new(Mutex::new(vec![]));
+        let (commands, mut command_rx) = mpsc::channel(4);
+        let (tx, _rx) = mpsc::channel(256);
+        let mut session = NativeSession::with_tools(
+            Box::new(CorrectionModel {
+                commands,
+                prompts: prompts.clone(),
+                requests: requests.clone(),
+            }),
+            tools,
+        );
+        let events = EventSink::new("developer-correction".into(), tx, None)
+            .unwrap()
+            .with_runtime(runtime.clone());
+        let events = if plugin_origin {
+            events.with_plugin_prompt()
+        } else {
+            events
+        };
+        assert!(
+            session
+                .turn("original prompt".into(), &mut command_rx, &events)
+                .await
+                .is_err()
+        );
+        assert_eq!(requests.load(Ordering::SeqCst), 1);
+        assert_eq!(&*prompts.lock().unwrap(), &["original prompt"]);
+        let record = runtime.record().unwrap();
+        let receipts = record
+            .operations
+            .iter()
+            .filter_map(|o| o.non_tool_receipt())
+            .collect::<Vec<_>>();
+        assert_eq!(receipts.len(), if plugin_origin { 1 } else { 2 });
+        assert_eq!(
+            receipts.last().unwrap().hold.as_deref(),
+            Some("correction rejected")
+        );
+    }
 }
 
 struct AsyncGate(Arc<tokio::sync::Notify>);
@@ -581,71 +607,97 @@ impl HookRunner for AsyncGate {
 }
 #[tokio::test]
 async fn asynchronous_non_tool_observer_transfers_and_is_cancelled_with_native_owner() {
-    let root = tempfile::tempdir().unwrap();
-    let state = tempfile::tempdir().unwrap();
-    let mut record = crate::inspection::tests::record(root.path());
-    record.phase = Some("worker".into());
-    let runtime = SharedRuntime::for_test(&state.path().join("record"), record).unwrap();
-    runtime
-        .allocate(crate::workflow::allocation::Limits::default(), None)
-        .unwrap();
-    let ready = Arc::new(tokio::sync::Notify::new());
-    let runner = Arc::new(AsyncGate(ready.clone()));
-    let base = plan(
-        HookEvent::UserPromptSubmit,
-        Arc::new(AllowCount(Arc::new(AtomicUsize::new(0)))),
-    );
-    let mut declaration = base.plan.handlers[0].registration.declaration.clone();
-    declaration.required_gate = false;
-    declaration.class = HandlerClass::Observer;
-    let observer = Arc::new(
-        NonToolPlan::new(
+    for admission_failure in [false, true] {
+        let root = tempfile::tempdir().unwrap();
+        let state = tempfile::tempdir().unwrap();
+        let mut record = crate::inspection::tests::record(root.path());
+        record.phase = Some("worker".into());
+        let runtime = SharedRuntime::for_test(&state.path().join("record"), record).unwrap();
+        runtime
+            .allocate(crate::workflow::allocation::Limits::default(), None)
+            .unwrap();
+        let ready = Arc::new(tokio::sync::Notify::new());
+        let runner = Arc::new(AsyncGate(ready.clone()));
+        let base = plan(
             HookEvent::UserPromptSubmit,
-            vec![Registration {
-                declaration,
-                runner,
-                revalidation: None,
-            }],
-        )
-        .unwrap(),
-    );
-    let mut tools = ToolExecutor::new(root.path()).unwrap();
-    tools.register_non_tool_plan(observer).unwrap();
-    let requests = Arc::new(AtomicUsize::new(0));
-    let mut session = NativeSession::with_tools(
-        Box::new(Counting {
-            requests: requests.clone(),
-            prompts: Arc::new(Mutex::new(vec![])),
-        }),
-        tools,
-    );
-    let (_commands, mut command_rx) = mpsc::channel(4);
-    let (tx, _rx) = mpsc::channel(256);
-    let events = EventSink::new("async-non-tool".into(), tx, None)
-        .unwrap()
-        .with_runtime(runtime.clone());
-    session
-        .turn("observe prompt".into(), &mut command_rx, &events)
-        .await
-        .unwrap();
-    tokio::time::timeout(std::time::Duration::from_secs(2), ready.notified())
-        .await
-        .unwrap();
-    assert_eq!(requests.load(Ordering::SeqCst), 1);
-    let record = runtime.record().unwrap();
-    let receipt = record.operations[0].non_tool_receipt().unwrap();
-    assert!(receipt.settled && receipt.hooks[0].transferred());
-    tokio::time::timeout(std::time::Duration::from_secs(2), session.close())
-        .await
-        .unwrap()
-        .unwrap();
-    let record = runtime.record().unwrap();
-    let hook = &record.operations[0].non_tool_receipt().unwrap().hooks[0];
-    assert_eq!(
-        hook.observer.as_ref().unwrap().status,
-        crate::plugins::observer::Status::Interrupted
-    );
-    assert!(hook.outcome.is_some());
+            Arc::new(AllowCount(Arc::new(AtomicUsize::new(0)))),
+        );
+        let mut declaration = base.plan.handlers[0].registration.declaration.clone();
+        declaration.required_gate = false;
+        declaration.class = HandlerClass::Observer;
+        let observer = Arc::new(
+            NonToolPlan::new(
+                HookEvent::UserPromptSubmit,
+                vec![Registration {
+                    declaration,
+                    runner,
+                    revalidation: None,
+                }],
+            )
+            .unwrap(),
+        );
+        let mut tools = ToolExecutor::new(root.path()).unwrap();
+        tools.register_non_tool_plan(observer).unwrap();
+        let requests = Arc::new(AtomicUsize::new(0));
+        let mut session = NativeSession::with_tools(
+            Box::new(Counting {
+                requests: requests.clone(),
+                prompts: Arc::new(Mutex::new(vec![])),
+            }),
+            tools,
+        );
+        let (_commands, mut command_rx) = mpsc::channel(4);
+        let (tx, _rx) = mpsc::channel(256);
+        let events = EventSink::new("async-non-tool".into(), tx, None)
+            .unwrap()
+            .with_runtime(runtime.clone());
+        session
+            .turn("observe prompt".into(), &mut command_rx, &events)
+            .await
+            .unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(2), ready.notified())
+            .await
+            .unwrap();
+        assert_eq!(requests.load(Ordering::SeqCst), 1);
+        let record = runtime.record().unwrap();
+        let receipt = record
+            .operations
+            .iter()
+            .find_map(|o| o.non_tool_receipt())
+            .unwrap();
+        assert!(receipt.settled && receipt.hooks[0].transferred());
+        if admission_failure {
+            runtime
+                .update(|r| {
+                    r.recovery_pending = true;
+                    Ok(())
+                })
+                .unwrap();
+            assert!(
+                session
+                    .turn("held next turn".into(), &mut command_rx, &events)
+                    .await
+                    .is_err()
+            );
+        } else {
+            tokio::time::timeout(std::time::Duration::from_secs(2), session.close())
+                .await
+                .unwrap()
+                .unwrap();
+        }
+        let record = runtime.record().unwrap();
+        let hook = &record
+            .operations
+            .iter()
+            .find_map(|o| o.non_tool_receipt())
+            .unwrap()
+            .hooks[0];
+        assert_eq!(
+            hook.observer.as_ref().unwrap().status,
+            crate::plugins::observer::Status::Interrupted
+        );
+        assert!(hook.outcome.is_some());
+    }
 }
 
 #[test]
@@ -682,5 +734,268 @@ fn snapshot_policy_rejects_non_tool_lifecycle_and_duplicate_native_plans() {
     assert!(
         ToolExecutor::with_policy(root.path(), &access).is_err(),
         "duplicate Stop plans selected ambiguously"
+    );
+}
+
+async fn durable_turn_case(submit: bool, plugin: bool) {
+    let root = tempfile::tempdir().unwrap();
+    let state = tempfile::tempdir().unwrap();
+    let mut record = crate::inspection::tests::record(root.path());
+    record.phase = Some("worker".into());
+    let runtime = SharedRuntime::for_test(&state.path().join("record"), record).unwrap();
+    let mut tools = ToolExecutor::new(root.path()).unwrap();
+    let count = Arc::new(AtomicUsize::new(0));
+    if submit {
+        tools
+            .register_non_tool_plan(plan(
+                HookEvent::UserPromptSubmit,
+                Arc::new(AllowCount(count.clone())),
+            ))
+            .unwrap();
+    }
+    tools
+        .register_non_tool_plan(plan(HookEvent::Stop, Arc::new(AllowCount(count.clone()))))
+        .unwrap();
+    let mut session = NativeSession::with_tools(
+        Box::new(Counting {
+            requests: Arc::new(AtomicUsize::new(0)),
+            prompts: Arc::new(Mutex::new(vec![])),
+        }),
+        tools,
+    );
+    let (_commands, mut command_rx) = mpsc::channel(4);
+    let (tx, _rx) = mpsc::channel(256);
+    let mut events = EventSink::new("turn-identity".into(), tx, None)
+        .unwrap()
+        .with_runtime(runtime.clone());
+    if plugin {
+        events = events.with_plugin_prompt();
+    }
+    for prompt in ["first actual turn", "second actual turn"] {
+        session
+            .turn(prompt.into(), &mut command_rx, &events)
+            .await
+            .unwrap();
+    }
+    let record = runtime.record().unwrap();
+    let rows = serde_json::to_value(&record.operations).unwrap();
+    let turns: Vec<_> = rows
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|row| row["host_invocation"].get("native_turn").is_some())
+        .collect();
+    assert_eq!(
+        turns.len(),
+        2,
+        "each actual turn needs a durable origin before optional hooks"
+    );
+    for turn in &turns {
+        assert_eq!(
+            turn["host_invocation"]["native_turn"]["origin"],
+            if plugin {
+                "plugin_context"
+            } else {
+                "developer"
+            }
+        );
+        assert_eq!(turn["complete"], true);
+        let receipts: Vec<_> = rows
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|row| row["host_invocation"].get("lifecycle"))
+            .filter(|receipt| receipt["facts"]["native_turn"] == turn["id"])
+            .collect();
+        assert_eq!(receipts.len(), if submit && !plugin { 2 } else { 1 });
+        assert!(
+            receipts
+                .iter()
+                .all(|receipt| receipt["facts"]["operation"].as_u64().unwrap()
+                    > turn["id"].as_u64().unwrap())
+        );
+    }
+    let page = crate::inspection::project(
+        &record,
+        Some(crate::inspection::Request {
+            target: crate::inspection::Target::Overview,
+            page: 0,
+            generation: 0,
+        }),
+    )
+    .page
+    .unwrap();
+    assert!(
+        page.text.contains("Native turn")
+            && page.text.contains(if plugin {
+                "plugin context"
+            } else {
+                "developer"
+            }),
+        "turn origin must be inspectable: {}",
+        page.text
+    );
+}
+
+#[tokio::test]
+async fn native_turn_submit_and_stop_share_durable_identity() {
+    durable_turn_case(true, false).await;
+}
+#[tokio::test]
+async fn native_turn_stop_only_has_real_identity() {
+    durable_turn_case(false, false).await;
+}
+#[tokio::test]
+async fn native_turn_plugin_origin_has_identity_without_developer_submit() {
+    durable_turn_case(true, true).await;
+}
+
+struct TextResponses(VecDeque<String>);
+#[async_trait]
+impl Model for TextResponses {
+    fn prompt(&mut self, _: String) {}
+    fn results(&mut self, _: Vec<ToolResult>) {}
+    async fn response(&mut self, events: &EventSink) -> Result<Vec<ToolCall>> {
+        if let Some(text) = self.0.pop_front() {
+            events.emit(Event::Text { text }).await?;
+        }
+        Ok(vec![])
+    }
+}
+struct NoisyGate;
+#[async_trait]
+impl HookRunner for NoisyGate {
+    fn side_effect_free(&self) -> bool {
+        true
+    }
+    async fn run(&self, invocation: &HookInvocation) -> Result<RawOutcome> {
+        invocation
+            .events
+            .emit(Event::Text {
+                text: "Plugin advisory must not become assistant output".into(),
+            })
+            .await?;
+        Ok(RawOutcome::Callback { value: json!({}) })
+    }
+}
+#[tokio::test]
+async fn native_turn_text_resets_and_excludes_plugin_output() {
+    let root = tempfile::tempdir().unwrap();
+    let state = tempfile::tempdir().unwrap();
+    let mut record = crate::inspection::tests::record(root.path());
+    record.phase = Some("worker".into());
+    let runtime = SharedRuntime::for_test(&state.path().join("record"), record).unwrap();
+    let mut tools = ToolExecutor::new(root.path()).unwrap();
+    tools
+        .register_non_tool_plan(plan(HookEvent::UserPromptSubmit, Arc::new(NoisyGate)))
+        .unwrap();
+    tools
+        .register_non_tool_plan(plan(HookEvent::Stop, Arc::new(NoisyGate)))
+        .unwrap();
+    let mut session = NativeSession::with_tools(
+        Box::new(TextResponses(
+            ["first answer".into(), "second answer".into()].into(),
+        )),
+        tools,
+    );
+    let (_tx, mut commands) = mpsc::channel(4);
+    let (tx, _rx) = mpsc::channel(256);
+    let events = EventSink::new("text".into(), tx, None)
+        .unwrap()
+        .with_runtime(runtime.clone());
+    for _ in 0..3 {
+        session
+            .turn("prompt".into(), &mut commands, &events)
+            .await
+            .unwrap();
+    }
+    let record = runtime.record().unwrap();
+    let messages: Vec<_> = record
+        .operations
+        .iter()
+        .filter_map(|o| o.non_tool_receipt())
+        .filter_map(|r| match &r.facts.subject.occurrence {
+            crate::plugins::receipts::NonToolOccurrence::Stop {
+                last_assistant_message,
+                ..
+            } => Some(last_assistant_message.as_deref()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        messages,
+        [Some("first answer"), Some("second answer"), None]
+    );
+}
+
+#[tokio::test]
+async fn native_turn_large_text_without_stop_hooks_preserves_bare_session_behavior() {
+    let root = tempfile::tempdir().unwrap();
+    let state = tempfile::tempdir().unwrap();
+    let runtime = SharedRuntime::for_test(
+        &state.path().join("record"),
+        crate::inspection::tests::record(root.path()),
+    )
+    .unwrap();
+    let mut session = NativeSession::new(
+        Box::new(TextResponses(["x".repeat(70 * 1024)].into())),
+        root.path(),
+    )
+    .unwrap();
+    let (_tx, mut commands) = mpsc::channel(4);
+    let (tx, _rx) = mpsc::channel(256);
+    let events = EventSink::new("bare".into(), tx, None)
+        .unwrap()
+        .with_runtime(runtime.clone());
+    let outcome = session.turn("prompt".into(), &mut commands, &events).await;
+    assert!(outcome.is_ok(), "bare response failed: {:?}", outcome.err());
+    assert_eq!(runtime.record().unwrap().operations.len(), 2);
+}
+
+#[tokio::test]
+async fn native_turn_oversize_stop_text_is_visible_and_never_substituted() {
+    let root = tempfile::tempdir().unwrap();
+    let state = tempfile::tempdir().unwrap();
+    let mut record = crate::inspection::tests::record(root.path());
+    record.phase = Some("worker".into());
+    let runtime = SharedRuntime::for_test(&state.path().join("record"), record).unwrap();
+    let count = Arc::new(AtomicUsize::new(0));
+    let mut tools = ToolExecutor::new(root.path()).unwrap();
+    tools
+        .register_non_tool_plan(plan(HookEvent::Stop, Arc::new(AllowCount(count.clone()))))
+        .unwrap();
+    let mut session = NativeSession::with_tools(
+        Box::new(TextResponses(["x".repeat(70 * 1024)].into())),
+        tools,
+    );
+    let (_tx, mut commands) = mpsc::channel(4);
+    let (tx, _rx) = mpsc::channel(256);
+    let events = EventSink::new("oversize".into(), tx, None)
+        .unwrap()
+        .with_runtime(runtime.clone());
+    let error = session
+        .turn("prompt".into(), &mut commands, &events)
+        .await
+        .err()
+        .unwrap();
+    assert!(
+        error
+            .to_string()
+            .contains("assistant text exceeds lifecycle input bound")
+    );
+    assert_eq!(count.load(Ordering::SeqCst), 0);
+    assert!(
+        runtime
+            .record()
+            .unwrap()
+            .operations
+            .iter()
+            .all(|o| o.non_tool_receipt().is_none())
+    );
+    assert!(
+        serde_json::to_string(&runtime.record().unwrap().messages)
+            .unwrap()
+            .contains(&"x".repeat(70 * 1024)),
+        "original model output must survive capture overflow"
     );
 }

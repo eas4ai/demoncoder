@@ -140,6 +140,8 @@ pub struct Envelope {
 /// One ordered publication path for both retained events and the UI.
 #[derive(Clone)]
 pub struct EventSink {
+    native_turn: Option<u64>,
+    assistant_text: Option<Arc<Mutex<AssistantText>>>,
     prompt_origin: Option<PromptOrigin>,
     connection: String,
     sender: mpsc::Sender<Envelope>,
@@ -159,6 +161,12 @@ pub struct EventSink {
 enum PromptOrigin {
     Developer(String),
     PluginContext,
+}
+
+#[derive(Default)]
+struct AssistantText {
+    text: Option<String>,
+    exceeded: bool,
 }
 
 /// A session retains cancellation authority without keeping its runtime alive.
@@ -205,6 +213,8 @@ impl EventSink {
             })
             .transpose()?;
         Ok(Self {
+            native_turn: None,
+            assistant_text: None,
             prompt_origin: None,
             connection,
             sender,
@@ -226,6 +236,62 @@ impl EventSink {
             prompt_origin: Some(PromptOrigin::Developer(text)),
             ..self.clone()
         }
+    }
+    pub(crate) fn begin_native_turn(&self) -> Result<Self> {
+        // Snapshot reviewers and Oracle sessions are not ordinary worker turns.
+        let native_turn = if self.hook_model.is_none()
+            && (self.phase == "worker"
+                || self.phase.starts_with("agent:") && self.phase.ends_with(":worker"))
+        {
+            self.runtime
+                .as_ref()
+                .map(|runtime| {
+                    runtime.begin_native_turn(
+                        &self.phase,
+                        self.identity.as_ref(),
+                        if self.is_plugin_prompt() {
+                            crate::plugins::receipts::NativeTurnOrigin::PluginContext
+                        } else {
+                            crate::plugins::receipts::NativeTurnOrigin::Developer
+                        },
+                    )
+                })
+                .transpose()?
+        } else {
+            None
+        };
+        Ok(Self {
+            native_turn,
+            ..self.clone()
+        })
+    }
+    pub(crate) fn finish_native_turn(
+        &self,
+        end: crate::plugins::receipts::NativeTurnEnd,
+    ) -> Result<()> {
+        if let (Some(runtime), Some(turn)) = (&self.runtime, self.native_turn) {
+            runtime.finish_native_turn(turn, end)?;
+        }
+        Ok(())
+    }
+    pub(crate) fn capture_assistant_text(&self) -> Self {
+        Self {
+            assistant_text: Some(Arc::new(Mutex::new(AssistantText::default()))),
+            ..self.clone()
+        }
+    }
+    pub(crate) fn assistant_text(&self) -> Result<Option<String>> {
+        let Some(capture) = &self.assistant_text else {
+            return Ok(None);
+        };
+        let capture = capture
+            .lock()
+            .map_err(|_| anyhow::anyhow!("assistant text capture lock failed"))?;
+        anyhow::ensure!(
+            !capture.exceeded,
+            "assistant text exceeds lifecycle input bound"
+        );
+        Ok(capture.text.clone())
     }
     pub(crate) fn with_plugin_prompt(&self) -> Self {
         Self {
@@ -312,6 +378,8 @@ impl EventSink {
     pub(crate) fn child(&self, phase: &str, sender: mpsc::Sender<Envelope>) -> Self {
         Self {
             prompt_origin: None,
+            native_turn: None,
+            assistant_text: None,
             connection: phase.into(),
             sender,
             log: None,
@@ -448,6 +516,7 @@ impl EventSink {
         let facts = runtime.begin_non_tool_as(
             &self.phase,
             self.identity.as_ref(),
+            self.native_turn,
             occurrence,
             plan,
             declarations,
@@ -797,6 +866,25 @@ impl EventSink {
     }
 
     fn retain(&self, envelope: &Envelope) -> Result<()> {
+        if let (Some(capture), Event::Text { text }) = (&self.assistant_text, &envelope.event) {
+            let mut captured = capture
+                .lock()
+                .map_err(|_| anyhow::anyhow!("assistant text capture lock failed"))?;
+            if captured
+                .text
+                .as_ref()
+                .map_or(0, String::len)
+                .saturating_add(text.len())
+                > 64 * 1024
+            {
+                captured.exceeded = true;
+            }
+            if !captured.exceeded {
+                captured.text.get_or_insert_with(String::new).push_str(text);
+            }
+            // Overflow holds Stop framing, but original output still follows the
+            // existing durable transcript and UI path below.
+        }
         if let Some(runtime) = &self.runtime {
             // Scoped tools publish state synchronously at the effect boundary.
             // Live delivery and duplicate notices cannot allocate or replace it.

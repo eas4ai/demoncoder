@@ -241,19 +241,25 @@ fn non_tool_input(
             value
         }
         HookDialect::Claude => {
-            let Some(ObservedLifecycle::Claude(input)) = &facts.source else {
-                anyhow::bail!("Claude lifecycle input requires an observed source callback");
+            let input = match &facts.source {
+                Some(ObservedLifecycle::Claude(input)) => input.clone(),
+                None => translated_non_tool_input(invocation, facts, dialect)?,
+                _ => {
+                    anyhow::bail!("Claude lifecycle input has a different observed source dialect")
+                }
             };
             ensure!(
                 input["hook_event_name"] == event.as_str(),
                 "Claude observed lifecycle event differs"
             );
-            profile.validate_claude_input(event, input)?;
-            input.clone()
+            profile.validate_claude_input(event, &input)?;
+            input
         }
         HookDialect::Codex => {
-            let Some(ObservedLifecycle::Codex(input)) = &facts.source else {
-                anyhow::bail!("Codex lifecycle input requires an observed source callback");
+            let input = match &facts.source {
+                Some(ObservedLifecycle::Codex(input)) => input.clone(),
+                None => translated_non_tool_input(invocation, facts, dialect)?,
+                _ => anyhow::bail!("Codex lifecycle input has a different observed source dialect"),
             };
             ensure!(
                 input["hook_event_name"] == event.as_str(),
@@ -271,9 +277,9 @@ fn non_tool_input(
                     ),
                     definition: None,
                 },
-                input,
+                &input,
             )?;
-            input.clone()
+            input
         }
     };
     crate::plugins::wire::measure(&input)?;
@@ -284,4 +290,48 @@ fn non_tool_input(
     serde_json::to_writer(&mut bytes, &input)
         .context("hook lifecycle input exceeds configured bound")?;
     Ok(bytes.bytes)
+}
+
+fn translated_non_tool_input(
+    invocation: &HookInvocation,
+    facts: &crate::plugins::receipts::NonToolFacts,
+    dialect: HookDialect,
+) -> Result<serde_json::Value> {
+    use crate::plugins::receipts::NonToolOccurrence;
+    use serde_json::json;
+    let turn = facts
+        .native_turn
+        .context("source lifecycle translation requires an actual native turn")?;
+    ensure!(
+        invocation.key.source_operation == turn
+            && facts.provenance.as_deref() == Some("native_host_translation_v1")
+            && !facts.host_transcript_path.is_empty(),
+        "native lifecycle translation provenance or turn binding missing"
+    );
+    let mut input = json!({"session_id":facts.session,"cwd":invocation.host.workspace,
+        "hook_event_name":facts.subject.occurrence.event().as_str(),
+        "transcript_path":facts.host_transcript_path,"permission_mode":facts.host_permission_mode});
+    if dialect == HookDialect::Codex {
+        input["turn_id"] = json!(turn.to_string());
+        input["model"] = json!(
+            facts
+                .host_model
+                .as_deref()
+                .filter(|s| !s.is_empty())
+                .context("Codex lifecycle translation requires the actual native model")?
+        );
+    }
+    match &facts.subject.occurrence {
+        NonToolOccurrence::UserPromptSubmit { prompt, .. } => input["prompt"] = json!(prompt),
+        NonToolOccurrence::Stop {
+            stop_hook_active,
+            last_assistant_message,
+        } => {
+            input["stop_hook_active"] = json!(stop_hook_active);
+            if dialect == HookDialect::Codex || last_assistant_message.is_some() {
+                input["last_assistant_message"] = json!(last_assistant_message);
+            }
+        }
+    }
+    Ok(input)
 }

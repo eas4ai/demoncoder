@@ -2061,7 +2061,11 @@ print(json.dumps({'decision':'block','reason':'real confined lifecycle rejection
         o.host_invocation,
         Some(HostInvocation::Model | HostInvocation::Backend)
     )));
-    let Some(HostInvocation::Lifecycle(receipt)) = &record.operations[0].host_invocation else {
+    let Some(HostInvocation::Lifecycle(receipt)) = record.operations.iter().find_map(|o| {
+        o.host_invocation
+            .as_ref()
+            .filter(|h| matches!(h, HostInvocation::Lifecycle(_)))
+    }) else {
         panic!("typed lifecycle receipt missing");
     };
     assert!(
@@ -2078,4 +2082,187 @@ print(json.dumps({'decision':'block','reason':'real confined lifecycle rejection
             ..
         })
     ));
+}
+
+struct ActualAssistant;
+#[async_trait::async_trait]
+impl Model for ActualAssistant {
+    fn prompt(&mut self, _: String) {}
+    fn results(&mut self, _: Vec<ToolResult>) {}
+    async fn response(&mut self, events: &EventSink) -> anyhow::Result<Vec<ToolCall>> {
+        for text in ["Actual assistant ", "answer.\n"] {
+            events
+                .emit(demoncoder::events::Event::Text { text: text.into() })
+                .await?;
+        }
+        Ok(vec![])
+    }
+}
+
+#[tokio::test]
+async fn native_turn_runs_imported_source_formats_with_actual_facts() {
+    use demoncoder::plugins::{hook_types::HookEvent, non_tool::NonToolPlan};
+    use demoncoder::workflow::runtime::HostInvocation;
+    let _lock = FIXTURES.lock().await;
+    for dialect in [HookDialect::Claude, HookDialect::Codex] {
+        let root = tempfile::tempdir().unwrap();
+        let connection: Connection =
+            serde_json::from_value(json!({"adapter":"openai-api","model":"actual-native-model"}))
+                .unwrap();
+        let (runtime, _) = SharedRuntime::open(root.path(), &connection, None).unwrap();
+        runtime
+            .begin_phase("worker", Some("actual native prompt"))
+            .unwrap();
+        let (tx, rx) = mpsc::channel(256);
+        let fixture = Fixture {
+            root,
+            runtime: runtime.clone(),
+            events: EventSink::new("actual-native".into(), tx, None)
+                .unwrap()
+                .with_runtime(runtime.clone()),
+            _receiver: rx,
+        };
+        let mut tools = fixture.executor(vec![], false);
+        let mut packages = vec![];
+        for event in [HookEvent::UserPromptSubmit, HookEvent::Stop] {
+            let (source, captured) = package(
+                dialect,
+                r#"import json,sys
+x=json.load(sys.stdin)
+print(json.dumps({'systemMessage':json.dumps(x)}))
+"#,
+            );
+            packages.push(source);
+            let mut d = declaration(event.as_str(), dialect, HandlerClass::Combined);
+            d.matcher = Matcher::default();
+            let registration =
+                CommandRunner::registration_for_event(captured, d, event, python_config(), None)
+                    .unwrap();
+            tools
+                .register_non_tool_plan(Arc::new(
+                    NonToolPlan::new(event, vec![registration]).unwrap(),
+                ))
+                .unwrap();
+        }
+        let mut session = NativeSession::with_tools(Box::new(ActualAssistant), tools);
+        let (_tx, mut commands) = mpsc::channel(4);
+        for _ in 0..2 {
+            let result = session
+                .turn(
+                    "actual native prompt".into(),
+                    &mut commands,
+                    &fixture.events,
+                )
+                .await;
+            assert!(result.is_ok(), "{dialect:?}: {:?}", result.err());
+        }
+        let record = fixture.record();
+        let receipts: Vec<_> = record
+            .operations
+            .iter()
+            .filter_map(|op| match &op.host_invocation {
+                Some(HostInvocation::Lifecycle(receipt)) => Some(receipt),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(receipts.len(), 4);
+        for receipt in &receipts {
+            assert_eq!(
+                receipt.facts.provenance.as_deref(),
+                Some("native_host_translation_v1")
+            );
+            assert!(receipt.facts.source.is_none());
+            let Some(RawOutcome::Command {
+                stdout,
+                exit_code: Some(0),
+                ..
+            }) = &receipt.hooks[0].outcome
+            else {
+                panic!(
+                    "source command did not succeed: {:?}",
+                    receipt.hooks[0].outcome
+                );
+            };
+            let output: serde_json::Value = serde_json::from_slice(stdout).unwrap();
+            let actual: serde_json::Value =
+                serde_json::from_str(output["systemMessage"].as_str().unwrap()).unwrap();
+            let event = receipt.facts.subject.occurrence.clone();
+            let mut expected = json!({"session_id":receipt.facts.session,"cwd":fixture.root.path(),"transcript_path":receipt.facts.host_transcript_path,"permission_mode":"default"});
+            match event {
+                demoncoder::plugins::receipts::NonToolOccurrence::UserPromptSubmit {
+                    prompt,
+                    ..
+                } => {
+                    expected["hook_event_name"] = json!("UserPromptSubmit");
+                    expected["prompt"] = json!(prompt);
+                }
+                demoncoder::plugins::receipts::NonToolOccurrence::Stop { .. } => {
+                    expected["hook_event_name"] = json!("Stop");
+                    expected["stop_hook_active"] = json!(false);
+                    expected["last_assistant_message"] = json!("Actual assistant answer.\n");
+                }
+            }
+            if dialect == HookDialect::Codex {
+                expected["turn_id"] = json!(receipt.facts.native_turn.unwrap().to_string());
+                expected["model"] = json!("actual-native-model");
+            }
+            assert_eq!(actual, expected);
+        }
+        assert_eq!(receipts[0].facts.native_turn, receipts[1].facts.native_turn);
+        assert_eq!(receipts[2].facts.native_turn, receipts[3].facts.native_turn);
+        assert_ne!(receipts[0].facts.native_turn, receipts[2].facts.native_turn);
+    }
+}
+
+#[tokio::test]
+async fn native_turn_codex_missing_model_holds_before_command_or_model_io() {
+    use demoncoder::plugins::{hook_types::HookEvent, non_tool::NonToolPlan};
+    use demoncoder::workflow::runtime::HostInvocation;
+    let _lock = FIXTURES.lock().await;
+    let fixture = Fixture::new();
+    fixture.runtime.begin_phase("worker", Some("test")).unwrap();
+    let (_source, package) = package(
+        HookDialect::Codex,
+        "raise AssertionError('missing actual model must hold before command I/O')",
+    );
+    let mut d = declaration("missing-model", HookDialect::Codex, HandlerClass::Combined);
+    d.matcher = Matcher::default();
+    let registration = CommandRunner::registration_for_event(
+        package,
+        d,
+        HookEvent::UserPromptSubmit,
+        python_config(),
+        None,
+    )
+    .unwrap();
+    let mut tools = fixture.executor(vec![], false);
+    tools
+        .register_non_tool_plan(Arc::new(
+            NonToolPlan::new(HookEvent::UserPromptSubmit, vec![registration]).unwrap(),
+        ))
+        .unwrap();
+    let mut session = NativeSession::with_tools(Box::new(ActualAssistant), tools);
+    let (_tx, mut commands) = mpsc::channel(4);
+    assert!(
+        session
+            .turn("test".into(), &mut commands, &fixture.events)
+            .await
+            .is_err()
+    );
+    let record = fixture.record();
+    assert!(!record.operations.iter().any(|o| matches!(
+        o.host_invocation,
+        Some(HostInvocation::Model | HostInvocation::Backend)
+    )));
+    let receipt = record
+        .operations
+        .iter()
+        .find_map(|o| match &o.host_invocation {
+            Some(HostInvocation::Lifecycle(r)) => Some(r),
+            _ => None,
+        })
+        .unwrap();
+    assert!(receipt.hold.is_some());
+    assert!(format!("{:?}", receipt.hooks[0].outcome).contains("requires the actual native model"));
+    assert!(!format!("{:?}", receipt.hooks[0].outcome).contains("AssertionError"));
 }

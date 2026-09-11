@@ -213,7 +213,10 @@ impl NonToolPlan {
                     "lifecycle declaration has a different owner"
                 );
                 // The native host occurrence cannot masquerade as a backend event, even for a callback runner.
-                if d.identity.dialect != HookDialect::Native && facts.source.is_none() {
+                if d.identity.dialect != HookDialect::Native
+                    && facts.source.is_none()
+                    && facts.native_turn.is_none()
+                {
                     effects.hold(
                         "source lifecycle handler requires an actual observed backend callback",
                     );
@@ -255,7 +258,7 @@ impl NonToolPlan {
             let key = AdmissionKey {
                 session: facts.session.clone(),
                 operation,
-                source_operation: operation,
+                source_operation: facts.native_turn.unwrap_or(operation),
                 event: event.as_str().into(),
                 tool: None,
                 arguments: None,

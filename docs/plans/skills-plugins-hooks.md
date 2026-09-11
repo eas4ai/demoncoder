@@ -325,7 +325,7 @@ tasks stay unchecked until implementation and required reviews are complete.
   worker turn. Keep blocked prompts inspectable and Stop corrections before
   stopped/phase completion, within the original correction and spending limits.
   Cancellation and shutdown must not enter or wait for a Stop correction.
-- [ ] Add the [durable native turn identity](../decisions/give-each-native-turn-a-durable-identity-before-hook-selection.md) before optional hook selection. Preserve it through Stop corrections and Stop-only configurations. Plugin-origin work records a real turn without fabricating a developer submission. Use this identity and real host transcript/model/policy for source-format translation.
+- [x] Add the [durable native turn identity](../decisions/give-each-native-turn-a-durable-identity-before-hook-selection.md) before optional hook selection. Preserve it through Stop corrections and Stop-only configurations. Plugin-origin work records a real turn without fabricating a developer submission. Use this identity and real host transcript/model/policy for source-format translation.
 - [ ] Frame native events from host facts. Obtain actual source facts before
   claiming Claude or Codex framing; never fabricate a tool call, backend turn,
   transcript path or source session. Test command-shaped context as data.

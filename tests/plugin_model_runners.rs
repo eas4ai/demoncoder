@@ -1182,7 +1182,16 @@ async fn native_non_tool_prompt_and_agent_use_real_model_admission() {
             assert_eq!(
                 server.count(),
                 usize::from(allowance.is_some()),
-                "{kind:?} {allowance:?}"
+                "{kind:?} {allowance:?}; {:?}",
+                fixture
+                    .record()
+                    .operations
+                    .iter()
+                    .find_map(|op| match &op.host_invocation {
+                        Some(demoncoder::workflow::runtime::HostInvocation::Lifecycle(r)) =>
+                            Some(r.hooks.iter().map(|h| &h.outcome).collect::<Vec<_>>()),
+                        _ => None,
+                    })
             );
             let record = fixture.record();
             let receipt = record

@@ -629,6 +629,24 @@ fn source(out: &mut Pager, evidence: &str) -> fmt::Result {
 }
 
 fn lifecycle_report(out: &mut Pager, record: &Record, task: Option<u64>) -> fmt::Result {
+    for operation in &record.operations {
+        if let Some(crate::workflow::runtime::HostInvocation::NativeTurn(turn)) =
+            &operation.host_invocation
+            && turn.task == task
+        {
+            writeln!(
+                out,
+                "\nNative turn {} · {} · {:?} · owner {}",
+                operation.id,
+                match turn.origin {
+                    crate::plugins::receipts::NativeTurnOrigin::Developer => "developer",
+                    crate::plugins::receipts::NativeTurnOrigin::PluginContext => "plugin context",
+                },
+                turn.end,
+                turn.owner_phase.as_deref().unwrap_or("no workflow phase")
+            )?;
+        }
+    }
     for receipt in record
         .operations
         .iter()
@@ -648,6 +666,17 @@ fn lifecycle_report(out: &mut Pager, record: &Record, task: Option<u64>) -> fmt:
                 "pending; never replay automatically"
             }
         )?;
+        if let Some(turn) = receipt.facts.native_turn {
+            writeln!(
+                out,
+                "Native turn {turn} · host translation (not an external backend callback)"
+            )?;
+        } else {
+            writeln!(
+                out,
+                "No recorded native turn linkage (legacy or external occurrence)"
+            )?;
+        }
         if let crate::plugins::receipts::NonToolOccurrence::UserPromptSubmit { prompt, .. } =
             &receipt.facts.subject.occurrence
         {

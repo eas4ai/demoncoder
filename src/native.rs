@@ -101,7 +101,20 @@ impl Session for NativeSession {
         events: &EventSink,
     ) -> Result<TurnEnd> {
         self.observer_owner.capture(events);
-        let outcome = self.run_turn(prompt, commands, events).await;
+        let outcome = match events.begin_native_turn() {
+            Ok(turn_events) => {
+                let outcome = self.run_turn(prompt, commands, &turn_events).await;
+                use crate::plugins::receipts::NativeTurnEnd;
+                let end = match &outcome {
+                    Ok(TurnEnd::Complete) => NativeTurnEnd::Complete,
+                    Ok(TurnEnd::Cancelled) => NativeTurnEnd::Cancelled,
+                    Ok(TurnEnd::Shutdown) => NativeTurnEnd::Shutdown,
+                    Err(_) => NativeTurnEnd::Failed,
+                };
+                turn_events.finish_native_turn(end).and(outcome)
+            }
+            Err(error) => Err(error),
+        };
         self.settle_interruption()?;
         if !matches!(outcome, Ok(TurnEnd::Complete)) {
             self.close().await?;
@@ -227,8 +240,16 @@ impl NativeSession {
             }
             let admission = events.begin_model()?;
             let invocation_events = events.for_invocation(admission);
+            let response_events = if self
+                .tools
+                .has_non_tool_plan(crate::plugins::hook_types::HookEvent::Stop)
+            {
+                invocation_events.capture_assistant_text()
+            } else {
+                invocation_events.clone()
+            };
             let calls = {
-                let response = self.model.response(events);
+                let response = self.model.response(&response_events);
                 tokio::pin!(response);
                 loop {
                     tokio::select! {
@@ -346,7 +367,7 @@ impl NativeSession {
                     .lifecycle(
                         crate::plugins::receipts::NonToolOccurrence::Stop {
                             stop_hook_active,
-                            last_assistant_message: None,
+                            last_assistant_message: response_events.assistant_text()?,
                         },
                         commands,
                         &mut corrections,

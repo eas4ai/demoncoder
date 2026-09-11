@@ -133,6 +133,9 @@ pub(super) fn validate(
     operation: &super::Operation,
     receipt: &super::NonToolReceipt,
 ) -> Result<()> {
+    if let Some(turn) = receipt.facts.native_turn {
+        super::turn::validate(record, turn, &operation.phase)?;
+    }
     let owner = resolve(record, &operation.phase)?;
     let metadata = std::fs::metadata(owner.root)?;
     ensure!(

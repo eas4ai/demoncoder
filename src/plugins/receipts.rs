@@ -56,6 +56,11 @@ pub struct AdmissionKey {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct NonToolFacts {
+    /// Absent on legacy records; an occurrence ID is never a substitute turn.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub native_turn: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provenance: Option<String>,
     /// Host binding; declaration identity remains immutable across child execution.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub declaration_role: Option<String>,
@@ -81,6 +86,32 @@ pub struct NonToolFacts {
 pub enum ObservedLifecycle {
     Claude(Value),
     Codex(Value),
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NativeTurn {
+    pub version: u32,
+    pub owner_phase: Option<String>,
+    pub origin: NativeTurnOrigin,
+    pub task: Option<u64>,
+    pub workspace: (u64, u64),
+    pub child_owner: Option<String>,
+    pub end: Option<NativeTurnEnd>,
+}
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum NativeTurnOrigin {
+    Developer,
+    PluginContext,
+}
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum NativeTurnEnd {
+    Complete,
+    Cancelled,
+    Shutdown,
+    Failed,
 }
 /// Uses the existing Operation/store and HookReceipt history. This is not a
 /// model/backend/tool invocation and carries no permission to create one.
@@ -442,6 +473,15 @@ mod migration;
 #[cfg(test)]
 mod occurrence_tests {
     use super::*;
+    #[test]
+    fn legacy_lifecycle_facts_decode_without_inventing_turn_or_provenance() {
+        let value = serde_json::json!({"host_transcript_path":"/retained/state.json", "host_model":"actual-model", "host_permission_mode":"default",
+            "session":"session", "operation":1, "task":null, "role":"worker", "workspace":[1,2],
+            "subject":{"version":1,"occurrence":{"event":"Stop","stop_hook_active":false,"last_assistant_message":null}}});
+        let facts: NonToolFacts = serde_json::from_value(value.clone()).unwrap();
+        assert!(facts.native_turn.is_none() && facts.provenance.is_none());
+        assert_eq!(serde_json::to_value(facts).unwrap(), value);
+    }
     #[test]
     fn non_tool_key_has_no_tool_identity_and_preserves_legacy_keys() {
         let base = serde_json::json!({"session":"s","operation":2,"source_operation":2,

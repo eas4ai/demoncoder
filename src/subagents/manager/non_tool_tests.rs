@@ -248,7 +248,7 @@ async fn child_non_tool_owner_rejects_noncanonical_or_wrong_phase_before_reserva
     let fixture=active_lifecycle_child(false).await;
     let identity=fixture.manager.record(1).unwrap().identity;
     for phase in ["agent:1:checking","agent:01:worker","agent:2:worker","agent:1:worker:extra"] {
-        assert!(fixture.runtime.begin_non_tool_as(phase,Some(&identity),NonToolOccurrence::UserPromptSubmit{prompt:"actual".into(),correction:false},"plan".into(),vec![json!({})]).is_err(),"{phase}");
+        assert!(fixture.runtime.begin_non_tool_as(phase,Some(&identity),None,NonToolOccurrence::UserPromptSubmit{prompt:"actual".into(),correction:false},"plan".into(),vec![json!({})]).is_err(),"{phase}");
     }
     assert!(fixture.runtime.record().unwrap().operations.is_empty());
 }

@@ -529,6 +529,9 @@ impl ToolExecutor {
         .await
         .map(Some)
     }
+    pub(crate) fn has_non_tool_plan(&self, event: crate::plugins::hook_types::HookEvent) -> bool {
+        self.access.non_tools.iter().any(|p| p.plan.event == event)
+    }
     pub fn register_post_tool_plan(
         &mut self,
         plan: Arc<crate::plugins::lifecycle::PostToolPlan>,
