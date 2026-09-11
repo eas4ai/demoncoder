@@ -74,3 +74,13 @@ remains within it.
 | 5–8: failures, secrets, persistence, bounds | Isolated credential-free environment, bounded protocol input/output and deadlines, owned process cleanup, fresh output directories and hashed retained evidence. Missing raw command logs cannot be replaced by summaries. |
 | 9–11: tracking, verification, honest reporting | Only the source-probe subtask is complete. Seven actual source cases, 48 corruption controls, independent refusals, artifact hashes, Ruff and Black passed. No host, restart or live-provider claim is made. |
 | 12–14: collaboration, self-audit, clear writing | Independent specification and quality reviews closed the concrete false-pass findings. This record states the source/host async difference and remaining limits explicitly. |
+
+## Shared-helper async extension
+
+The optional observer scenario added for [async source qualification](plugin-async-source.md)
+retains the ordinary one-shot path. All seven original cases and 48 corruption
+controls passed with helper hash
+`2fcb097b0d077d512fabe42321fdde99e3400cd95078dfa82fb5405d87c2f682`.
+Independent specification and quality reviews replayed this regression and
+verified its 69 artifact hashes. The original qualification above remains its
+historical evidence; the linked review records the updated helper and run.

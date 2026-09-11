@@ -769,3 +769,15 @@ No unresolved bounded defect remains. Only this prerequisite is complete; the
 plan retains one in-progress lifecycle item and the full commitment obligations.
 The final plan status and this review record are the only documentation changes
 after the reviewed source freeze.
+
+## Codex source helper regression during async qualification
+
+The optional async scenario in `tests/plugin_codex_post_source.py` preserves its
+original success, failure and correction cases. All three passed with their
+original corruption checks at `/tmp/demoncoder-codex-post-source-1ex6mc18`.
+The captured helper SHA-256 is
+`29a3866c3fef0639dcc75c5a73ed4f6a46bdd8425c20a8753af93b8d36429b5b`.
+The parent and both independent source reviewers checked its 12 recorded artifact
+hashes and replayed the original verifier against those cases. The reviewers did
+not rerun the source executable. See [the async source review](plugin-codex-async-source.md)
+for the new source observations and limits. Earlier evidence above remains historical.

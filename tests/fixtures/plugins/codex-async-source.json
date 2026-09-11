@@ -1,0 +1,40 @@
+{
+  "kind": "actual-pinned-source-synthetic-local-peers-not-host-or-live-conformance",
+  "executable_sha256": "80315a32acf1b625129a46b0bd75537cf76ef09701ae986154159076cc0b6aff",
+  "post_fixture_sha256": "ccbd0797a5a4366ec8b87025b1fe46c32dbbf53346eac4fef74fb50665193dfa",
+  "cases": {
+    "async-success": {
+      "asynchronous": true,
+      "exit_code": 0,
+      "context_per_request": [
+        false,
+        false,
+        true
+      ]
+    },
+    "sync-control": {
+      "asynchronous": false,
+      "exit_code": 0,
+      "context_per_request": [
+        false,
+        true,
+        true
+      ]
+    },
+    "async-failure": {
+      "asynchronous": true,
+      "exit_code": 2,
+      "context_per_request": [
+        false,
+        false,
+        false
+      ]
+    }
+  },
+  "limits": [
+    "Only ordinary PostToolUse command async is exercised, with successful dynamic tool completion.",
+    "The idle control observes two seconds before an explicit second turn, not indefinite absence of a wake.",
+    "Command end markers precede deterministic sys.exit; no independent command OS exit telemetry is captured.",
+    "No DemonCoder async, shutdown, restart or live-provider conformance is established."
+  ]
+}

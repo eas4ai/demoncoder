@@ -1,0 +1,154 @@
+{
+  "kind": "actual-pinned-source-synthetic-local-peers-not-host-or-live-conformance",
+  "backend": "Claude Code 2.1.267",
+  "executable_sha256": "0399c793ff571d5946ef923d80b4f330d05ac4b6842a6b0775468f5d389403c0",
+  "cases": {
+    "async-first-line-success": {
+      "exit_code": 0,
+      "background": true,
+      "observer": {
+        "first_line": true,
+        "rewake": false,
+        "idle": false
+      },
+      "hook_steps": [
+        1,
+        4
+      ],
+      "model_requests": 5,
+      "result_count": 2,
+      "context_per_request": [
+        false,
+        false,
+        true,
+        true,
+        true
+      ]
+    },
+    "async-first-line-failure": {
+      "exit_code": 1,
+      "background": true,
+      "observer": {
+        "first_line": true,
+        "rewake": false,
+        "idle": false
+      },
+      "hook_steps": [
+        1,
+        4
+      ],
+      "model_requests": 5,
+      "result_count": 2,
+      "context_per_request": [
+        false,
+        false,
+        true,
+        true,
+        true
+      ]
+    },
+    "sync-control": {
+      "exit_code": 0,
+      "background": false,
+      "observer": {
+        "first_line": false,
+        "rewake": false,
+        "idle": false
+      },
+      "hook_steps": [
+        1,
+        4
+      ],
+      "model_requests": 5,
+      "result_count": 2,
+      "context_per_request": [
+        false,
+        true,
+        true,
+        true,
+        true
+      ]
+    },
+    "rewake-exit2": {
+      "exit_code": 2,
+      "background": true,
+      "observer": {
+        "first_line": false,
+        "rewake": true,
+        "idle": true
+      },
+      "hook_steps": [
+        1
+      ],
+      "model_requests": 3,
+      "result_count": 2,
+      "context_per_request": [
+        false,
+        false,
+        true
+      ]
+    },
+    "rewake-exit0": {
+      "exit_code": 0,
+      "background": true,
+      "observer": {
+        "first_line": false,
+        "rewake": true,
+        "idle": true
+      },
+      "hook_steps": [
+        1
+      ],
+      "model_requests": 2,
+      "result_count": 1,
+      "context_per_request": [
+        false,
+        false
+      ]
+    },
+    "ordinary-exit2": {
+      "exit_code": 2,
+      "background": true,
+      "observer": {
+        "first_line": false,
+        "rewake": false,
+        "idle": true
+      },
+      "hook_steps": [
+        1
+      ],
+      "model_requests": 2,
+      "result_count": 1,
+      "context_per_request": [
+        false,
+        false
+      ]
+    },
+    "rewake-implicit-exit2": {
+      "exit_code": 2,
+      "background": false,
+      "observer": {
+        "first_line": false,
+        "rewake": true,
+        "idle": true
+      },
+      "hook_steps": [
+        1
+      ],
+      "model_requests": 3,
+      "result_count": 2,
+      "context_per_request": [
+        false,
+        false,
+        true
+      ]
+    }
+  },
+  "limits": [
+    "Only PostToolUse skill command observers are exercised.",
+    "Idle controls observe two seconds after the foreground result; they do not prove indefinite absence.",
+    "Command completion markers precede deterministic sys.exit; no independent OS exit telemetry is captured.",
+    "The source accepts a requested first-line 100ms timeout despite a 400ms command; the host contract still requires its finite original deadline.",
+    "No DemonCoder async, restart, cancellation or live-provider conformance is established."
+  ]
+}

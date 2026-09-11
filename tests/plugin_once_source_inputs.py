@@ -18,6 +18,7 @@ import subprocess
 import threading
 import time
 import uuid
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
 FIXTURE = Path(__file__).parent / "fixtures/plugins/claude-once-source.json"
@@ -26,7 +27,14 @@ TOOL = "mcp__demoncoder__capture"
 MARKER = "ONCE_PROBE_LOADED_MARKER"
 
 
-def run(binary, base, name, once, exitcode, background):
+@dataclass(frozen=True)
+class ObserverProbe:
+    first_line: bool = False
+    rewake: bool = False
+    idle: bool = False
+
+
+def run(binary, base, name, once, exitcode, background, *, observer=None):
     root = base / ("claude-once-" + name + "-" + uuid.uuid4().hex[:8])
     root.mkdir(mode=0o700)
     (root / "probe.py").write_bytes(Path(__file__).read_bytes())
@@ -38,12 +46,28 @@ def run(binary, base, name, once, exitcode, background):
     skill.mkdir(parents=True)
     log = root / "calls.jsonl"
     script = root / "capture.py"
+    prelude = ""
+    completion = ""
+    if observer:
+        if observer.first_line:
+            prelude = (
+                'print(json.dumps({"async":True,"asyncTimeout":100}),flush=True)\n'
+            )
+        completion = (
+            'print("ASYNC_REWAKE_PROBE_MARKER",file=sys.stderr,flush=True)\n'
+            if observer.idle
+            else 'print(json.dumps({"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"DYNAMIC_ASYNC_CONTEXT_MARKER"}}),flush=True)\n'
+        )
     script.write_text(
         "import json,sys,time,os\nfrom pathlib import Path\np=Path("
         + repr(str(log))
-        + ')\nv=json.load(sys.stdin)\ndef emit(stage):\n with p.open("a") as f: f.write(json.dumps({"stage":stage,"time":time.monotonic(),"event":v,"pid":os.getpid()})+"\\n")\nemit("start")\ntime.sleep('
-        + ("0.4" if background else "0")
-        + ')\nemit("end")\nsys.exit('
+        + ')\nv=json.load(sys.stdin)\ndef emit(stage):\n with p.open("a") as f: f.write(json.dumps({"stage":stage,"time":time.monotonic(),"event":v,"pid":os.getpid()})+"\\n")\nemit("start")\n'
+        + prelude
+        + "time.sleep("
+        + ("0.4" if background or observer else "0")
+        + ")\n"
+        + completion
+        + 'emit("end")\nsys.exit('
         + str(exitcode)
         + ")\n"
     )
@@ -55,7 +79,12 @@ def run(binary, base, name, once, exitcode, background):
         + "\n          once: "
         + str(once).lower()
         + "\n          async: "
-        + str(background).lower()
+        + str(background and not (observer and observer.first_line)).lower()
+        + (
+            "\n          asyncRewake: " + str(observer.rewake).lower()
+            if observer
+            else ""
+        )
         + "\n---\nONCE_PROBE_LOADED_MARKER. Call the capture tool as instructed by the local fixture.\n"
     )
     (skill / "SKILL.md").write_text(skilltext)
@@ -85,11 +114,16 @@ def run(binary, base, name, once, exitcode, background):
                 req = json.loads(self.rfile.read(n))
                 requests.append(req)
                 i = len(requests)
-                assert i <= 5
+                assert i <= (3 if observer and observer.idle else 5)
                 trace.append(
                     {"direction": "model", "time": time.monotonic(), "index": i}
                 )
-                if background and i == 2 and name != "async-pending":
+                if (
+                    background
+                    and i == 2
+                    and name != "async-pending"
+                    and not (observer and observer.idle)
+                ):
                     deadline = time.monotonic() + 3
                     while (
                         not any(x["stage"] == "end" for x in logs())
@@ -97,7 +131,7 @@ def run(binary, base, name, once, exitcode, background):
                     ):
                         time.sleep(0.02)
                     time.sleep(0.15)
-                if i in [1, 2, 4]:
+                if i in ([1] if observer and observer.idle else [1, 2, 4]):
                     block = {
                         "type": "tool_use",
                         "id": "call_" + str(i),
@@ -204,6 +238,7 @@ def run(binary, base, name, once, exitcode, background):
                 "once": once,
                 "exit": exitcode,
                 "async": background,
+                **({"observer_probe": asdict(observer)} if observer else {}),
             },
             indent=2,
         )
@@ -211,6 +246,7 @@ def run(binary, base, name, once, exitcode, background):
     proc = None
     sel = selectors.DefaultSelector()
     failure = None
+    observed_until = None
     try:
         with (root / "stderr").open("wb") as stderr:
             proc = subprocess.Popen(
@@ -243,7 +279,9 @@ def run(binary, base, name, once, exitcode, background):
             pending = b""
             deadline = time.monotonic() + 35
             received = 0
-            while time.monotonic() < deadline and len(results) < 2:
+            while time.monotonic() < deadline and (
+                len(results) < 2 or (observer and observer.idle)
+            ):
                 if not sel.select(0.1):
                     continue
                 chunk = os.read(proc.stdout.fileno(), 65536)
@@ -279,7 +317,9 @@ def run(binary, base, name, once, exitcode, background):
                     if m.get("type") == "result":
                         results.append(m)
                         assert not m.get("is_error"), m
-                        if len(results) == 1:
+                        if len(results) == 1 and observer and observer.idle:
+                            deadline = min(deadline, time.monotonic() + 2)
+                        elif len(results) == 1:
                             send(
                                 {
                                     "type": "user",
@@ -355,12 +395,21 @@ def run(binary, base, name, once, exitcode, background):
                             },
                         }
                     )
-            assert (
-                len(results) == 2
-                and len(requests) == 5
-                and len(calls) == 3
-                and not errors
-            ), (len(results), len(requests), len(calls), errors)
+            observed_until = time.monotonic()
+            if observer and observer.idle:
+                assert (
+                    len(results) in [1, 2]
+                    and len(requests) in [2, 3]
+                    and len(calls) == 1
+                    and not errors
+                ), (len(results), len(requests), len(calls), errors)
+            else:
+                assert (
+                    len(results) == 2
+                    and len(requests) == 5
+                    and len(calls) == 3
+                    and not errors
+                ), (len(results), len(requests), len(calls), errors)
             if background:
                 time.sleep(0.7)
     except Exception as e:
@@ -395,6 +444,7 @@ def run(binary, base, name, once, exitcode, background):
         "skill_loaded_per_request": loaded,
         "hook_log": logs(),
         "server_errors": errors,
+        **({"observed_until": observed_until} if observer else {}),
     }
     (root / "result.json").write_text(json.dumps(result, indent=2) + "\n")
     print(

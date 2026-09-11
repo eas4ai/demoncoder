@@ -7,6 +7,7 @@ Run with --codex /path/to/qualified/managed/codex.
 
 import argparse
 import copy
+from dataclasses import dataclass
 import hashlib
 import http.server
 import json
@@ -37,6 +38,26 @@ message = json.loads(raw)
 with Path(sys.argv[1]).open("a") as output:
     output.write(json.dumps(message) + "\\n")
 '''
+
+OBSERVER_CAPTURE = '''
+if message["hook_event_name"] == "PostToolUse":
+    import time
+    timing = Path(sys.argv[1] + ".times")
+    def record(stage):
+        with timing.open("a") as output:
+            output.write(json.dumps({"stage": stage, "time": time.monotonic(), "event": message}) + "\\n")
+    record("start")
+    time.sleep(0.4)
+    print(json.dumps({"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext": "CODEX_ASYNC_CONTEXT_MARKER"}}), flush=True)
+    record("end")
+    sys.exit(EXIT_CODE)
+'''
+
+
+@dataclass(frozen=True)
+class ObserverProbe:
+    asynchronous: bool
+    exit_code: int
 
 
 def correction_prompt(fixture):
@@ -131,19 +152,22 @@ def verify(hooks, requests, calls, fixture, success, thread, turn, cwd, transcri
     assert results[0]["output"] == fixture["response"]
 
 
-def run_case(binary, root, fixture, success, correction=False):
+def run_case(binary, root, fixture, success, correction=False, *, observer=None):
     root.mkdir()
     home, cwd = root / "codex-home", root / "work"
     home.mkdir()
     cwd.mkdir()
     fake_codex_auth(home)
     script = root / "capture.py"
-    script.write_text(CAPTURE)
+    script.write_text(CAPTURE + (OBSERVER_CAPTURE.replace("EXIT_CODE", str(observer.exit_code))
+                                if observer else ""))
     hook_path = root / "hooks.jsonl"
     command = shlex.join(["/usr/bin/python3", str(script), str(hook_path)])
     config = 'model="gpt-5.4"\ncli_auth_credentials_store="file"\n[features]\nenable_request_compression=false\nhooks=true\n'
     for event in ["PreToolUse", "PostToolUse"]:
-        config += '[[hooks.' + event + ']]\nmatcher="capture"\nhooks=[{type="command",command=' + json.dumps(command) + ',timeout=5}]\n'
+        asynchronous = (',async=' + str(observer.asynchronous).lower()
+                        if observer and event == "PostToolUse" else '')
+        config += '[[hooks.' + event + ']]\nmatcher="capture"\nhooks=[{type="command",command=' + json.dumps(command) + ',timeout=5' + asynchronous + '}]\n'
     (home / "config.toml").write_text(config)
     requests, errors, events, calls, trace = [], [], [], [], []
 
@@ -168,8 +192,8 @@ def run_case(binary, root, fixture, success, correction=False):
                     self.end_headers()
                     self.wfile.write(b'{}')
                     return
-                assert len(requests) < 2
-                trace.append({"direction": "model", "message": data})
+                assert len(requests) < (3 if observer else 2)
+                trace.append({"direction": "model", "time": time.monotonic(), "message": data})
                 requests.append(data)
                 item = ({"type": "function_call", "id": "fc_source", "call_id": fixture["tool_use_id"],
                          "name": fixture["tool_name"], "arguments": json.dumps(fixture["arguments"])}
@@ -216,7 +240,7 @@ def run_case(binary, root, fixture, success, correction=False):
                                        stdout=subprocess.PIPE, stderr=stderr, start_new_session=True)
 
             def send(message):
-                trace.append({"direction": "host", "message": message})
+                trace.append({"direction": "host", "time": time.monotonic(), "message": message})
                 process.stdin.write((json.dumps(message) + "\n").encode())
                 process.stdin.flush()
 
@@ -231,7 +255,16 @@ def run_case(binary, root, fixture, success, correction=False):
             correction_sent = False
             interrupt_started = None
             corrected_turn = None
+            idle_until = None
+            observer_followup = False
             while time.monotonic() < deadline and not finished:
+                if idle_until is not None and time.monotonic() >= idle_until:
+                    assert len(requests) == 2, "ordinary async unexpectedly woke an idle source"
+                    send({"id": 6, "method": "turn/start", "params": {"threadId": thread,
+                          "input": [{"type": "text", "text": "Continue without another tool."}],
+                          "environments": []}})
+                    observer_followup = True
+                    idle_until = None
                 if not selector.select(.1):
                     continue
                 chunk = os.read(process.stdout.fileno(), 65536)
@@ -242,7 +275,7 @@ def run_case(binary, root, fixture, success, correction=False):
                 while b"\n" in buffer:
                     line, buffer = buffer.split(b"\n", 1)
                     message = json.loads(line)
-                    trace.append({"direction": "backend", "message": message})
+                    trace.append({"direction": "backend", "time": time.monotonic(), "message": message})
                     events.append(message)
                     assert "error" not in message, f"source RPC failed: {message.get('error')}"
                     if message.get("id") == 1 and "result" in message:
@@ -289,7 +322,10 @@ def run_case(binary, root, fixture, success, correction=False):
                             assert message["params"]["turn"]["status"] == "completed"
                             if correction:
                                 assert message["params"]["turn"]["id"] == corrected_turn
-                            finished = True
+                            if observer and not observer_followup:
+                                idle_until = time.monotonic() + 2
+                            else:
+                                finished = True
                     if first_done and interrupt_ack and not correction_sent:
                         assert len(requests) == 1, "backend crossed pending dynamic result"
                         assert time.monotonic() - interrupt_started < 3, "interrupt did not settle pending call"
@@ -298,6 +334,11 @@ def run_case(binary, root, fixture, success, correction=False):
                         correction_sent = True
             assert finished and not errors, f"incomplete local exchange: {errors}"
             hooks = [json.loads(line) for line in hook_path.read_text().splitlines()]
+            if observer:
+                verify(hooks, requests[:2], calls, fixture, success, thread, turn, cwd, transcript)
+                assert len(requests) == 3 and observer_followup
+                return {"asynchronous": observer.asynchronous, "exit_code": observer.exit_code,
+                        "thread": thread, "turn": turn, "transcript": transcript}
             verify(hooks, requests, calls, fixture, success, thread, turn, cwd, transcript, correction, trace)
             changed = copy.deepcopy(hooks)
             changed[0]["tool_use_id"] = "wrong-source-id"
