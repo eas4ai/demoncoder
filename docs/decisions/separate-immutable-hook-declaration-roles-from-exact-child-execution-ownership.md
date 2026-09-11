@@ -11,7 +11,9 @@ Keep imported declarations and runner identities immutable. For native non-tool 
 
 ## Realized by
 
-7fd8d0b2734abf709bc1c6c42d3fdd9da7ac8805 — Exact child assignment, worktree,
+- 7fd8d0b2734abf709bc1c6c42d3fdd9da7ac8805 Bind native Submit and Stop hooks to durable lifecycle owners
+
+Exact child assignment, worktree,
 allocation and correction ownership passed actual Manager and async delivery
 cases, including sibling and changed-owner refusal. Specification and quality
 reviews approved the bounded change. Explicit child MCP provisioning remains
