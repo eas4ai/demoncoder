@@ -1,0 +1,1398 @@
+--- a/codex-rs/app-server/src/main.rs
++++ b/codex-rs/app-server/src/main.rs
+@@ -70,6 +70,7 @@
+         return Ok(());
+     }
+     codex_hooks::initialize_managed_compaction()?;
++    codex_hooks::initialize_managed_ordinary()?;
+     let remote_control_disabled = codex_app_server::take_remote_control_disabled_env();
+     arg0_dispatch_or_else(move |arg0_paths: Arg0DispatchPaths| async move {
+         let AppServerArgs {
+--- a/codex-rs/cli/src/main.rs
++++ b/codex-rs/cli/src/main.rs
+@@ -1051,7 +1051,15 @@
+         println!("{}", codex_hooks::managed_compaction_capability());
+         return Ok(());
+     }
++    if std::env::args_os()
++        .skip(1)
++        .eq([std::ffi::OsString::from("--demoncoder-ordinary-capability")])
++    {
++        println!("{}", codex_hooks::managed_ordinary_capability());
++        return Ok(());
++    }
+     codex_hooks::initialize_managed_compaction()?;
++    codex_hooks::initialize_managed_ordinary()?;
+     let remote_control_disabled = codex_app_server::take_remote_control_disabled_env();
+     arg0_dispatch_or_else(move |arg0_paths: Arg0DispatchPaths| async move {
+         cli_main(arg0_paths, remote_control_disabled).await?;
+--- a/codex-rs/hooks/src/events/stop.rs
++++ b/codex-rs/hooks/src/events/stop.rs
+@@ -149,20 +149,7 @@
+     });
+     let input_json = match request.target {
+         StopHookTarget::Stop | StopHookTarget::MemoryConsolidation => {
+-            let input = StopCommandInput {
+-                session_id: request.session_id.to_string(),
+-                turn_id: request.turn_id.clone(),
+-                transcript_path: NullableString::from_path(request.transcript_path.clone()),
+-                cwd: request.cwd.display().to_string(),
+-                hook_event_name: "Stop".to_string(),
+-                model: request.model.clone(),
+-                permission_mode: request.permission_mode.clone(),
+-                stop_hook_active: request.stop_hook_active,
+-                last_assistant_message: NullableString::from_string(
+-                    request.last_assistant_message.clone(),
+-                ),
+-            };
+-            match serde_json::to_string(&input) {
++            match command_input_json(&request) {
+                 Ok(input_json) => input_json,
+                 Err(error) => {
+                     return serialization_failure_outcome(
+@@ -245,6 +232,66 @@
+         block_reason: aggregate.block_reason,
+         continuation_fragments: aggregate.continuation_fragments,
+     }
++}
++
++pub(crate) fn command_input_json(request: &StopRequest) -> Result<String, serde_json::Error> {
++    let input = StopCommandInput {
++        session_id: request.session_id.to_string(),
++        turn_id: request.turn_id.clone(),
++        transcript_path: NullableString::from_path(request.transcript_path.clone()),
++        cwd: request.cwd.display().to_string(),
++        hook_event_name: "Stop".to_string(),
++        model: request.model.clone(),
++        permission_mode: request.permission_mode.clone(),
++        stop_hook_active: request.stop_hook_active,
++        last_assistant_message: NullableString::from_string(request.last_assistant_message.clone()),
++    };
++    serde_json::to_string(&input)
++}
++
++pub(crate) async fn run_managed(
++    engine: &ClaudeHooksEngine,
++    managed: &crate::managed_ordinary::ManagedOrdinary,
++    request: StopRequest,
++) -> StopOutcome {
++    if !matches!(request.target, StopHookTarget::Stop) {
++        return StopOutcome::default();
++    }
++    let result = managed
++        .run_result(
++            engine,
++            &managed.stop,
++            command_input_json(&request),
++            request.cwd.as_path(),
++            request.session_id.to_string(),
++            request.turn_id.clone(),
++        )
++        .await;
++    let parsed = parse_managed_completed(&managed.stop, result, Some(request.turn_id));
++    StopOutcome {
++        hook_events: vec![parsed.completed],
++        should_stop: parsed.data.should_stop,
++        stop_reason: parsed.data.stop_reason,
++        should_block: parsed.data.should_block,
++        block_reason: parsed.data.block_reason,
++        continuation_fragments: parsed.data.continuation_fragments,
++    }
++}
++
++fn parse_managed_completed(
++    handler: &ConfiguredHandler,
++    result: HandlerRunResult,
++    turn_id: Option<String>,
++) -> dispatcher::ParsedHandler<StopHandlerData> {
++    let mut parsed = parse_completed(handler, result, turn_id);
++    if parsed.completed.run.status == HookRunStatus::Failed {
++        parsed.data.should_stop = true;
++        parsed.data.stop_reason = Some("Required managed Stop callback failed".to_string());
++        parsed.data.should_block = false;
++        parsed.data.block_reason = None;
++        parsed.data.continuation_fragments.clear();
++    }
++    parsed
+ }
+ 
+ fn parse_completed(
+@@ -686,6 +733,21 @@
+         );
+     }
+ 
++    #[test]
++    fn managed_ordinary_required_failure_stops_instead_of_continuing() {
++        for (exit_code, stdout) in [(Some(1), ""), (Some(0), "{"), (None, "")] {
++            let parsed = super::parse_managed_completed(
++                &handler(),
++                run_result(exit_code, stdout, ""),
++                Some("turn-1".to_string()),
++            );
++            assert!(
++                parsed.data.should_stop,
++                "required failure allowed continuation: {exit_code:?} {stdout:?}"
++            );
++        }
++    }
++
+     fn handler() -> ConfiguredHandler {
+         handler_with_async(/*async*/ false)
+     }
+--- a/codex-rs/hooks/src/events/user_prompt_submit.rs
++++ b/codex-rs/hooks/src/events/user_prompt_submit.rs
+@@ -79,19 +79,7 @@
+         };
+     }
+ 
+-    let subagent = SubagentCommandInputFields::from(request.subagent.as_ref());
+-    let input_json = match serde_json::to_string(&UserPromptSubmitCommandInput {
+-        session_id: request.session_id.to_string(),
+-        turn_id: request.turn_id.clone(),
+-        agent_id: subagent.agent_id,
+-        agent_type: subagent.agent_type,
+-        transcript_path: NullableString::from_path(request.transcript_path.clone()),
+-        cwd: request.cwd.display().to_string(),
+-        hook_event_name: "UserPromptSubmit".to_string(),
+-        model: request.model.clone(),
+-        permission_mode: request.permission_mode.clone(),
+-        prompt: request.prompt.clone(),
+-    }) {
++    let input_json = match command_input_json(&request) {
+         Ok(input_json) => input_json,
+         Err(error) => {
+             return serialization_failure_outcome(common::serialization_failure_hook_events(
+@@ -133,6 +121,68 @@
+         stop_reason,
+         additional_contexts,
+     }
++}
++
++pub(crate) fn command_input_json(
++    request: &UserPromptSubmitRequest,
++) -> Result<String, serde_json::Error> {
++    let subagent = SubagentCommandInputFields::from(request.subagent.as_ref());
++    serde_json::to_string(&UserPromptSubmitCommandInput {
++        session_id: request.session_id.to_string(),
++        turn_id: request.turn_id.clone(),
++        agent_id: subagent.agent_id,
++        agent_type: subagent.agent_type,
++        transcript_path: NullableString::from_path(request.transcript_path.clone()),
++        cwd: request.cwd.display().to_string(),
++        hook_event_name: "UserPromptSubmit".to_string(),
++        model: request.model.clone(),
++        permission_mode: request.permission_mode.clone(),
++        prompt: request.prompt.clone(),
++    })
++}
++
++pub(crate) async fn run_managed(
++    engine: &ClaudeHooksEngine,
++    managed: &crate::managed_ordinary::ManagedOrdinary,
++    request: UserPromptSubmitRequest,
++) -> UserPromptSubmitOutcome {
++    let result = managed
++        .run_result(
++            engine,
++            &managed.submit,
++            command_input_json(&request),
++            request.cwd.as_path(),
++            request.session_id.to_string(),
++            request.turn_id.clone(),
++        )
++        .await;
++    let parsed = parse_managed_completed(&managed.submit, result, Some(request.turn_id));
++    let additional_contexts = engine
++        .command_runtime
++        .output_spiller()
++        .maybe_spill_additional_contexts(parsed.data.additional_contexts_for_model)
++        .await;
++    UserPromptSubmitOutcome {
++        hook_events: vec![parsed.completed],
++        should_stop: parsed.data.should_stop,
++        stop_reason: parsed.data.stop_reason,
++        additional_contexts,
++    }
++}
++
++fn parse_managed_completed(
++    handler: &ConfiguredHandler,
++    result: HandlerRunResult,
++    turn_id: Option<String>,
++) -> dispatcher::ParsedHandler<UserPromptSubmitHandlerData> {
++    let mut parsed = parse_completed(handler, result, turn_id);
++    if parsed.completed.run.status == HookRunStatus::Failed {
++        parsed.data.should_stop = true;
++        parsed.data.stop_reason =
++            Some("Required managed UserPromptSubmit callback failed".to_string());
++        parsed.data.additional_contexts_for_model.clear();
++    }
++    parsed
+ }
+ 
+ fn parse_completed(
+@@ -455,6 +505,21 @@
+         assert!(!parsed.data.should_stop);
+     }
+ 
++    #[test]
++    fn managed_ordinary_required_failure_stops_instead_of_continuing() {
++        for (exit_code, stdout) in [(Some(1), ""), (Some(0), "{"), (None, "")] {
++            let parsed = super::parse_managed_completed(
++                &handler(),
++                run_result(exit_code, stdout, ""),
++                Some("turn-1".to_string()),
++            );
++            assert!(
++                parsed.data.should_stop,
++                "required failure allowed continuation: {exit_code:?} {stdout:?}"
++            );
++        }
++    }
++
+     fn handler() -> ConfiguredHandler {
+         handler_with_async(/*async*/ false)
+     }
+--- a/codex-rs/hooks/src/lib.rs
++++ b/codex-rs/hooks/src/lib.rs
+@@ -4,6 +4,7 @@
+ pub(crate) mod events;
+ mod legacy_notify;
+ mod managed_compaction;
++mod managed_ordinary;
+ mod mcp;
+ mod output_spill;
+ mod registry;
+@@ -80,6 +81,8 @@
+ pub use legacy_notify::legacy_notify_json;
+ pub use managed_compaction::initialize_managed_compaction;
+ pub use managed_compaction::managed_compaction_capability;
++pub use managed_ordinary::initialize_managed_ordinary;
++pub use managed_ordinary::managed_ordinary_capability;
+ pub use mcp::HookMcpCall;
+ pub use mcp::HookMcpExecutor;
+ pub use registry::HookListOutcome;
+--- /dev/null
++++ b/codex-rs/hooks/src/managed_ordinary.rs
+@@ -0,0 +1,393 @@
++use crate::engine::ConfiguredHandler;
++use crate::engine::ConfiguredHandlerKind;
++use anyhow::Context;
++use codex_protocol::protocol::HookEventName;
++use codex_protocol::protocol::HookSource;
++use codex_utils_absolute_path::AbsolutePathBuf;
++use serde::Deserialize;
++use serde::Serialize;
++use sha2::Digest;
++use std::io::Read;
++use std::path::PathBuf;
++use std::sync::Arc;
++use std::sync::OnceLock;
++
++pub(crate) const PROTOCOL: &str = "demoncoder-ordinary-v1";
++// Match read_managed_output: each captured stream is limited to 64 KiB.
++// The separate managed request input limit is 1 MiB. Host responses must fit 64 KiB.
++const MAX_OUTPUT_BYTES: usize = 65_536;
++
++#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
++#[serde(deny_unknown_fields)]
++pub(crate) struct Acknowledgment {
++    protocol: String,
++    delivery_id: String,
++    hook_event_name: String,
++    session_id: String,
++    turn_id: String,
++}
++
++// Optional means absent, not an explicitly null or incorrectly typed value.
++fn present<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
++where
++    D: serde::Deserializer<'de>,
++    T: Deserialize<'de>,
++{
++    T::deserialize(deserializer).map(Some)
++}
++
++#[derive(Deserialize, Serialize)]
++#[serde(deny_unknown_fields)]
++struct SubmitSpecific {
++    #[serde(rename = "hookEventName")]
++    event: String,
++    #[serde(
++        rename = "additionalContext",
++        default,
++        deserialize_with = "present",
++        skip_serializing_if = "Option::is_none"
++    )]
++    additional_context: Option<String>,
++}
++
++#[derive(Deserialize, Serialize)]
++#[serde(deny_unknown_fields)]
++struct Response {
++    #[serde(rename = "continue")]
++    proceed: bool,
++    #[serde(rename = "demonCoderOrdinary", skip_serializing)]
++    acknowledgment: Acknowledgment,
++    #[serde(
++        rename = "stopReason",
++        default,
++        deserialize_with = "present",
++        skip_serializing_if = "Option::is_none"
++    )]
++    stop_reason: Option<String>,
++    #[serde(
++        default,
++        deserialize_with = "present",
++        skip_serializing_if = "Option::is_none"
++    )]
++    decision: Option<String>,
++    #[serde(
++        default,
++        deserialize_with = "present",
++        skip_serializing_if = "Option::is_none"
++    )]
++    reason: Option<String>,
++    #[serde(
++        rename = "hookSpecificOutput",
++        default,
++        deserialize_with = "present",
++        skip_serializing_if = "Option::is_none"
++    )]
++    specific: Option<SubmitSpecific>,
++}
++
++fn decode_response(stdout: &str, expected: &Acknowledgment) -> anyhow::Result<String> {
++    anyhow::ensure!(
++        stdout.len() <= MAX_OUTPUT_BYTES,
++        "managed ordinary response is too large"
++    );
++    let response: Response =
++        serde_json::from_str(stdout).context("invalid managed ordinary response")?;
++    anyhow::ensure!(
++        response.acknowledgment == *expected,
++        "managed ordinary acknowledgment does not match the pending delivery"
++    );
++    anyhow::ensure!(
++        matches!(
++            expected.hook_event_name.as_str(),
++            "UserPromptSubmit" | "Stop"
++        ),
++        "unsupported managed ordinary event"
++    );
++    if let Some(decision) = &response.decision {
++        anyhow::ensure!(decision == "block", "unsupported managed ordinary decision");
++        anyhow::ensure!(
++            response
++                .reason
++                .as_ref()
++                .is_some_and(|reason| !reason.trim().is_empty()),
++            "managed ordinary block requires a reason"
++        );
++    }
++    if let Some(specific) = &response.specific {
++        anyhow::ensure!(
++            expected.hook_event_name == "UserPromptSubmit" && specific.event == "UserPromptSubmit",
++            "managed ordinary event output does not match the delivery"
++        );
++    }
++    serde_json::to_string(&response).context("serialize managed ordinary event output")
++}
++
++#[derive(Debug, Deserialize)]
++#[serde(deny_unknown_fields)]
++struct Requirement {
++    protocol: String,
++    source_path: PathBuf,
++    source_sha256: String,
++    submit_command: String,
++    stop_command: String,
++}
++
++#[derive(Debug, Deserialize)]
++#[serde(deny_unknown_fields)]
++struct Declaration {
++    hooks: OrdinaryEvents,
++}
++#[derive(Debug, Deserialize)]
++#[serde(deny_unknown_fields)]
++struct OrdinaryEvents {
++    #[serde(rename = "UserPromptSubmit")]
++    submit: Vec<OrdinaryGroup>,
++    #[serde(rename = "Stop")]
++    stop: Vec<OrdinaryGroup>,
++}
++#[derive(Debug, Deserialize)]
++#[serde(deny_unknown_fields)]
++struct OrdinaryGroup {
++    hooks: Vec<OrdinaryCommand>,
++}
++#[derive(Debug, Deserialize)]
++#[serde(deny_unknown_fields)]
++struct OrdinaryCommand {
++    #[serde(rename = "type")]
++    kind: String,
++    command: String,
++    timeout: u64,
++    #[serde(default)]
++    r#async: bool,
++}
++
++fn validate_declaration(requirement: &Requirement, bytes: &[u8]) -> anyhow::Result<Declaration> {
++    anyhow::ensure!(
++        requirement.protocol == PROTOCOL,
++        "unsupported managed ordinary protocol"
++    );
++    anyhow::ensure!(
++        requirement.source_path.is_absolute(),
++        "managed ordinary source must be absolute"
++    );
++    anyhow::ensure!(
++        !requirement.submit_command.trim().is_empty()
++            && !requirement.stop_command.trim().is_empty(),
++        "managed ordinary command is empty"
++    );
++    anyhow::ensure!(
++        bytes.len() <= 1_048_576,
++        "managed ordinary declaration is too large"
++    );
++    anyhow::ensure!(
++        format!("{:x}", sha2::Sha256::digest(bytes)) == requirement.source_sha256,
++        "untrusted managed ordinary source hash"
++    );
++    let declaration: Declaration = serde_json::from_slice(bytes)?;
++    for (groups, command) in [
++        (&declaration.hooks.submit, &requirement.submit_command),
++        (&declaration.hooks.stop, &requirement.stop_command),
++    ] {
++        anyhow::ensure!(
++            groups.len() == 1 && groups[0].hooks.len() == 1,
++            "managed ordinary requires exactly one handler per boundary"
++        );
++        let handler = &groups[0].hooks[0];
++        anyhow::ensure!(
++            handler.kind == "command" && &handler.command == command && !handler.r#async,
++            "managed ordinary requires the exact synchronous relay command"
++        );
++        anyhow::ensure!(
++            (1..=120).contains(&handler.timeout),
++            "managed ordinary timeout must be 1..=120 seconds"
++        );
++    }
++    Ok(declaration)
++}
++
++const ENVIRONMENT_VARIABLE: &str = "CODEX_DEMONCODER_ORDINARY_RELAY";
++static STARTUP: OnceLock<Result<Option<Arc<ManagedOrdinary>>, String>> = OnceLock::new();
++
++/// Capture both required ordinary commands before any backend session starts.
++/// Requested-but-invalid declarations stay failed for the lifetime of the process.
++pub fn initialize_managed_ordinary() -> anyhow::Result<()> {
++    STARTUP
++        .get_or_init(|| match std::env::var(ENVIRONMENT_VARIABLE) {
++            Ok(raw) => ManagedOrdinary::load(&raw)
++                .map(Arc::new)
++                .map(Some)
++                .map_err(|error| error.to_string()),
++            Err(std::env::VarError::NotPresent) => Ok(None),
++            Err(error) => Err(format!("invalid managed ordinary requirement: {error}")),
++        })
++        .as_ref()
++        .map(|_| ())
++        .map_err(|error| anyhow::anyhow!("{error}"))
++}
++
++/// Identification only; qualification must bind the complete patch and binary digests.
++pub fn managed_ordinary_capability() -> &'static str {
++    r#"{"protocol":"demoncoder-ordinary-v1","source_version":"0.153.4","patch_version":1}"#
++}
++
++pub(crate) fn startup_snapshot() -> anyhow::Result<Option<Arc<ManagedOrdinary>>> {
++    STARTUP
++        .get()
++        .cloned()
++        .unwrap_or(Ok(None))
++        .map_err(anyhow::Error::msg)
++}
++
++#[derive(Debug)]
++pub(crate) struct ManagedOrdinary {
++    pub(crate) submit: ConfiguredHandler,
++    pub(crate) stop: ConfiguredHandler,
++}
++
++impl ManagedOrdinary {
++    pub(crate) async fn run_result(
++        &self,
++        engine: &crate::engine::ClaudeHooksEngine,
++        handler: &ConfiguredHandler,
++        input: Result<String, serde_json::Error>,
++        cwd: &std::path::Path,
++        session_id: String,
++        turn_id: String,
++    ) -> crate::engine::HandlerRunResult {
++        let expected = Acknowledgment {
++            protocol: PROTOCOL.to_string(),
++            // Transport correlation only. Native hook run IDs are intentionally unchanged.
++            delivery_id: uuid::Uuid::new_v4().to_string(),
++            hook_event_name: crate::engine::dispatcher::hook_event_name_label(handler.event_name)
++                .to_string(),
++            session_id,
++            turn_id,
++        };
++        let input = input.and_then(|input| {
++            let mut input: serde_json::Value = serde_json::from_str(&input)?;
++            input["demonCoderOrdinary"] = serde_json::to_value(&expected)?;
++            serde_json::to_string(&input)
++        });
++        let mut result = match input {
++            Ok(input) => {
++                crate::engine::command_runner::run_managed_command(
++                    &engine.command_runtime,
++                    handler,
++                    &input,
++                    cwd,
++                )
++                .await
++            }
++            Err(error) => crate::engine::HandlerRunResult {
++                started_at: chrono::Utc::now().timestamp(),
++                completed_at: chrono::Utc::now().timestamp(),
++                duration_ms: 0,
++                exit_code: None,
++                stdout: String::new(),
++                stderr: String::new(),
++                error: Some(format!("serialize managed ordinary request: {error}")),
++            },
++        };
++        if result.error.is_none() {
++            let decoded = if result.exit_code == Some(0) {
++                decode_response(&result.stdout, &expected)
++            } else {
++                Err(anyhow::anyhow!(
++                    "managed ordinary relay did not exit successfully"
++                ))
++            };
++            match decoded {
++                Ok(stdout) => result.stdout = stdout,
++                Err(error) => {
++                    result.error = Some(format!(
++                        "required managed ordinary acknowledgment failed: {error}"
++                    ))
++                }
++            }
++        }
++        result
++    }
++
++    pub(crate) fn load(raw: &str) -> anyhow::Result<Self> {
++        anyhow::ensure!(
++            raw.len() <= 65_536,
++            "managed ordinary requirement is too large"
++        );
++        let requirement: Requirement =
++            serde_json::from_str(raw).context("invalid managed ordinary requirement")?;
++        anyhow::ensure!(
++            requirement.source_path.is_absolute(),
++            "managed ordinary source must be absolute"
++        );
++        anyhow::ensure!(
++            std::fs::symlink_metadata(&requirement.source_path)
++                .context("inspect required managed ordinary source")?
++                .file_type()
++                .is_file(),
++            "managed ordinary source must be a regular file, not a symlink"
++        );
++        let mut options = std::fs::OpenOptions::new();
++        options.read(true);
++        #[cfg(unix)]
++        {
++            use std::os::unix::fs::OpenOptionsExt;
++            // A replacement FIFO must not block open; a replacement symlink must not be followed.
++            options.custom_flags(libc::O_NONBLOCK | libc::O_NOFOLLOW);
++        }
++        #[cfg(windows)]
++        {
++            use std::os::windows::fs::OpenOptionsExt;
++            const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
++            options.custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
++        }
++        let file = options
++            .open(&requirement.source_path)
++            .context("open required managed ordinary source")?;
++        anyhow::ensure!(
++            file.metadata()
++                .context("inspect opened managed ordinary source")?
++                .is_file(),
++            "opened managed ordinary source is not a regular file"
++        );
++        let mut bytes = Vec::new();
++        file.take(1_048_577)
++            .read_to_end(&mut bytes)
++            .context("read required managed ordinary source")?;
++        let declaration = validate_declaration(&requirement, &bytes)?;
++        let source_path = AbsolutePathBuf::try_from(requirement.source_path)?;
++        let make_handler = |event_name, groups: &[OrdinaryGroup], display_order| {
++            let handler = groups
++                .first()
++                .and_then(|group| group.hooks.first())
++                .context("managed ordinary declaration lost its validated handler")?;
++            Ok::<_, anyhow::Error>(ConfiguredHandler {
++                builtin: false,
++                event_name,
++                matcher: None,
++                timeout_sec: handler.timeout,
++                status_message: None,
++                additional_context_limit: Default::default(),
++                source_path: source_path.clone().into(),
++                source: HookSource::SessionFlags,
++                display_order,
++                kind: ConfiguredHandlerKind::Command {
++                    command: handler.command.clone(),
++                    env: Default::default(),
++                    r#async: false,
++                },
++            })
++        };
++        Ok(Self {
++            submit: make_handler(
++                HookEventName::UserPromptSubmit,
++                &declaration.hooks.submit,
++                0,
++            )?,
++            stop: make_handler(HookEventName::Stop, &declaration.hooks.stop, 1)?,
++        })
++    }
++}
++
++#[cfg(test)]
++#[path = "managed_ordinary_tests.rs"]
++mod tests;
+--- /dev/null
++++ b/codex-rs/hooks/src/managed_ordinary_registry_tests.rs
+@@ -0,0 +1,321 @@
++use super::*;
++use crate::managed_ordinary::ManagedOrdinary;
++use codex_protocol::protocol::HookRunStatus;
++use codex_utils_absolute_path::AbsolutePathBuf;
++use serde_json::json;
++use sha2::Digest;
++
++struct NoMcp;
++impl crate::HookMcpExecutor for NoMcp {
++    fn execute(
++        &self,
++        _: crate::HookMcpCall,
++    ) -> futures::future::BoxFuture<'_, anyhow::Result<String>> {
++        Box::pin(async { anyhow::bail!("unexpected MCP execution") })
++    }
++}
++
++fn snapshot(temp: &tempfile::TempDir, command: &str) -> Arc<ManagedOrdinary> {
++    let group = json!([{"hooks":[{"type":"command","command":command,"timeout":1}]}]);
++    let bytes =
++        serde_json::to_vec(&json!({"hooks":{"UserPromptSubmit":group,"Stop":group}})).unwrap();
++    let source = temp.path().join("hooks.json");
++    std::fs::write(&source, &bytes).unwrap();
++    let raw = json!({"protocol":"demoncoder-ordinary-v1","source_path":source,"source_sha256":format!("{:x}",sha2::Sha256::digest(&bytes)),"submit_command":command,"stop_command":command});
++    Arc::new(ManagedOrdinary::load(&raw.to_string()).unwrap())
++}
++
++fn hooks(managed: Arc<ManagedOrdinary>, thread_id: ThreadId) -> Hooks {
++    let (sender, _receiver) = async_channel::unbounded();
++    let environment = Arc::new(std::env::vars_os().collect());
++    Hooks::from_config(
++        HooksConfig {
++            feature_enabled: true,
++            legacy_notify_argv: Some(vec!["unexpected-notify".into()]),
++            ..Default::default()
++        },
++        Arc::new(NoMcp),
++        Arc::clone(&environment),
++        None,
++        Some(managed),
++        |shell| CommandHookRuntime::new(shell, environment, thread_id, sender),
++    )
++}
++
++#[cfg(unix)]
++#[tokio::test]
++async fn private_callbacks_freeze_registration_and_hold_every_required_failure() {
++    for mode in [
++        "allow",
++        "deny",
++        "block",
++        "empty",
++        "plain",
++        "malformed",
++        "nonzero",
++        "exit_two",
++        "crash",
++        "timeout",
++        "stale",
++        "wrong_event",
++        "missing_ack",
++        "missing_continue",
++        "wrong_type",
++        "unknown",
++        "overflow",
++        "launch_failure",
++    ] {
++        let temp = tempfile::tempdir().unwrap();
++        let script = temp.path().join("relay.py");
++        std::fs::write(&script,r#"import json,os,signal,sys,time
++req=json.load(sys.stdin)
++mode=sys.argv[1]
++with open(os.path.join(req['cwd'],'requests.jsonl'),'a') as f: f.write(json.dumps(req)+'\n')
++if mode=='empty': sys.exit(0)
++if mode=='plain': print('done');sys.exit(0)
++if mode=='malformed': print('{');sys.exit(0)
++if mode=='nonzero': sys.exit(3)
++if mode=='exit_two': print('must not become correction',file=sys.stderr);sys.exit(2)
++if mode=='crash': os.kill(os.getpid(),signal.SIGKILL)
++if mode=='timeout': time.sleep(30)
++if mode=='overflow': print('x'*1048577);sys.exit(0)
++ack=dict(req['demonCoderOrdinary'])
++if mode=='stale': ack['delivery_id']='old'
++if mode=='wrong_event': ack['hook_event_name']='different'
++response={'continue':mode!='deny','demonCoderOrdinary':ack}
++if mode=='deny': response['stopReason']='policy denied'
++if mode=='block': response.update(decision='block',reason='fix this')
++if mode=='allow' and req['hook_event_name']=='UserPromptSubmit': response['hookSpecificOutput']={'hookEventName':'UserPromptSubmit','additionalContext':'context as data'}
++if mode=='missing_ack': del response['demonCoderOrdinary']
++if mode=='missing_continue': del response['continue']
++if mode=='wrong_type': response['continue']='true'
++if mode=='unknown': response['unknown']=True
++if mode in ['stale','wrong_event','missing_ack'] and req['hook_event_name']=='Stop': response.update(decision='block',reason='must not release correction')
++print(json.dumps(response))
++"#).unwrap();
++        let command = if mode == "launch_failure" {
++            "/nonexistent/private-ordinary-relay".into()
++        } else {
++            format!("python3 '{}' {mode}", script.display())
++        };
++        let managed = snapshot(&temp, &command);
++        let captured = Arc::clone(&managed);
++        let thread_id = ThreadId::new();
++        let hooks = hooks(managed, thread_id);
++        std::fs::write(temp.path().join("hooks.json"), b"invalid replacement").unwrap();
++        let hooks = hooks.reconfigured(HooksConfig {
++            feature_enabled: true,
++            shell_program: Some("/invalid/configured/shell".into()),
++            legacy_notify_argv: Some(vec!["unexpected-notify".into()]),
++            ..Default::default()
++        });
++        assert!(Arc::ptr_eq(
++            hooks.managed_ordinary.as_ref().unwrap(),
++            &captured
++        ));
++        assert!(hooks.after_agent.is_empty());
++        assert!(hooks.engine.handlers.is_empty());
++        let cwd = AbsolutePathBuf::try_from(temp.path()).unwrap();
++        let submit = UserPromptSubmitRequest {
++            session_id: thread_id,
++            turn_id: "turn-1".into(),
++            subagent: None,
++            cwd: cwd.clone(),
++            transcript_path: None,
++            model: "test".into(),
++            permission_mode: "default".into(),
++            prompt: "developer prompt".into(),
++        };
++        assert_eq!(hooks.preview_user_prompt_submit(&submit).len(), 1);
++        let submit = hooks.run_user_prompt_submit(submit).await;
++        let stop = StopRequest {
++            session_id: thread_id,
++            turn_id: "turn-1".into(),
++            cwd,
++            transcript_path: None,
++            model: "test".into(),
++            permission_mode: "default".into(),
++            request_metadata: None,
++            stop_hook_active: false,
++            last_assistant_message: Some("answer".into()),
++            target: crate::StopHookTarget::Stop,
++        };
++        let summary = hooks.preview_stop(&stop);
++        assert_eq!(summary.len(), 1);
++        let outcome = hooks.run_stop(stop.clone()).await;
++        assert_eq!(submit.should_stop, mode != "allow", "submit mode={mode}");
++        assert_eq!(
++            outcome.should_stop,
++            !matches!(mode, "allow" | "block"),
++            "Stop mode={mode}"
++        );
++        assert_eq!(outcome.should_block, mode == "block", "Stop mode={mode}");
++        if mode == "allow" {
++            assert_eq!(submit.additional_contexts, vec!["context as data"]);
++        }
++        if mode == "block" {
++            assert_eq!(outcome.block_reason.as_deref(), Some("fix this"));
++            assert_eq!(outcome.continuation_fragments.len(), 1);
++        }
++        if !matches!(mode, "allow" | "deny" | "block") {
++            assert_eq!(
++                submit.hook_events[0].run.status,
++                HookRunStatus::Failed,
++                "{mode}"
++            );
++            assert_eq!(
++                outcome.hook_events[0].run.status,
++                HookRunStatus::Failed,
++                "{mode}"
++            );
++            assert!(outcome.continuation_fragments.is_empty());
++        }
++        for target in [
++            crate::StopHookTarget::MemoryConsolidation,
++            crate::StopHookTarget::SubagentStop {
++                agent_id: "child".into(),
++                agent_type: "worker".into(),
++                agent_transcript_path: None,
++            },
++        ] {
++            let mut synthetic = stop.clone();
++            synthetic.target = target;
++            assert!(hooks.preview_stop(&synthetic).is_empty());
++            assert!(hooks.run_stop(synthetic).await.hook_events.is_empty());
++        }
++        if mode != "launch_failure" {
++            let requests: Vec<serde_json::Value> =
++                std::fs::read_to_string(temp.path().join("requests.jsonl"))
++                    .unwrap()
++                    .lines()
++                    .map(|line| serde_json::from_str(line).unwrap())
++                    .collect();
++            assert_eq!(requests.len(), 2, "synthetic callback ran for {mode}");
++            assert_eq!(requests[0]["prompt"], "developer prompt");
++            assert_eq!(requests[1]["last_assistant_message"], "answer");
++            for request in &requests {
++                for key in ["session_id", "turn_id", "hook_event_name"] {
++                    assert_eq!(request[key], request["demonCoderOrdinary"][key]);
++                }
++            }
++            assert_ne!(
++                requests[0]["demonCoderOrdinary"]["delivery_id"],
++                requests[1]["demonCoderOrdinary"]["delivery_id"]
++            );
++        }
++        if mode == "allow" {
++            let second = hooks.run_stop(stop).await;
++            assert_eq!(
++                outcome.hook_events[0].run.id, second.hook_events[0].run.id,
++                "source stable hook identity should not be fabricated"
++            );
++            let requests: Vec<serde_json::Value> =
++                std::fs::read_to_string(temp.path().join("requests.jsonl"))
++                    .unwrap()
++                    .lines()
++                    .map(|line| serde_json::from_str(line).unwrap())
++                    .collect();
++            assert_ne!(
++                requests[1]["demonCoderOrdinary"]["delivery_id"],
++                requests[2]["demonCoderOrdinary"]["delivery_id"]
++            );
++        }
++    }
++}
++
++#[test]
++fn private_snapshot_suppresses_eligible_plugin_and_executor_additions() {
++    let temp = tempfile::tempdir().unwrap();
++    let root = AbsolutePathBuf::try_from(temp.path()).unwrap();
++    let declaration: codex_config::HookEventsToml = serde_json::from_value(
++        json!({"Stop":[{"hooks":[{"type":"command","command":"unexpected-plugin-command"}]}]}),
++    )
++    .unwrap();
++    let plugin = PluginHookSource {
++        plugin_id: codex_plugin::PluginId::parse("ambient@test").unwrap(),
++        plugin_root: root.clone(),
++        plugin_data_root: root.clone(),
++        source_path: root.join("hooks.json"),
++        source_relative_path: "hooks.json".into(),
++        hooks: declaration,
++    };
++    let config = HooksConfig {
++        feature_enabled: true,
++        bypass_hook_trust: true,
++        plugin_hook_sources: vec![plugin],
++        legacy_notify_argv: Some(vec!["unexpected-notify".into()]),
++        ..Default::default()
++    };
++    let (sender, _) = async_channel::unbounded();
++    let environment = Arc::new(std::env::vars_os().collect());
++    let thread_id = ThreadId::new();
++    let unmanaged = Hooks::from_config(
++        config.clone(),
++        Arc::new(NoMcp),
++        Arc::clone(&environment),
++        None,
++        None,
++        |shell| CommandHookRuntime::new(shell, environment, thread_id, sender),
++    );
++    assert!(
++        !unmanaged.engine.handlers.is_empty(),
++        "ambient control was not eligible"
++    );
++    assert!(!unmanaged.after_agent.is_empty());
++    let managed = hooks(snapshot(&temp, "private-command"), thread_id).reconfigured(config);
++    assert!(managed.engine.handlers.is_empty());
++    assert!(managed.after_agent.is_empty());
++    let executor=ExecutorPluginHookSource {plugin_id:codex_plugin::PluginId::parse("executor@test").unwrap(),environment_id:"executor-a".into(),mcp_environment_id:None,mcp_metadata:None,plugin_root:"file:///plugins/ambient".parse().unwrap(),manifest_path:"file:///plugins/ambient/plugin.json".parse().unwrap(),source_relative_path:"hooks.json".into(),hooks:serde_json::from_value(json!({"Stop":[{"hooks":[{"type":"mcp_tool","server":"unexpected","tool":"unexpected"}]}]})).unwrap()};
++    let unmanaged = unmanaged.with_executor_hooks(vec![executor.clone()]);
++    assert!(
++        unmanaged.engine.handlers.iter().any(|handler| matches!(
++            handler.source_path,
++            crate::engine::HandlerSourcePath::ExecutorScoped { .. }
++        )),
++        "executor control was not eligible"
++    );
++    let managed = managed.with_executor_hooks(vec![executor]);
++    assert!(managed.engine.handlers.is_empty());
++}
++
++#[cfg(unix)]
++#[tokio::test]
++async fn valid_submit_context_at_transport_limit_passes_and_one_byte_over_holds() {
++    for size in [65_536, 65_537] {
++        let temp = tempfile::tempdir().unwrap();
++        let script = temp.path().join("bounded-relay.py");
++        std::fs::write(&script,r#"import json,sys
++req=json.load(sys.stdin)
++size=int(sys.argv[1])
++response={'continue':True,'demonCoderOrdinary':req['demonCoderOrdinary'],'hookSpecificOutput':{'hookEventName':'UserPromptSubmit','additionalContext':''}}
++base=json.dumps(response,separators=(',',':'))
++response['hookSpecificOutput']['additionalContext']='x'*(size-len(base))
++wire=json.dumps(response,separators=(',',':'))
++assert len(wire.encode())==size
++sys.stdout.write(wire)
++"#).unwrap();
++        let command = format!("python3 '{}' {size}", script.display());
++        let thread_id = ThreadId::new();
++        let hooks = hooks(snapshot(&temp, &command), thread_id);
++        let outcome = hooks
++            .run_user_prompt_submit(UserPromptSubmitRequest {
++                session_id: thread_id,
++                turn_id: "turn-1".into(),
++                subagent: None,
++                cwd: AbsolutePathBuf::try_from(temp.path()).unwrap(),
++                transcript_path: None,
++                model: "test".into(),
++                permission_mode: "default".into(),
++                prompt: "developer prompt".into(),
++            })
++            .await;
++        assert_eq!(outcome.should_stop, size > 65_536, "size={size}");
++        if size == 65_536 {
++            assert_eq!(outcome.hook_events[0].run.status, HookRunStatus::Completed);
++            assert!(!outcome.additional_contexts.is_empty());
++        } else {
++            assert_eq!(outcome.hook_events[0].run.status, HookRunStatus::Failed);
++            assert!(outcome.additional_contexts.is_empty());
++        }
++    }
++}
+--- /dev/null
++++ b/codex-rs/hooks/src/managed_ordinary_tests.rs
+@@ -0,0 +1,287 @@
++use super::*;
++use serde_json::json;
++
++fn expected(event: &str) -> Acknowledgment {
++    Acknowledgment {
++        protocol: PROTOCOL.into(),
++        delivery_id: "delivery-1".into(),
++        hook_event_name: event.into(),
++        session_id: "session-1".into(),
++        turn_id: "turn-1".into(),
++    }
++}
++
++#[test]
++fn acknowledgment_requires_exact_delivery_and_explicit_event_decision() {
++    for event in ["UserPromptSubmit", "Stop"] {
++        let ack = expected(event);
++        let valid = json!({"continue":true,"demonCoderOrdinary":ack});
++        assert!(decode_response(&valid.to_string(), &ack).is_ok());
++        let mut invalid = vec![
++            "".into(),
++            "logged".into(),
++            "{".into(),
++            "null".into(),
++            "{}".into(),
++            r#"{"continue":true}"#.into(),
++            format!("{valid}\n{valid}"),
++        ];
++        for key in [
++            "protocol",
++            "delivery_id",
++            "hook_event_name",
++            "session_id",
++            "turn_id",
++        ] {
++            let mut changed = valid.clone();
++            changed["demonCoderOrdinary"][key] = json!("other");
++            invalid.push(changed.to_string());
++        }
++        for (field, value) in [
++            ("continue", json!("true")),
++            ("continue", json!(null)),
++            ("unknown", json!(true)),
++            ("reason", json!(12)),
++            ("reason", json!(null)),
++            ("decision", json!("allow")),
++            ("async", json!(true)),
++            ("demonCoderCompaction", json!({})),
++        ] {
++            let mut changed = valid.clone();
++            changed[field] = value;
++            invalid.push(changed.to_string());
++        }
++        let mut changed = valid.clone();
++        changed["demonCoderOrdinary"]["extra"] = json!(true);
++        invalid.push(changed.to_string());
++        let mut changed = valid.clone();
++        changed["decision"] = json!("block");
++        invalid.push(changed.to_string());
++        let mut changed = valid.clone();
++        changed["decision"] = json!("block");
++        changed["reason"] = json!(" ");
++        invalid.push(changed.to_string());
++        let mut changed = valid.clone();
++        changed["decision"] = json!("block");
++        changed["reason"] = json!("x".repeat(1_048_577));
++        invalid.push(changed.to_string());
++        invalid.push(format!(
++            "{{\"continue\":true,\"continue\":false,\"demonCoderOrdinary\":{}}}",
++            serde_json::to_string(&ack).unwrap()
++        ));
++        for output in invalid {
++            assert!(
++                decode_response(&output, &ack).is_err(),
++                "accepted {event} output {output:?}"
++            );
++        }
++        let denial =
++            json!({"continue":false,"stopReason":"policy denied","demonCoderOrdinary":ack});
++        assert!(decode_response(&denial.to_string(), &ack).is_ok());
++        let block = json!({"continue":true,"decision":"block","reason":"fix this","demonCoderOrdinary":ack});
++        assert!(decode_response(&block.to_string(), &ack).is_ok());
++    }
++}
++
++#[test]
++fn response_preserves_submit_context_but_rejects_wrong_event_output() {
++    let ack = expected("UserPromptSubmit");
++    let mut valid = json!({"continue":true,"demonCoderOrdinary":ack,"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"context as data"}});
++    let decoded = decode_response(&valid.to_string(), &ack).unwrap();
++    assert_eq!(
++        serde_json::from_str::<serde_json::Value>(&decoded).unwrap()["hookSpecificOutput"]["additionalContext"],
++        "context as data"
++    );
++    assert!(!decoded.contains("demonCoderOrdinary"));
++    valid["hookSpecificOutput"]["hookEventName"] = json!("Stop");
++    assert!(decode_response(&valid.to_string(), &ack).is_err());
++    valid["hookSpecificOutput"]["hookEventName"] = json!("UserPromptSubmit");
++    valid["hookSpecificOutput"]["additionalContext"] = json!("x".repeat(1_048_577));
++    assert!(decode_response(&valid.to_string(), &ack).is_err());
++    let ack = expected("Stop");
++    valid["demonCoderOrdinary"] = json!(ack);
++    assert!(decode_response(&valid.to_string(), &ack).is_err());
++}
++
++fn declaration() -> serde_json::Value {
++    json!({"hooks":{"UserPromptSubmit":[{"hooks":[{"type":"command","command":"submit-relay","timeout":2,"async":false}]}],"Stop":[{"hooks":[{"type":"command","command":"stop-relay","timeout":2}]}]}})
++}
++fn requirement(bytes: &[u8]) -> Requirement {
++    Requirement {
++        protocol: PROTOCOL.into(),
++        source_path: std::env::temp_dir().join("ordinary.json"),
++        source_sha256: format!("{:x}", sha2::Sha256::digest(bytes)),
++        submit_command: "submit-relay".into(),
++        stop_command: "stop-relay".into(),
++    }
++}
++#[test]
++fn declaration_requires_exact_hash_commands_and_both_synchronous_events() {
++    let bytes = serde_json::to_vec(&declaration()).unwrap();
++    assert!(validate_declaration(&requirement(&bytes), &bytes).is_ok());
++    for event in ["UserPromptSubmit", "Stop"] {
++        for (field, value) in [
++            ("type", json!("mcp_tool")),
++            ("command", json!("substituted")),
++            ("async", json!(true)),
++            ("async", json!(null)),
++            ("timeout", json!(0)),
++            ("timeout", json!(121)),
++            ("timeout", json!(1.5)),
++            ("timeout", json!("2")),
++            ("env", json!({})),
++            ("enabled", json!(false)),
++        ] {
++            let mut changed = declaration();
++            changed["hooks"][event][0]["hooks"][0][field] = value;
++            let bytes = serde_json::to_vec(&changed).unwrap();
++            assert!(
++                validate_declaration(&requirement(&bytes), &bytes).is_err(),
++                "accepted {changed}"
++            );
++        }
++        for groups in [
++            json!([]),
++            json!([{"hooks":[]}]),
++            json!([
++                declaration()["hooks"][event][0],
++                declaration()["hooks"][event][0]
++            ]),
++        ] {
++            let mut changed = declaration();
++            changed["hooks"][event] = groups;
++            let bytes = serde_json::to_vec(&changed).unwrap();
++            assert!(validate_declaration(&requirement(&bytes), &bytes).is_err());
++        }
++        let mut changed = declaration();
++        changed["hooks"].as_object_mut().unwrap().remove(event);
++        let bytes = serde_json::to_vec(&changed).unwrap();
++        assert!(validate_declaration(&requirement(&bytes), &bytes).is_err());
++    }
++    let mut req = requirement(&bytes);
++    req.source_sha256 = "0".repeat(64);
++    assert!(validate_declaration(&req, &bytes).is_err());
++    let mut req = requirement(&bytes);
++    req.source_sha256 = req.source_sha256.to_uppercase();
++    assert!(validate_declaration(&req, &bytes).is_err());
++    let mut req = requirement(&bytes);
++    req.source_path = "relative".into();
++    assert!(validate_declaration(&req, &bytes).is_err());
++    let mut req = requirement(&bytes);
++    req.protocol = "other".into();
++    assert!(validate_declaration(&req, &bytes).is_err());
++    let mut req = requirement(&bytes);
++    req.submit_command = " ".into();
++    assert!(validate_declaration(&req, &bytes).is_err());
++    let huge = vec![b' '; 1_048_577];
++    assert!(validate_declaration(&requirement(&huge), &huge).is_err());
++    let mut extra = declaration();
++    extra["hooks"]["PreCompact"] = json!([]);
++    let bytes = serde_json::to_vec(&extra).unwrap();
++    assert!(validate_declaration(&requirement(&bytes), &bytes).is_err());
++}
++
++fn raw_requirement(path: &std::path::Path, bytes: &[u8]) -> String {
++    json!({"protocol":PROTOCOL,"source_path":path,"source_sha256":format!("{:x}",sha2::Sha256::digest(bytes)),"submit_command":"submit-relay","stop_command":"stop-relay"}).to_string()
++}
++#[test]
++fn load_freezes_commands_and_rejects_missing_nonregular_and_untrusted_sources() {
++    let dir = tempfile::tempdir().unwrap();
++    let path = dir.path().join("hooks.json");
++    let bytes = serde_json::to_vec(&declaration()).unwrap();
++    let raw = raw_requirement(&path, &bytes);
++    assert!(ManagedOrdinary::load(&raw).is_err());
++    std::fs::write(&path, &bytes).unwrap();
++    let snapshot = ManagedOrdinary::load(&raw).unwrap();
++    std::fs::write(&path, b"{}").unwrap();
++    assert!(ManagedOrdinary::load(&raw).is_err());
++    assert!(
++        matches!(&snapshot.submit.kind,ConfiguredHandlerKind::Command{command,..} if command=="submit-relay")
++    );
++    std::fs::remove_file(&path).unwrap();
++    std::fs::create_dir(&path).unwrap();
++    assert!(ManagedOrdinary::load(&raw).is_err());
++    #[cfg(unix)]
++    {
++        let link = dir.path().join("link");
++        std::os::unix::fs::symlink(&path, &link).unwrap();
++        assert!(ManagedOrdinary::load(&raw_requirement(&link, &bytes)).is_err());
++    }
++    assert!(ManagedOrdinary::load(&" ".repeat(65_537)).is_err());
++}
++
++#[test]
++fn startup_child_probe() {
++    let Ok(mode) = std::env::var("DEMONCODER_ORDINARY_STARTUP_TEST") else {
++        return;
++    };
++    let raw = std::env::var(ENVIRONMENT_VARIABLE).unwrap();
++    let requirement: Requirement = serde_json::from_str(&raw).unwrap();
++    let first = initialize_managed_ordinary();
++    if mode == "valid" {
++        first.unwrap();
++        let captured = startup_snapshot().unwrap().unwrap();
++        std::fs::write(&requirement.source_path, b"invalid replacement").unwrap();
++        initialize_managed_ordinary().unwrap();
++        let later = startup_snapshot().unwrap().unwrap();
++        assert!(Arc::ptr_eq(&captured, &later));
++    } else {
++        assert!(first.is_err());
++        std::fs::write(
++            &requirement.source_path,
++            serde_json::to_vec(&declaration()).unwrap(),
++        )
++        .unwrap();
++        assert!(initialize_managed_ordinary().is_err());
++        assert!(startup_snapshot().is_err());
++    }
++}
++
++#[test]
++fn startup_freezes_success_and_failure_in_separate_processes() {
++    for mode in ["valid", "missing"] {
++        let dir = tempfile::tempdir().unwrap();
++        let path = dir.path().join("hooks.json");
++        let bytes = serde_json::to_vec(&declaration()).unwrap();
++        if mode == "valid" {
++            std::fs::write(&path, &bytes).unwrap();
++        }
++        let output = std::process::Command::new(std::env::current_exe().unwrap())
++            .args([
++                "--exact",
++                "managed_ordinary::tests::startup_child_probe",
++                "--nocapture",
++            ])
++            .env("DEMONCODER_ORDINARY_STARTUP_TEST", mode)
++            .env(ENVIRONMENT_VARIABLE, raw_requirement(&path, &bytes))
++            .output()
++            .unwrap();
++        assert!(
++            output.status.success(),
++            "child {mode}: {} {}",
++            String::from_utf8_lossy(&output.stdout),
++            String::from_utf8_lossy(&output.stderr)
++        );
++    }
++}
++
++#[test]
++fn decoder_matches_exact_managed_output_transport_boundary() {
++    let ack = expected("UserPromptSubmit");
++    let mut output = json!({"continue":true,"demonCoderOrdinary":ack,"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":""}});
++    let empty_size = output.to_string().len();
++    for size in [65_536, 65_537] {
++        output["hookSpecificOutput"]["additionalContext"] = json!("x".repeat(size - empty_size));
++        let wire = output.to_string();
++        assert_eq!(wire.len(), size);
++        let decoded = decode_response(&wire, &ack);
++        if size == 65_536 {
++            assert!(decoded.is_ok(), "exact transport limit rejected");
++        } else {
++            assert!(
++                decoded.is_err(),
++                "decoder accepted output larger than managed transport"
++            );
++        }
++    }
++}
+--- a/codex-rs/hooks/src/managed_registry_tests.rs
++++ b/codex-rs/hooks/src/managed_registry_tests.rs
+@@ -69,6 +69,7 @@
+             Arc::new(NoMcp),
+             Arc::clone(&environment),
+             Some(managed),
++            None,
+             |shell| CommandHookRuntime::new(shell, environment, thread_id, sender),
+         );
+         // Later file deletion and settings refresh cannot remove the captured required relay.
+--- a/codex-rs/hooks/src/registry.rs
++++ b/codex-rs/hooks/src/registry.rs
+@@ -64,6 +64,7 @@
+     after_agent: Vec<Hook>,
+     engine: ClaudeHooksEngine,
+     managed_compaction: Option<Arc<crate::managed_compaction::ManagedCompaction>>,
++    managed_ordinary: Option<Arc<crate::managed_ordinary::ManagedOrdinary>>,
+ }
+ 
+ impl Hooks {
+@@ -81,6 +82,7 @@
+             mcp_executor,
+             Arc::clone(&environment),
+             crate::managed_compaction::startup_snapshot()?,
++            crate::managed_ordinary::startup_snapshot()?,
+             |shell| CommandHookRuntime::new(shell, environment, thread_id, result_sender),
+         );
+         let required_load_errors = hooks.engine.required_load_errors();
+@@ -100,13 +102,14 @@
+             Arc::clone(&self.engine.mcp_executor),
+             Arc::clone(&self.environment),
+             self.managed_compaction.clone(),
++            self.managed_ordinary.clone(),
+             |shell| self.engine.command_runtime.reconfigured(shell),
+         )
+     }
+ 
+     pub fn with_executor_hooks(&self, executor_hooks: Vec<ExecutorPluginHookSource>) -> Self {
+         let mut hooks = self.clone();
+-        if self.managed_compaction.is_none() {
++        if self.managed_compaction.is_none() && self.managed_ordinary.is_none() {
+             hooks.engine.set_executor_hooks(executor_hooks);
+         }
+         hooks
+@@ -117,9 +120,10 @@
+         mcp_executor: Arc<dyn HookMcpExecutor>,
+         environment: Arc<Vec<(OsString, OsString)>>,
+         managed_compaction: Option<Arc<crate::managed_compaction::ManagedCompaction>>,
++        managed_ordinary: Option<Arc<crate::managed_ordinary::ManagedOrdinary>>,
+         build_runtime: impl FnOnce(CommandShell) -> CommandHookRuntime,
+     ) -> Self {
+-        if managed_compaction.is_some() {
++        if managed_compaction.is_some() || managed_ordinary.is_some() {
+             config.feature_enabled = false;
+             config.plugin_hook_sources.clear();
+             config.plugin_hook_load_warnings.clear();
+@@ -149,6 +153,7 @@
+             after_agent,
+             engine,
+             managed_compaction,
++            managed_ordinary,
+         }
+     }
+ 
+@@ -301,6 +306,9 @@
+         &self,
+         request: &UserPromptSubmitRequest,
+     ) -> Vec<codex_protocol::protocol::HookRunSummary> {
++        if let Some(managed) = &self.managed_ordinary {
++            return vec![crate::engine::dispatcher::running_summary(&managed.submit)];
++        }
+         self.engine.preview_user_prompt_submit(request)
+     }
+ 
+@@ -308,6 +316,10 @@
+         &self,
+         request: UserPromptSubmitRequest,
+     ) -> UserPromptSubmitOutcome {
++        if let Some(managed) = &self.managed_ordinary {
++            return crate::events::user_prompt_submit::run_managed(&self.engine, managed, request)
++                .await;
++        }
+         self.engine.run_user_prompt_submit(request).await
+     }
+ 
+@@ -315,10 +327,20 @@
+         &self,
+         request: &StopRequest,
+     ) -> Vec<codex_protocol::protocol::HookRunSummary> {
++        if let Some(managed) = &self.managed_ordinary {
++            return if matches!(request.target, crate::StopHookTarget::Stop) {
++                vec![crate::engine::dispatcher::running_summary(&managed.stop)]
++            } else {
++                Vec::new()
++            };
++        }
+         self.engine.preview_stop(request)
+     }
+ 
+     pub async fn run_stop(&self, request: StopRequest) -> StopOutcome {
++        if let Some(managed) = &self.managed_ordinary {
++            return crate::events::stop::run_managed(&self.engine, managed, request).await;
++        }
+         self.engine.run_stop(request).await
+     }
+ 
+@@ -376,3 +398,7 @@
+ #[cfg(test)]
+ #[path = "managed_registry_tests.rs"]
+ mod managed_tests;
++
++#[cfg(test)]
++#[path = "managed_ordinary_registry_tests.rs"]
++mod managed_ordinary_tests;

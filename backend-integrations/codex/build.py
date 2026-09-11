@@ -11,7 +11,6 @@ import shutil
 import subprocess
 import tomllib
 
-
 PACKAGE = Path(__file__).resolve().parent
 REQUIREMENT_ENV = "CODEX_DEMONCODER_COMPACTION_RELAY"
 
@@ -63,31 +62,53 @@ def verify_external_lock(source, prepared):
         raise RuntimeError("patch changes the pinned external dependency records")
 
 
-def prepare(source, build_root, provenance, reuse):
+def patch_plan(source, provenance, ordinary=None):
+    records = tree_records(source)
+    if tree_digest(records) != provenance["source_tree_sha256"]:
+        raise RuntimeError("source tree does not match the retained release")
+    expected = dict(records)
+    stages = [(PACKAGE / "managed-compaction.patch", provenance)]
+    if ordinary is not None:
+        stages.append((PACKAGE / "managed-ordinary.patch", ordinary))
+    plan = []
+    for path, declaration in stages:
+        if digest(path) != declaration["patch_sha256"]:
+            raise RuntimeError(f"patch digest does not match provenance: {path.name}")
+        if declaration is ordinary and (
+            ordinary["base_patch_sha256"] != provenance["patch_sha256"]
+            or ordinary["base_prepared_tree_sha256"] != tree_digest(expected)
+        ):
+            raise RuntimeError("ordinary patch base differs from the compaction stage")
+        for name, hashes in declaration["changed_files"].items():
+            if expected.get(name) != hashes["original_sha256"]:
+                raise RuntimeError(f"source precondition failed: {name}")
+            expected[name] = hashes["patched_sha256"]
+        plan.append((path, dict(expected)))
+    return plan
+
+
+def prepare(source, build_root, provenance, reuse, ordinary=None):
     if (
         source == build_root
         or source in build_root.parents
         or build_root in source.parents
     ):
         raise RuntimeError("source and build root must not overlap")
-    records = tree_records(source)
-    if tree_digest(records) != provenance["source_tree_sha256"]:
-        raise RuntimeError("source tree does not match the retained release")
-    patch = PACKAGE / "managed-compaction.patch"
-    if digest(patch) != provenance["patch_sha256"]:
-        raise RuntimeError("patch digest does not match provenance")
-    expected = dict(records)
-    for name, hashes in provenance["changed_files"].items():
-        if records.get(name) != hashes["original_sha256"]:
-            raise RuntimeError(f"source precondition failed: {name}")
-        expected[name] = hashes["patched_sha256"]
+    plan = patch_plan(source, provenance, ordinary)
     if not reuse:
         shutil.copytree(source, build_root)
-        subprocess.run(
-            ["patch", "--batch", "--fuzz=0", "-p1", "-i", str(patch)],
-            cwd=build_root,
-            check=True,
-        )
+        for path, expected in plan:
+            subprocess.run(
+                ["patch", "--batch", "--fuzz=0", "-p1", "-i", str(path)],
+                cwd=build_root,
+                check=True,
+            )
+            if tree_records(build_root) != expected:
+                raise RuntimeError(
+                    f"intermediate source differs from the exact expected patched tree: {path.name}"
+                )
+            verify_external_lock(source, build_root)
+    expected = plan[-1][1]
     if tree_records(build_root) != expected:
         raise RuntimeError(
             "prepared source differs from the exact expected patched tree"
@@ -116,7 +137,8 @@ def main():
     source = args.source.resolve(strict=True)
     build_root = args.build_root.resolve()
     provenance = json.loads((PACKAGE / "source-provenance.json").read_text())
-    patched_tree = prepare(source, build_root, provenance, args.reuse)
+    ordinary = json.loads((PACKAGE / "ordinary-provenance.json").read_text())
+    patched_tree = prepare(source, build_root, provenance, args.reuse, ordinary)
     if args.prepare_only:
         print(
             json.dumps(
@@ -128,6 +150,7 @@ def main():
     for key in list(environment):
         if key.startswith("CARGO_PROFILE_") or key in {
             REQUIREMENT_ENV,
+            "CODEX_DEMONCODER_ORDINARY_RELAY",
             "CODEX_DEMONCODER_MODEL_HOOK",
             "RUSTFLAGS",
             "CARGO_ENCODED_RUSTFLAGS",
@@ -167,13 +190,7 @@ def main():
         "codex",
     ]
     subprocess.run(command, cwd=working_directory, env=environment, check=True)
-    if tree_records(build_root) != {
-        **tree_records(source),
-        **{
-            name: item["patched_sha256"]
-            for name, item in provenance["changed_files"].items()
-        },
-    }:
+    if tree_records(build_root) != patch_plan(source, provenance, ordinary)[-1][1]:
         raise RuntimeError("source changed while building; no receipt recorded")
     profile_directory = "debug" if args.profile == "dev" else "release"
     binary = (
@@ -208,10 +225,21 @@ def main():
         "source_version": "0.153.4",
     }:
         raise RuntimeError("built artifact lacks model-hook instruction isolation")
+    ordinary_capability = json.loads(
+        capture([str(binary), "--demoncoder-ordinary-capability"])
+    )
+    if ordinary_capability != {
+        "protocol": "demoncoder-ordinary-v1",
+        "source_version": "0.153.4",
+        "patch_version": 1,
+    }:
+        raise RuntimeError("built artifact lacks the private ordinary hook boundary")
     receipt = {
-        "schema_version": 1,
+        "schema_version": 2,
         "source_tree_sha256": provenance["source_tree_sha256"],
         "patch_sha256": provenance["patch_sha256"],
+        "ordinary_patch_sha256": ordinary["patch_sha256"],
+        "compaction_tree_sha256": ordinary["base_prepared_tree_sha256"],
         "prepared_tree_sha256": patched_tree,
         "binary": str(binary),
         "binary_sha256": digest(binary),
@@ -225,6 +253,7 @@ def main():
         "version": capture([str(binary), "--version"]),
         "capability": capability,
         "model_hook_capability": model_hook_capability,
+        "ordinary_capability": ordinary_capability,
         "checks": ["just test --locked -p codex-hooks"],
         "qualification": "not established by this build receipt; run backend and host-adapter qualification",
     }

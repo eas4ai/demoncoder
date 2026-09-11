@@ -20,7 +20,10 @@ Latest lifecycle prerequisite: Claude/shared external Submit/Stop integration
 passed 800 Rust tests (17 ignored), 22 actual pinned-backend/local-peer cases,
 and fresh specification and quality reviews. Durable source delivery, correction
 provenance, uncertain delivery and combined post-tool handoff are covered. Codex
-ordinary-hook registration and complete lifecycle/package conformance remain open.
+ordinary-hook registration is now source-built and qualified (191 hook tests,
+25 startup and 45 runtime/lifetime cases), with specification and quality
+reviews passed. Host ordinary integration and complete lifecycle/package
+conformance remain open.
 See [the integration review](../reviews/plugin-external-non-tool-runtime.md).
 
 Only the parent records Cairn decisions, changes declarations and commits evidence. Workers own bounded files; they do not change the selected scope or evidence. A test fixture may model a provider, but its report must say controlled transport. Source/type checks, successful parsing and test registration never establish runtime delivery.

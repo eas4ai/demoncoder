@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "protocol": "demoncoder-ordinary-v1",
+  "patch_version": 1,
+  "source_version": "0.153.4",
+  "retained_source": "reference/codex-rust-v0.153.4",
+  "source_tree_sha256": "faa3dfcd3b8647b879cc7a2d42b64d2dc5398bf0283c9a47148b4a20541015ed",
+  "base_patch_sha256": "99d0bd1a9ba6e595df99eca9d1e7f1cdbc4f081705711d703147a13eb8e69d43",
+  "base_prepared_tree_sha256": "0a8cede77909190fb19c4c60b92d4fa5b176b767be3fc310e1a178e7365c0bda",
+  "patch_sha256": "37605f53458e0d9c89e1d54fbeeac93b1d79e0b126be3bc0d9d832520b38ebf6",
+  "prepared_tree_sha256": "93e336b8f510a18c24fb21fb27b7e1991233e1dd2f089089f5db3acc393a423c",
+  "external_dependency_records_unchanged": true,
+  "changed_files": {
+    "codex-rs/app-server/src/main.rs": {
+      "original_sha256": "eb35b5d110d11a9b36ecd169a33bebe946dd9bee58e138507bb23edfe21040ef",
+      "patched_sha256": "45b4a693374efa467342879252b32482b7d1dd843718dd088d172bc08987746f"
+    },
+    "codex-rs/cli/src/main.rs": {
+      "original_sha256": "bfb36f02387735667c7594b2c95140cff1c078a294e80f9d5301baa475214ad1",
+      "patched_sha256": "6b7982cfb7ea207ae78053cd407e012c0fc615c35f5ed8d893e4388d40e27a92"
+    },
+    "codex-rs/hooks/src/events/stop.rs": {
+      "original_sha256": "eb3e032734a6546d80640cbb55b95e5e4b417f64cde3e79348ac8ecb842dff08",
+      "patched_sha256": "73cee40f951cb82aa288403c03fd03c17238963d0a34a4d9f6f0b0b3224157c0"
+    },
+    "codex-rs/hooks/src/events/user_prompt_submit.rs": {
+      "original_sha256": "53d90344c4cb8192446fd3238f265a52b1919b65c873db60c92920e008a73dd7",
+      "patched_sha256": "d7c6e7b62f30b3626e7e28f5be811e425eb60088bc788c57c50787a892273889"
+    },
+    "codex-rs/hooks/src/lib.rs": {
+      "original_sha256": "fa41d1479f6402af3e96be8b3b548595bc12ba345a8ce445ad30062651649f29",
+      "patched_sha256": "d848793ba1dae5d11c051f31b7d4602f39b35f8611e8de9d02aa6846e4455e6f"
+    },
+    "codex-rs/hooks/src/managed_ordinary.rs": {
+      "original_sha256": null,
+      "patched_sha256": "963c95711a79e12f2901b459b473db36878bd619f4db00eeadee8507dfc449a8"
+    },
+    "codex-rs/hooks/src/managed_ordinary_registry_tests.rs": {
+      "original_sha256": null,
+      "patched_sha256": "ae0654e405d6804dbf6a78b54fd24605980373937924f0f2b353f959afd114d4"
+    },
+    "codex-rs/hooks/src/managed_ordinary_tests.rs": {
+      "original_sha256": null,
+      "patched_sha256": "dd0073ad06f5a76e02d54ab22acdef2b98d1c793156a8fe5a990229dee4fab5e"
+    },
+    "codex-rs/hooks/src/managed_registry_tests.rs": {
+      "original_sha256": "3cbb410fdb6d817e4bd7893c119b1fbdd2e8131d01afe910ab60c29b4c5e2dca",
+      "patched_sha256": "8a9246113624990a0cb134ba5f607f5bba34f62453f6f34c4211560ae7b708cb"
+    },
+    "codex-rs/hooks/src/registry.rs": {
+      "original_sha256": "ae278b8b063cea071a3299d1efd53b20b4e460ed186b9b3a8245793ba461d613",
+      "patched_sha256": "b2205c83cb06306044aac575b26fd6753ba7c17eb6d6c9101a1236d99265d6b3"
+    }
+  }
+}

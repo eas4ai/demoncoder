@@ -1,7 +1,9 @@
-# Managed Codex compaction integration
+# Managed Codex backend integration
 
-This patch adds the PCOMP-003 required compaction relay to the retained Codex
-0.153.4 source. Ordinary connections keep the upstream hook implementation.
+The first patch adds the PCOMP-003 required compaction relay to the retained
+Codex 0.153.4 source. A second patch adds the private Submit and Stop boundary
+described below. Connections without either private requirement keep the
+upstream hook implementation.
 The patch does not qualify an artifact by itself: qualification includes actual
 manual and automatic compaction through the built binary and host adapter.
 
@@ -92,3 +94,51 @@ local TLS model and synthetic ChatGPT login. It compares ordinary and hook
 requests, inspection calls and notification effects. This is controlled
 transport evidence, not a live subscription-provider check. Existing compaction
 qualification must be rerun whenever the artifact changes.
+
+
+## Private Submit and Stop boundary
+
+The builder applies `managed-compaction.patch` first, then
+`managed-ordinary.patch`. `ordinary-provenance.json` binds the exact intermediate
+tree, both patch identities, changed file hashes and final prepared tree.
+External dependency records remain unchanged. The build receipt identifies the
+resulting binary; it does not establish backend or host qualification.
+
+At startup, `CODEX_DEMONCODER_ORDINARY_RELAY` carries:
+
+```json
+{"protocol":"demoncoder-ordinary-v1","source_path":"/absolute/private/hooks.json","source_sha256":"sha256-of-exact-file-bytes","submit_command":"exact Submit command","stop_command":"exact Stop command"}
+```
+
+The declaration must contain exactly one synchronous command for each of
+`UserPromptSubmit` and `Stop`, with a timeout of 1–120 seconds. Startup validates
+the regular file and exact bytes and retains an immutable snapshot. Changing
+the file or refreshing configuration cannot replace it. Private sessions suppress
+ambient hooks and notification commands while retaining authentication and
+non-hook managed policy.
+
+Each actual source input retains its session and turn fields and adds
+`demonCoderOrdinary`, containing `protocol`, `delivery_id`, `hook_event_name`,
+`session_id` and `turn_id`. The response must echo that entire envelope exactly
+and include an explicit boolean `continue`. The fresh delivery UUID identifies
+one transport exchange; it does not create a host operation or source hook-run
+identity. Supported event output is interpreted only after acknowledgment
+validation. Submit may add context, and an acknowledged Stop response may request
+a correction. Failure, timeout, nonzero exit or invalid acknowledgment holds the
+operation and cannot authorize a correction.
+
+The existing managed transport accepts at most 1 MiB input and 64 KiB per output
+stream. The ordinary decoder enforces the same output limit. Host integration
+must check the serialized response fits; it must not truncate accumulated context.
+`--demoncoder-ordinary-capability` reports protocol `demoncoder-ordinary-v1`,
+source version `0.153.4` and patch version `1`.
+
+`qualify_ordinary.py --binary <binary> --output <new-directory>` exercises startup
+rejection, actual callback acknowledgments and faults, a Stop correction,
+snapshot retention, ambient execution controls and output limits against a local
+TLS model. `qualify_ordinary_lifetime.py` adds actual callback interruption,
+late-response isolation and same-thread configuration refresh checks. These
+source-level checks do not establish production host ownership,
+cancellation, recovery or full package compatibility. See
+[the boundary review](../../docs/reviews/plugin-codex-ordinary-boundary.md) for
+current qualification status and limitations.

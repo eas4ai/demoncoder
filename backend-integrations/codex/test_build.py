@@ -95,6 +95,139 @@ class SourcePreparationTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "source directory"):
             build.tree_records(self.source)
 
+    def ordinary_provenance(self, base, changes):
+        intermediate = self.root / "intermediate"
+        with patch.object(build, "PACKAGE", self.package):
+            build.prepare(self.source, intermediate, base, reuse=False)
+        hunks, changed_files = [], {}
+        for name, content in changes.items():
+            path = intermediate / name
+            original = path.read_text() if path.exists() else ""
+            hunks.extend(
+                difflib.unified_diff(
+                    original.splitlines(keepends=True),
+                    content.splitlines(keepends=True),
+                    fromfile="a/" + name if path.exists() else "/dev/null",
+                    tofile="b/" + name,
+                )
+            )
+            changed_files[name] = {
+                "original_sha256": build.digest(path) if path.exists() else None,
+                "patched_sha256": hashlib.sha256(content.encode()).hexdigest(),
+            }
+        path = self.package / "managed-ordinary.patch"
+        path.write_text("".join(hunks))
+        return {
+            "base_prepared_tree_sha256": build.tree_digest(
+                build.tree_records(intermediate)
+            ),
+            "base_patch_sha256": base["patch_sha256"],
+            "patch_sha256": build.digest(path),
+            "changed_files": changed_files,
+        }
+
+    def test_ordinary_patch_replays_after_exact_compaction_tree(self):
+        base = self.provenance({"a.txt": "after\n"})
+        ordinary = self.ordinary_provenance(
+            base, {"a.txt": "ordinary\n", "new.txt": "new\n"}
+        )
+        original_patch = (self.package / "managed-compaction.patch").read_bytes()
+        with patch.object(build, "PACKAGE", self.package):
+            result = build.prepare(
+                self.source, self.target, base, reuse=False, ordinary=ordinary
+            )
+            self.assertEqual(result, build.tree_digest(build.tree_records(self.target)))
+            self.assertEqual((self.source / "a.txt").read_text(), "before\n")
+            self.assertEqual((self.target / "a.txt").read_text(), "ordinary\n")
+            self.assertEqual((self.target / "new.txt").read_text(), "new\n")
+            self.assertEqual(
+                (self.package / "managed-compaction.patch").read_bytes(), original_patch
+            )
+            build.prepare(self.source, self.target, base, reuse=True, ordinary=ordinary)
+            (self.target / "new.txt").write_text("tampered\n")
+            with self.assertRaisesRegex(RuntimeError, "exact expected patched tree"):
+                build.prepare(
+                    self.source, self.target, base, reuse=True, ordinary=ordinary
+                )
+
+    def test_ordinary_provenance_must_name_the_intermediate_tree(self):
+        base = self.provenance({"a.txt": "after\n"})
+        ordinary = self.ordinary_provenance(base, {"a.txt": "ordinary\n"})
+        ordinary["base_prepared_tree_sha256"] = base["source_tree_sha256"]
+        with patch.object(build, "PACKAGE", self.package):
+            with self.assertRaisesRegex(RuntimeError, "ordinary patch base"):
+                build.prepare(
+                    self.source, self.target, base, reuse=False, ordinary=ordinary
+                )
+        self.assertFalse(self.target.exists())
+
+    def test_ordinary_patch_tampering_is_rejected_before_copy(self):
+        base = self.provenance({"a.txt": "after\n"})
+        ordinary = self.ordinary_provenance(base, {"a.txt": "ordinary\n"})
+        (self.package / "managed-ordinary.patch").write_text("tampered\n")
+        with patch.object(build, "PACKAGE", self.package):
+            with self.assertRaisesRegex(RuntimeError, "patch digest"):
+                build.prepare(
+                    self.source, self.target, base, reuse=False, ordinary=ordinary
+                )
+        self.assertFalse(self.target.exists())
+
+    def test_ordinary_file_preconditions_use_the_compaction_result(self):
+        base = self.provenance({"a.txt": "after\n"})
+        ordinary = self.ordinary_provenance(base, {"a.txt": "ordinary\n"})
+        ordinary["changed_files"]["a.txt"]["original_sha256"] = build.digest(
+            self.source / "a.txt"
+        )
+        with patch.object(build, "PACKAGE", self.package):
+            with self.assertRaisesRegex(RuntimeError, "source precondition"):
+                build.prepare(
+                    self.source, self.target, base, reuse=False, ordinary=ordinary
+                )
+        self.assertFalse(self.target.exists())
+
+    def test_second_patch_cannot_conceal_wrong_intermediate_bytes(self):
+        base = self.provenance({"a.txt": "after\n"})
+        ordinary = self.ordinary_provenance(base, {"a.txt": "ordinary\n"})
+        first = self.package / "managed-compaction.patch"
+        first.write_text(first.read_text().replace("+after\n", "+unexpected\n"))
+        base["patch_sha256"] = build.digest(first)
+        ordinary["base_patch_sha256"] = base["patch_sha256"]
+        second = self.package / "managed-ordinary.patch"
+        second.write_text(second.read_text().replace("-after\n", "-unexpected\n"))
+        ordinary["patch_sha256"] = build.digest(second)
+        with patch.object(build, "PACKAGE", self.package):
+            with self.assertRaisesRegex(RuntimeError, "intermediate source"):
+                build.prepare(
+                    self.source, self.target, base, reuse=False, ordinary=ordinary
+                )
+        self.assertEqual((self.target / "a.txt").read_text(), "unexpected\n")
+
+    def test_ordinary_patch_cannot_hide_undeclared_changes(self):
+        base = self.provenance({"a.txt": "after\n"})
+        ordinary = self.ordinary_provenance(
+            base, {"a.txt": "ordinary\n", "extra.txt": "undeclared\n"}
+        )
+        del ordinary["changed_files"]["extra.txt"]
+        with patch.object(build, "PACKAGE", self.package):
+            with self.assertRaisesRegex(RuntimeError, "exact expected patched tree"):
+                build.prepare(
+                    self.source, self.target, base, reuse=False, ordinary=ordinary
+                )
+
+    def test_ordinary_patch_cannot_change_external_dependencies(self):
+        base = self.provenance({"a.txt": "after\n"})
+        lock = (
+            (self.source / "codex-rs/Cargo.lock")
+            .read_text()
+            .replace('version = "1.0.0"', 'version = "2.0.0"')
+        )
+        ordinary = self.ordinary_provenance(base, {"codex-rs/Cargo.lock": lock})
+        with patch.object(build, "PACKAGE", self.package):
+            with self.assertRaisesRegex(RuntimeError, "pinned external dependency"):
+                build.prepare(
+                    self.source, self.target, base, reuse=False, ordinary=ordinary
+                )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,0 +1,1100 @@
+{
+  "status": "development qualification; not Cairn evidence or complete host ordinary integration",
+  "build_receipt_sha256": "69d3c2eeb3ce586fa3726575fae97f496d90572dd67790162d28f117be08d0b4",
+  "checks": {
+    "ordinary": {
+      "path": "/home/shawn/demoncoder-check-tmp/managed-ordinary-qualification-2/qualification.json",
+      "sha256": "0d596be3e85b44c16ee43151cad728bd7254c7c8b8013b754ec62abac8ad9cff",
+      "result": {
+        "binary_sha256": "13a918d8881f6afe34956c9c42a09512f1e24bd5aa3089216ca31252b0c16cc1",
+        "capability": {
+          "protocol": "demoncoder-ordinary-v1",
+          "source_version": "0.153.4",
+          "patch_version": 1
+        },
+        "startup": [
+          {
+            "case": "valid",
+            "exit": 0,
+            "accepted": true,
+            "passed": true
+          },
+          {
+            "case": "malformed",
+            "exit": 1,
+            "accepted": false,
+            "passed": true
+          },
+          {
+            "case": "null",
+            "exit": 1,
+            "accepted": false,
+            "passed": true
+          },
+          {
+            "case": "empty",
+            "exit": 1,
+            "accepted": false,
+            "passed": true
+          },
+          {
+            "case": "wrong-hash",
+            "exit": 1,
+            "accepted": false,
+            "passed": true
+          },
+          {
+            "case": "uppercase-hash",
+            "exit": 1,
+            "accepted": false,
+            "passed": true
+          },
+          {
+            "case": "wrong-protocol",
+            "exit": 1,
+            "accepted": false,
+            "passed": true
+          },
+          {
+            "case": "wrong-submit-command",
+            "exit": 1,
+            "accepted": false,
+            "passed": true
+          },
+          {
+            "case": "wrong-stop-command",
+            "exit": 1,
+            "accepted": false,
+            "passed": true
+          },
+          {
+            "case": "relative-source",
+            "exit": 1,
+            "accepted": false,
+            "passed": true
+          },
+          {
+            "case": "missing-source",
+            "exit": 1,
+            "accepted": false,
+            "passed": true
+          },
+          {
+            "case": "unknown-requirement-field",
+            "exit": 1,
+            "accepted": false,
+            "passed": true
+          },
+          {
+            "case": "missing-hash",
+            "exit": 1,
+            "accepted": false,
+            "passed": true
+          },
+          {
+            "case": "duplicate-requirement-field",
+            "exit": 1,
+            "accepted": false,
+            "passed": true
+          },
+          {
+            "case": "fifo",
+            "exit": 1,
+            "accepted": false,
+            "passed": true
+          },
+          {
+            "case": "directory",
+            "exit": 1,
+            "accepted": false,
+            "passed": true
+          },
+          {
+            "case": "symlink",
+            "exit": 1,
+            "accepted": false,
+            "passed": true
+          },
+          {
+            "case": "missing-event",
+            "exit": 1,
+            "accepted": false,
+            "passed": true
+          },
+          {
+            "case": "duplicate-group",
+            "exit": 1,
+            "accepted": false,
+            "passed": true
+          },
+          {
+            "case": "async",
+            "exit": 1,
+            "accepted": false,
+            "passed": true
+          },
+          {
+            "case": "unknown-hook-field",
+            "exit": 1,
+            "accepted": false,
+            "passed": true
+          },
+          {
+            "case": "wrong-type",
+            "exit": 1,
+            "accepted": false,
+            "passed": true
+          },
+          {
+            "case": "zero-timeout",
+            "exit": 1,
+            "accepted": false,
+            "passed": true
+          },
+          {
+            "case": "oversized-timeout",
+            "exit": 1,
+            "accepted": false,
+            "passed": true
+          },
+          {
+            "case": "duplicate-json-key",
+            "exit": 1,
+            "accepted": false,
+            "passed": true
+          }
+        ],
+        "cases": [
+          {
+            "target": "UserPromptSubmit",
+            "mode": "allow",
+            "snapshot": false,
+            "model_requests": 1,
+            "callbacks": 2,
+            "passed": true
+          },
+          {
+            "target": "UserPromptSubmit",
+            "mode": "deny",
+            "snapshot": false,
+            "model_requests": 0,
+            "callbacks": 1,
+            "passed": true
+          },
+          {
+            "target": "UserPromptSubmit",
+            "mode": "empty",
+            "snapshot": false,
+            "model_requests": 0,
+            "callbacks": 1,
+            "passed": true
+          },
+          {
+            "target": "UserPromptSubmit",
+            "mode": "malformed",
+            "snapshot": false,
+            "model_requests": 0,
+            "callbacks": 1,
+            "passed": true
+          },
+          {
+            "target": "UserPromptSubmit",
+            "mode": "nonzero",
+            "snapshot": false,
+            "model_requests": 0,
+            "callbacks": 1,
+            "passed": true
+          },
+          {
+            "target": "UserPromptSubmit",
+            "mode": "exit2",
+            "snapshot": false,
+            "model_requests": 0,
+            "callbacks": 1,
+            "passed": true
+          },
+          {
+            "target": "UserPromptSubmit",
+            "mode": "timeout",
+            "snapshot": false,
+            "model_requests": 0,
+            "callbacks": 1,
+            "passed": true
+          },
+          {
+            "target": "UserPromptSubmit",
+            "mode": "crash",
+            "snapshot": false,
+            "model_requests": 0,
+            "callbacks": 1,
+            "passed": true
+          },
+          {
+            "target": "UserPromptSubmit",
+            "mode": "missing-ack",
+            "snapshot": false,
+            "model_requests": 0,
+            "callbacks": 1,
+            "passed": true
+          },
+          {
+            "target": "UserPromptSubmit",
+            "mode": "wrong-delivery",
+            "snapshot": false,
+            "model_requests": 0,
+            "callbacks": 1,
+            "passed": true
+          },
+          {
+            "target": "UserPromptSubmit",
+            "mode": "wrong-event",
+            "snapshot": false,
+            "model_requests": 0,
+            "callbacks": 1,
+            "passed": true
+          },
+          {
+            "target": "UserPromptSubmit",
+            "mode": "wrong-session",
+            "snapshot": false,
+            "model_requests": 0,
+            "callbacks": 1,
+            "passed": true
+          },
+          {
+            "target": "UserPromptSubmit",
+            "mode": "wrong-turn",
+            "snapshot": false,
+            "model_requests": 0,
+            "callbacks": 1,
+            "passed": true
+          },
+          {
+            "target": "UserPromptSubmit",
+            "mode": "wrong-protocol",
+            "snapshot": false,
+            "model_requests": 0,
+            "callbacks": 1,
+            "passed": true
+          },
+          {
+            "target": "UserPromptSubmit",
+            "mode": "missing-continue",
+            "snapshot": false,
+            "model_requests": 0,
+            "callbacks": 1,
+            "passed": true
+          },
+          {
+            "target": "UserPromptSubmit",
+            "mode": "null-continue",
+            "snapshot": false,
+            "model_requests": 0,
+            "callbacks": 1,
+            "passed": true
+          },
+          {
+            "target": "UserPromptSubmit",
+            "mode": "unknown-field",
+            "snapshot": false,
+            "model_requests": 0,
+            "callbacks": 1,
+            "passed": true
+          },
+          {
+            "target": "UserPromptSubmit",
+            "mode": "duplicate-continue",
+            "snapshot": false,
+            "model_requests": 0,
+            "callbacks": 1,
+            "passed": true
+          },
+          {
+            "target": "Stop",
+            "mode": "allow",
+            "snapshot": false,
+            "model_requests": 1,
+            "callbacks": 2,
+            "passed": true
+          },
+          {
+            "target": "Stop",
+            "mode": "deny",
+            "snapshot": false,
+            "model_requests": 1,
+            "callbacks": 2,
+            "passed": true
+          },
+          {
+            "target": "Stop",
+            "mode": "empty",
+            "snapshot": false,
+            "model_requests": 1,
+            "callbacks": 2,
+            "passed": true
+          },
+          {
+            "target": "Stop",
+            "mode": "malformed",
+            "snapshot": false,
+            "model_requests": 1,
+            "callbacks": 2,
+            "passed": true
+          },
+          {
+            "target": "Stop",
+            "mode": "nonzero",
+            "snapshot": false,
+            "model_requests": 1,
+            "callbacks": 2,
+            "passed": true
+          },
+          {
+            "target": "Stop",
+            "mode": "exit2",
+            "snapshot": false,
+            "model_requests": 1,
+            "callbacks": 2,
+            "passed": true
+          },
+          {
+            "target": "Stop",
+            "mode": "timeout",
+            "snapshot": false,
+            "model_requests": 1,
+            "callbacks": 2,
+            "passed": true
+          },
+          {
+            "target": "Stop",
+            "mode": "crash",
+            "snapshot": false,
+            "model_requests": 1,
+            "callbacks": 2,
+            "passed": true
+          },
+          {
+            "target": "Stop",
+            "mode": "missing-ack",
+            "snapshot": false,
+            "model_requests": 1,
+            "callbacks": 2,
+            "passed": true
+          },
+          {
+            "target": "Stop",
+            "mode": "wrong-delivery",
+            "snapshot": false,
+            "model_requests": 1,
+            "callbacks": 2,
+            "passed": true
+          },
+          {
+            "target": "Stop",
+            "mode": "wrong-event",
+            "snapshot": false,
+            "model_requests": 1,
+            "callbacks": 2,
+            "passed": true
+          },
+          {
+            "target": "Stop",
+            "mode": "wrong-session",
+            "snapshot": false,
+            "model_requests": 1,
+            "callbacks": 2,
+            "passed": true
+          },
+          {
+            "target": "Stop",
+            "mode": "wrong-turn",
+            "snapshot": false,
+            "model_requests": 1,
+            "callbacks": 2,
+            "passed": true
+          },
+          {
+            "target": "Stop",
+            "mode": "wrong-protocol",
+            "snapshot": false,
+            "model_requests": 1,
+            "callbacks": 2,
+            "passed": true
+          },
+          {
+            "target": "Stop",
+            "mode": "missing-continue",
+            "snapshot": false,
+            "model_requests": 1,
+            "callbacks": 2,
+            "passed": true
+          },
+          {
+            "target": "Stop",
+            "mode": "null-continue",
+            "snapshot": false,
+            "model_requests": 1,
+            "callbacks": 2,
+            "passed": true
+          },
+          {
+            "target": "Stop",
+            "mode": "unknown-field",
+            "snapshot": false,
+            "model_requests": 1,
+            "callbacks": 2,
+            "passed": true
+          },
+          {
+            "target": "Stop",
+            "mode": "duplicate-continue",
+            "snapshot": false,
+            "model_requests": 1,
+            "callbacks": 2,
+            "passed": true
+          },
+          {
+            "target": "Stop",
+            "mode": "correction",
+            "snapshot": false,
+            "model_requests": 2,
+            "callbacks": 3,
+            "passed": true
+          },
+          {
+            "target": "UserPromptSubmit",
+            "mode": "snapshot",
+            "snapshot": true,
+            "model_requests": 2,
+            "callbacks": 4,
+            "passed": true
+          },
+          {
+            "target": "UserPromptSubmit",
+            "mode": "ambient-control",
+            "snapshot": false,
+            "model_requests": 1,
+            "callbacks": 0,
+            "passed": true
+          },
+          {
+            "target": "UserPromptSubmit",
+            "mode": "isolation",
+            "snapshot": false,
+            "model_requests": 1,
+            "callbacks": 2,
+            "passed": true
+          },
+          {
+            "target": "UserPromptSubmit",
+            "mode": "context-limit",
+            "snapshot": false,
+            "model_requests": 1,
+            "callbacks": 2,
+            "passed": true
+          },
+          {
+            "target": "UserPromptSubmit",
+            "mode": "output-limit",
+            "snapshot": false,
+            "model_requests": 0,
+            "callbacks": 1,
+            "passed": true
+          }
+        ],
+        "kind": "actual-source-controlled-model-peer"
+      }
+    },
+    "lifetime": {
+      "path": "/home/shawn/demoncoder-check-tmp/managed-ordinary-lifetime-2/qualification.json",
+      "sha256": "1b6c65bbb4c5c08a7d66443cf42f636f49234f4846964ffc789f925abeb386f8",
+      "result": {
+        "inputs": {
+          "binary_sha256": "13a918d8881f6afe34956c9c42a09512f1e24bd5aa3089216ca31252b0c16cc1",
+          "helpers": {
+            "backend-integrations/codex/qualify.py": "309096eb4b56e58230c98ec67dd27c78e1832f12f60ce75bb923500a96a50b69",
+            "backend-integrations/codex/qualify_ordinary.py": "59db582d688cbb2464393dfe21e055f9b0ed13115e2b9beedeeb1cf07a30464e",
+            "backend-integrations/codex/qualify_ordinary_lifetime.py": "baf1ad421dff65a13cb002161d003f7bd51d3a8948af6e7cced67fb8a9e9f09c",
+            "tests/boundary_fixture.py": "eacd12bcb7f6e1b6f4d0375a1216aaa143719eee516ef1cc34f46884d22fa2a6",
+            "tests/codex_https_fixture.py": "03ca33089efcd5f118e3f353c399255c37009485cdaaeab5bdd39f13e090ba42",
+            "tests/installed_backends.py": "81c2eec4c5cfdfc5d52926ae5237b31d74110a7a974767c235a8c5ec33134f2a",
+            "tests/plugin_external_non_tool.py": "21fcf295839a55d8906249585274ecba0c913c4661b22b332966965afa46bf7a",
+            "tests/provider_metadata.py": "8847888fa91e57d6c38197cf93bcdae6f9ab2222e2c61470ca384c3a4f1956af",
+            "tests/result_fixture.py": "8b90b2f6b8b6c1f6e33414465d6b093e5aaa32fff00e0df0f4bb7ae3790ceb47",
+            "tests/terminal_screen.py": "4b4715caa08198068905467081d70a1d59ec2d3fc6842466bf58e93940087c34",
+            "tests/terminal_session.py": "9eb448a360c21083e4ff0d6d1c95bc301bd6abbfe3153d62efc59a7df24c26ff",
+            "tests/tool_cycle_fixture.py": "3906b6aa48a78f7b27dca3f3b2a737cc7d7a6c6f4242e67656fa6d7b036db404"
+          },
+          "python": "3.14.7 (main, Aug  5 2026, 10:29:49) [GCC 13.3.0]"
+        },
+        "cases": [
+          {
+            "case": "submit-cancel",
+            "event": "UserPromptSubmit",
+            "interrupt_seconds": 0.10842080181464553,
+            "model_requests": 1,
+            "callbacks": 3,
+            "passed": true
+          },
+          {
+            "case": "stop-cancel",
+            "event": "Stop",
+            "interrupt_seconds": 0.11141360108740628,
+            "model_requests": 2,
+            "callbacks": 4,
+            "passed": true
+          },
+          {
+            "case": "refresh",
+            "same_thread": "01a09242-c1d5-7db3-bd30-54198ac25dfa",
+            "model_requests": 2,
+            "callbacks": 4,
+            "passed": true
+          }
+        ]
+      }
+    },
+    "compaction": {
+      "path": "/home/shawn/demoncoder-check-tmp/managed-ordinary-compaction-regression-1/qualification.json",
+      "sha256": "6f4781b1ac72a96c9fb584da04f760ca03e0d7c70c374b84388357f157d56ff9",
+      "result": {
+        "binary_sha256": "13a918d8881f6afe34956c9c42a09512f1e24bd5aa3089216ca31252b0c16cc1",
+        "capability": {
+          "protocol": "demoncoder-compaction-v1",
+          "source_version": "0.153.4",
+          "patch_version": 1
+        },
+        "startup": [
+          {
+            "case": "valid",
+            "passed": true
+          },
+          {
+            "case": "malformed",
+            "passed": true
+          },
+          {
+            "case": "null",
+            "passed": true
+          },
+          {
+            "case": "empty",
+            "passed": true
+          },
+          {
+            "case": "wrong-hash",
+            "passed": true
+          },
+          {
+            "case": "wrong-command",
+            "passed": true
+          },
+          {
+            "case": "wrong-protocol",
+            "passed": true
+          },
+          {
+            "case": "missing-source",
+            "passed": true
+          },
+          {
+            "case": "relative-source",
+            "passed": true
+          },
+          {
+            "case": "disabled-requirement",
+            "passed": true
+          },
+          {
+            "case": "missing-hash",
+            "passed": true
+          },
+          {
+            "case": "fifo",
+            "passed": true
+          },
+          {
+            "case": "directory",
+            "passed": true
+          },
+          {
+            "case": "symlink",
+            "passed": true
+          },
+          {
+            "case": "missing-boundary",
+            "passed": true
+          },
+          {
+            "case": "async",
+            "passed": true
+          },
+          {
+            "case": "duplicate",
+            "passed": true
+          }
+        ],
+        "cases": [
+          {
+            "automatic": false,
+            "event": "PreCompact",
+            "fault": "allow",
+            "compactions": 1,
+            "ordinary_requests": 1,
+            "owner_alive": true,
+            "backend_alive": true,
+            "passed": true
+          },
+          {
+            "automatic": false,
+            "event": "PreCompact",
+            "fault": "deny",
+            "compactions": 0,
+            "ordinary_requests": 1,
+            "owner_alive": true,
+            "backend_alive": true,
+            "passed": true
+          },
+          {
+            "automatic": false,
+            "event": "PreCompact",
+            "fault": "crash",
+            "compactions": 0,
+            "ordinary_requests": 1,
+            "owner_alive": true,
+            "backend_alive": true,
+            "passed": true
+          },
+          {
+            "automatic": false,
+            "event": "PreCompact",
+            "fault": "timeout",
+            "compactions": 0,
+            "ordinary_requests": 1,
+            "owner_alive": true,
+            "backend_alive": true,
+            "passed": true
+          },
+          {
+            "automatic": false,
+            "event": "PreCompact",
+            "fault": "stale",
+            "compactions": 0,
+            "ordinary_requests": 1,
+            "owner_alive": true,
+            "backend_alive": true,
+            "passed": true
+          },
+          {
+            "automatic": false,
+            "event": "PreCompact",
+            "fault": "empty",
+            "compactions": 0,
+            "ordinary_requests": 1,
+            "owner_alive": true,
+            "backend_alive": true,
+            "passed": true
+          },
+          {
+            "automatic": false,
+            "event": "PreCompact",
+            "fault": "plain",
+            "compactions": 0,
+            "ordinary_requests": 1,
+            "owner_alive": true,
+            "backend_alive": true,
+            "passed": true
+          },
+          {
+            "automatic": false,
+            "event": "PreCompact",
+            "fault": "malformed",
+            "compactions": 0,
+            "ordinary_requests": 1,
+            "owner_alive": true,
+            "backend_alive": true,
+            "passed": true
+          },
+          {
+            "automatic": false,
+            "event": "PreCompact",
+            "fault": "nonzero",
+            "compactions": 0,
+            "ordinary_requests": 1,
+            "owner_alive": true,
+            "backend_alive": true,
+            "passed": true
+          },
+          {
+            "automatic": false,
+            "event": "PostCompact",
+            "fault": "allow",
+            "compactions": 1,
+            "ordinary_requests": 1,
+            "owner_alive": true,
+            "backend_alive": true,
+            "passed": true
+          },
+          {
+            "automatic": false,
+            "event": "PostCompact",
+            "fault": "deny",
+            "compactions": 1,
+            "ordinary_requests": 1,
+            "owner_alive": true,
+            "backend_alive": true,
+            "passed": true
+          },
+          {
+            "automatic": false,
+            "event": "PostCompact",
+            "fault": "crash",
+            "compactions": 1,
+            "ordinary_requests": 1,
+            "owner_alive": true,
+            "backend_alive": true,
+            "passed": true
+          },
+          {
+            "automatic": false,
+            "event": "PostCompact",
+            "fault": "timeout",
+            "compactions": 1,
+            "ordinary_requests": 1,
+            "owner_alive": true,
+            "backend_alive": true,
+            "passed": true
+          },
+          {
+            "automatic": false,
+            "event": "PostCompact",
+            "fault": "stale",
+            "compactions": 1,
+            "ordinary_requests": 1,
+            "owner_alive": true,
+            "backend_alive": true,
+            "passed": true
+          },
+          {
+            "automatic": false,
+            "event": "PostCompact",
+            "fault": "empty",
+            "compactions": 1,
+            "ordinary_requests": 1,
+            "owner_alive": true,
+            "backend_alive": true,
+            "passed": true
+          },
+          {
+            "automatic": false,
+            "event": "PostCompact",
+            "fault": "plain",
+            "compactions": 1,
+            "ordinary_requests": 1,
+            "owner_alive": true,
+            "backend_alive": true,
+            "passed": true
+          },
+          {
+            "automatic": false,
+            "event": "PostCompact",
+            "fault": "malformed",
+            "compactions": 1,
+            "ordinary_requests": 1,
+            "owner_alive": true,
+            "backend_alive": true,
+            "passed": true
+          },
+          {
+            "automatic": false,
+            "event": "PostCompact",
+            "fault": "nonzero",
+            "compactions": 1,
+            "ordinary_requests": 1,
+            "owner_alive": true,
+            "backend_alive": true,
+            "passed": true
+          },
+          {
+            "automatic": true,
+            "event": "PreCompact",
+            "fault": "allow",
+            "compactions": 1,
+            "ordinary_requests": 2,
+            "owner_alive": true,
+            "backend_alive": true,
+            "passed": true
+          },
+          {
+            "automatic": true,
+            "event": "PreCompact",
+            "fault": "deny",
+            "compactions": 0,
+            "ordinary_requests": 1,
+            "owner_alive": true,
+            "backend_alive": true,
+            "passed": true
+          },
+          {
+            "automatic": true,
+            "event": "PreCompact",
+            "fault": "crash",
+            "compactions": 0,
+            "ordinary_requests": 1,
+            "owner_alive": true,
+            "backend_alive": true,
+            "passed": true
+          },
+          {
+            "automatic": true,
+            "event": "PreCompact",
+            "fault": "timeout",
+            "compactions": 0,
+            "ordinary_requests": 1,
+            "owner_alive": true,
+            "backend_alive": true,
+            "passed": true
+          },
+          {
+            "automatic": true,
+            "event": "PreCompact",
+            "fault": "stale",
+            "compactions": 0,
+            "ordinary_requests": 1,
+            "owner_alive": true,
+            "backend_alive": true,
+            "passed": true
+          },
+          {
+            "automatic": true,
+            "event": "PreCompact",
+            "fault": "empty",
+            "compactions": 0,
+            "ordinary_requests": 1,
+            "owner_alive": true,
+            "backend_alive": true,
+            "passed": true
+          },
+          {
+            "automatic": true,
+            "event": "PreCompact",
+            "fault": "plain",
+            "compactions": 0,
+            "ordinary_requests": 1,
+            "owner_alive": true,
+            "backend_alive": true,
+            "passed": true
+          },
+          {
+            "automatic": true,
+            "event": "PreCompact",
+            "fault": "malformed",
+            "compactions": 0,
+            "ordinary_requests": 1,
+            "owner_alive": true,
+            "backend_alive": true,
+            "passed": true
+          },
+          {
+            "automatic": true,
+            "event": "PreCompact",
+            "fault": "nonzero",
+            "compactions": 0,
+            "ordinary_requests": 1,
+            "owner_alive": true,
+            "backend_alive": true,
+            "passed": true
+          },
+          {
+            "automatic": true,
+            "event": "PostCompact",
+            "fault": "allow",
+            "compactions": 1,
+            "ordinary_requests": 2,
+            "owner_alive": true,
+            "backend_alive": true,
+            "passed": true
+          },
+          {
+            "automatic": true,
+            "event": "PostCompact",
+            "fault": "deny",
+            "compactions": 1,
+            "ordinary_requests": 1,
+            "owner_alive": true,
+            "backend_alive": true,
+            "passed": true
+          },
+          {
+            "automatic": true,
+            "event": "PostCompact",
+            "fault": "crash",
+            "compactions": 1,
+            "ordinary_requests": 1,
+            "owner_alive": true,
+            "backend_alive": true,
+            "passed": true
+          },
+          {
+            "automatic": true,
+            "event": "PostCompact",
+            "fault": "timeout",
+            "compactions": 1,
+            "ordinary_requests": 1,
+            "owner_alive": true,
+            "backend_alive": true,
+            "passed": true
+          },
+          {
+            "automatic": true,
+            "event": "PostCompact",
+            "fault": "stale",
+            "compactions": 1,
+            "ordinary_requests": 1,
+            "owner_alive": true,
+            "backend_alive": true,
+            "passed": true
+          },
+          {
+            "automatic": true,
+            "event": "PostCompact",
+            "fault": "empty",
+            "compactions": 1,
+            "ordinary_requests": 1,
+            "owner_alive": true,
+            "backend_alive": true,
+            "passed": true
+          },
+          {
+            "automatic": true,
+            "event": "PostCompact",
+            "fault": "plain",
+            "compactions": 1,
+            "ordinary_requests": 1,
+            "owner_alive": true,
+            "backend_alive": true,
+            "passed": true
+          },
+          {
+            "automatic": true,
+            "event": "PostCompact",
+            "fault": "malformed",
+            "compactions": 1,
+            "ordinary_requests": 1,
+            "owner_alive": true,
+            "backend_alive": true,
+            "passed": true
+          },
+          {
+            "automatic": true,
+            "event": "PostCompact",
+            "fault": "nonzero",
+            "compactions": 1,
+            "ordinary_requests": 1,
+            "owner_alive": true,
+            "backend_alive": true,
+            "passed": true
+          }
+        ]
+      }
+    },
+    "model_isolation": {
+      "path": "/home/shawn/demoncoder-check-tmp/managed-ordinary-model-isolation-regression-1.json",
+      "sha256": "985856992daa6f02d4293f5433f85aab74ad0bc7ec93a7ac38d63f0adc47c9ee",
+      "result": {
+        "transport": "actual managed Codex with synthetic local TLS model and login",
+        "binary_sha256": "13a918d8881f6afe34956c9c42a09512f1e24bd5aa3089216ca31252b0c16cc1",
+        "cases": [
+          {
+            "managed": false,
+            "missing_compact_prompt": false,
+            "finished": true,
+            "model_requests": 3,
+            "inspection_calls": 1,
+            "canaries": {
+              "GLOBAL": true,
+              "BASE": true,
+              "DEVELOPER": true,
+              "COMPACT": false,
+              "WORKSPACE": false
+            },
+            "account": "chatgpt",
+            "errors": [],
+            "notification_ran": true,
+            "tools": [
+              "snapshot_read"
+            ],
+            "passed": true
+          },
+          {
+            "managed": true,
+            "missing_compact_prompt": false,
+            "finished": true,
+            "model_requests": 3,
+            "inspection_calls": 1,
+            "canaries": {
+              "GLOBAL": false,
+              "BASE": false,
+              "DEVELOPER": false,
+              "COMPACT": false,
+              "WORKSPACE": false
+            },
+            "account": "chatgpt",
+            "errors": [],
+            "notification_ran": false,
+            "tools": [
+              "snapshot_read"
+            ],
+            "passed": true
+          },
+          {
+            "managed": false,
+            "missing_compact_prompt": true,
+            "startup_rejected": true,
+            "passed": true
+          },
+          {
+            "managed": true,
+            "missing_compact_prompt": true,
+            "finished": true,
+            "model_requests": 3,
+            "inspection_calls": 1,
+            "canaries": {
+              "GLOBAL": false,
+              "BASE": false,
+              "DEVELOPER": false,
+              "COMPACT": false,
+              "WORKSPACE": false
+            },
+            "account": "chatgpt",
+            "errors": [],
+            "notification_ran": false,
+            "tools": [
+              "snapshot_read"
+            ],
+            "passed": true
+          }
+        ]
+      }
+    },
+    "host_compaction": {
+      "path": "/home/shawn/demoncoder-check-tmp/managed-ordinary-host-compaction-regression-1.json",
+      "sha256": "e75d57fd11b68534a52f8f9ed676fb985ec44dfb641c5d4ff0eae7225123d29a",
+      "result": {
+        "command": [
+          "cargo",
+          "test",
+          "--locked",
+          "--test",
+          "plugin_codex_installed",
+          "--",
+          "--ignored",
+          "--nocapture",
+          "--test-threads=1"
+        ],
+        "exit": 0,
+        "binary_sha256": "13a918d8881f6afe34956c9c42a09512f1e24bd5aa3089216ca31252b0c16cc1"
+      }
+    }
+  }
+}
