@@ -28,4 +28,4 @@ captured source. Unpackaged native host handlers use a separate host namespace.
 
 ## Realized by
 
-(none yet: recorded, not built)
+- 7343d1a0d7122a2af2e303e159a0fcdd403a8a67 Persist one-shot hook activation and exact recovery
