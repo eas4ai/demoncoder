@@ -338,6 +338,7 @@ mod tests {
             learning_view: None,
             mutation_boundaries: Default::default(),
             service_slots: Arc::new(tokio::sync::Semaphore::new(8)),
+            once_live: Default::default(),
         })));
         let mut judge = connection.clone();
         judge.model = Some("judge-a".into());
@@ -402,6 +403,7 @@ mod tests {
             learning_view: None,
             mutation_boundaries: Default::default(),
             service_slots: Arc::new(tokio::sync::Semaphore::new(8)),
+            once_live: Default::default(),
         })));
         let identity = DelegationIdentity {
             default_roles: Vec::new(),
@@ -444,6 +446,7 @@ mod tests {
             learning_view: None,
             mutation_boundaries: Default::default(),
             service_slots: Arc::new(tokio::sync::Semaphore::new(8)),
+            once_live: Default::default(),
         })));
 
         let error = runtime.admit_agent_validation(1, 1).unwrap_err();

@@ -97,6 +97,10 @@ pub enum RawOutcome {
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct HookReceipt {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<super::once::CapturedSource>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub once: Option<super::once::OnceAttempt>,
     pub invocation: u32,
     pub declaration: DeclarationIdentity,
     pub class: HandlerClass,
@@ -114,6 +118,8 @@ pub struct HookReceipt {
 }
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct AdmissionReceipt {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub once_skips: Vec<super::once::OnceSkip>,
     pub plan: String,
     pub declarations: Vec<Value>,
     pub hooks: Vec<HookReceipt>,
@@ -264,6 +270,8 @@ pub struct PluginMessage {
 /// receipts omit this entire record and retain their previous semantics.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct LifecycleReceipt {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub once_skips: Vec<super::once::OnceSkip>,
     #[serde(default)]
     pub delivery: PostDelivery,
     pub version: u32,

@@ -118,6 +118,7 @@ fn same_workspace_sessions_cannot_reuse_keys_and_resume_preserves_identity() {
         learning_view: None,
         mutation_boundaries: Default::default(),
         service_slots: Arc::new(tokio::sync::Semaphore::new(8)),
+        once_live: Default::default(),
     })));
     assert_eq!(resumed.plugin_session().unwrap(), key_a.session);
     resumed.admit_tool(id_a, &call_a).unwrap();
@@ -157,6 +158,8 @@ fn reserve(runtime: &SharedRuntime, id: u64, call: &ToolCall, index: u32) -> Hoo
         })
         .unwrap();
     let mut hook = HookReceipt {
+        source: None,
+        once: None,
         invocation: 0,
         declaration,
         class: HandlerClass::Combined,

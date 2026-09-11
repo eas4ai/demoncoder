@@ -105,6 +105,8 @@ struct Admission<'a> {
     bytes: usize,
     combined: BTreeMap<usize, AdmissionKey>,
     ran_combined: BTreeSet<usize>,
+    once_seen: BTreeSet<usize>,
+    once_skipped: BTreeSet<usize>,
     holds: Vec<String>,
 }
 impl PreToolPlan {
@@ -142,6 +144,8 @@ impl PreToolPlan {
             bytes: 0,
             combined: BTreeMap::new(),
             ran_combined: BTreeSet::new(),
+            once_seen: BTreeSet::new(),
+            once_skipped: BTreeSet::new(),
             holds: Vec::new(),
         };
         let result = admission.run(call).await;
@@ -229,6 +233,7 @@ impl Admission<'_> {
                 let key = (
                     d.identity.scope.clone(),
                     d.identity.package.clone(),
+                    d.source.as_ref().map(|s| s.0.identity.clone()),
                     group.clone(),
                 );
                 let position = *source_groups.entry(key).or_insert_with(|| {
@@ -323,6 +328,8 @@ impl Admission<'_> {
                 .1
                 .clone();
             let receipt = HookReceipt {
+                source: d.source.as_ref().map(|s| s.0.clone()),
+                once: None,
                 invocation: 0,
                 declaration: d.identity.clone(),
                 class: if revalidate {
@@ -370,10 +377,36 @@ impl Admission<'_> {
             };
             jobs.push((*index, receipt, invocation, runner));
         }
-        // Service initialization is a separately recorded dependency operation.
-        // Finish every dependency before reserving durable hook invocations or
-        // dispatching this group's hooks. Bootstrap shares the transient lease above.
-        for (_, _, invocation, runner) in &jobs {
+        // Historical uncertainty still applies when the current declaration omits
+        // once. Reserve every member before any dependency can launch a service.
+        let mut runnable = Vec::new();
+        for (index, receipt, mut invocation, runner) in jobs {
+            let binding = self.plan.handlers[index]
+                .registration
+                .declaration
+                .once
+                .as_ref();
+            match self.runtime.reserve_plugin_hook(
+                self.operation,
+                receipt,
+                call,
+                binding,
+                Some(&runner_lease),
+            )? {
+                super::once::HookReservation::Run(receipt) => {
+                    invocation.invocation = receipt.invocation;
+                    if binding.is_some() && !revalidate {
+                        self.once_seen.insert(index);
+                    }
+                    runnable.push((index, *receipt, invocation, runner));
+                }
+                super::once::HookReservation::Skipped => {
+                    self.once_seen.insert(index);
+                    self.once_skipped.insert(index);
+                }
+            }
+        }
+        for (_, _, invocation, runner) in &runnable {
             self.runtime.plugin_owner(self.operation)?;
             tokio::time::timeout(
                 self.runtime
@@ -383,13 +416,7 @@ impl Admission<'_> {
             )
             .await??;
         }
-        for (_, receipt, invocation, _) in &mut jobs {
-            receipt.invocation =
-                self.runtime
-                    .begin_plugin_hook(self.operation, receipt.clone(), call)?;
-            invocation.invocation = receipt.invocation;
-        }
-        let outcomes = futures_util::future::join_all(jobs.into_iter().map(
+        let outcomes = futures_util::future::join_all(runnable.into_iter().map(
             |(index, mut receipt, invocation, runner)| async move {
                 let outcome = super::dispatch::run_owned(&invocation, runner.as_ref()).await;
                 receipt.outcome = Some(outcome);
@@ -429,6 +456,7 @@ impl Admission<'_> {
                             HandlerClass::Transformer | HandlerClass::Combined
                         )
                         && !self.ran_combined.contains(i)
+                        && !self.once_seen.contains(i)
                 })
                 .map(|(i, _)| i)
                 .collect();
@@ -492,6 +520,11 @@ impl Admission<'_> {
         for index in applicable {
             let handler = &self.plan.handlers[index].registration;
             if handler.declaration.class != HandlerClass::Combined {
+                continue;
+            }
+            // A prior-event consumption exempts this declaration. It is not a
+            // claim that a past decision approved this candidate or these inputs.
+            if self.once_skipped.contains(&index) {
                 continue;
             }
             if self.combined.get(&index) == Some(&key) {

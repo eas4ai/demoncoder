@@ -129,6 +129,8 @@ fn call(path: &str) -> ToolCall {
 }
 fn declaration(name: &str, dialect: HookDialect, class: HandlerClass) -> Declaration {
     Declaration {
+        source: None,
+        once: None,
         identity: DeclarationIdentity {
             package: name.into(),
             code: "replaced-by-captured-code".into(),

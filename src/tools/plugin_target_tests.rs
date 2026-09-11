@@ -49,6 +49,8 @@ async fn final_rescan_rechecks_file_and_parent_after_await_before_actual_write()
             .unwrap();
             let plan = PreToolPlan::new(vec![Registration {
                 declaration: Declaration {
+                    source: None,
+                    once: None,
                     identity: DeclarationIdentity {
                         package: "policy".into(),
                         code: "code".into(),

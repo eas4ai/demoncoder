@@ -236,6 +236,7 @@ impl SharedRuntime {
                 .as_mut()
                 .expect("validated");
             receipt.plugin_lifecycle = Some(LifecycleReceipt {
+                once_skips: Vec::new(),
                 delivery: if matches!(facts.representation, ToolRepresentation::Native) {
                     PostDelivery::LocalPending
                 } else {
@@ -259,15 +260,35 @@ impl SharedRuntime {
             Ok(facts)
         })
     }
+    #[cfg(test)]
     pub(crate) fn begin_post_hook(
         &self,
         id: u64,
         event: HookEvent,
-        mut hook: HookReceipt,
+        hook: HookReceipt,
     ) -> Result<u32> {
+        match self.reserve_post_hook(id, event, hook, None, None)? {
+            crate::plugins::once::HookReservation::Run(hook) => Ok(hook.invocation),
+            crate::plugins::once::HookReservation::Skipped => {
+                anyhow::bail!("unexpected one-shot skip")
+            }
+        }
+    }
+    pub(crate) fn reserve_post_hook(
+        &self,
+        id: u64,
+        event: HookEvent,
+        mut hook: HookReceipt,
+        binding: Option<&crate::plugins::once::OnceBinding>,
+        lease: Option<&std::sync::Arc<tokio::sync::OwnedSemaphorePermit>>,
+    ) -> Result<crate::plugins::once::HookReservation> {
+        let tracker = self.once_live()?;
         self.admission(|record| {
             let lifecycle = active(record, id, event)?;
-            ensure!(lifecycle.hooks.len() < 32, "post-tool hook limit reached");
+            ensure!(
+                lifecycle.hooks.len() + lifecycle.once_skips.len() < 32,
+                "post-tool hook limit reached"
+            );
             let operation = record
                 .operations
                 .iter()
@@ -291,16 +312,23 @@ impl SharedRuntime {
                 "post-tool hook binding mismatch"
             );
             let declaration = serde_json::to_value(&hook.declaration)?;
+            let encoded_binding = serde_json::to_value(binding)?;
+            let encoded_source = serde_json::to_value(&hook.source)?;
             ensure!(
                 lifecycle
                     .declarations
                     .iter()
-                    .any(|d| d["identity"] == declaration),
+                    .any(|d| d["identity"] == declaration
+                        && d["once"] == encoded_binding
+                        && d["source"] == encoded_source),
                 "post-tool declaration is not in frozen plan"
             );
             hook.invocation = lifecycle.hooks.len() as u32;
-            let index = hook.invocation;
-            record
+            let skipped = super::plugin_once::reserve(record, &mut hook, binding)?;
+            if skipped.is_none() {
+                super::plugin_once::track_live(&tracker, &hook, lease)?;
+            }
+            let lifecycle = record
                 .operations
                 .iter_mut()
                 .find(|o| o.id == id)
@@ -310,10 +338,14 @@ impl SharedRuntime {
                 .expect("validated")
                 .plugin_lifecycle
                 .as_mut()
-                .expect("validated")
-                .hooks
-                .push(hook);
-            Ok(index)
+                .expect("validated");
+            if let Some(skip) = skipped {
+                lifecycle.once_skips.push(skip);
+                Ok(crate::plugins::once::HookReservation::Skipped)
+            } else {
+                lifecycle.hooks.push(hook.clone());
+                Ok(crate::plugins::once::HookReservation::Run(Box::new(hook)))
+            }
         })
     }
     /// Retain raw source facts before any proposal can be applied. Settling this
@@ -322,7 +354,7 @@ impl SharedRuntime {
         &self,
         id: u64,
         event: HookEvent,
-        hook: HookReceipt,
+        mut hook: HookReceipt,
     ) -> Result<()> {
         self.update(|record| {
             let lifecycle = record
@@ -346,7 +378,9 @@ impl SharedRuntime {
                     && previous.declaration == hook.declaration
                     && previous.inspected == hook.inspected
                     && previous.class == hook.class
-                    && previous.endpoint == hook.endpoint,
+                    && previous.endpoint == hook.endpoint
+                    && previous.once == hook.once
+                    && previous.source == hook.source,
                 "post-tool outcome mismatches or repeats a reservation"
             );
             ensure!(
@@ -369,6 +403,7 @@ impl SharedRuntime {
                 .into_iter()
                 .sum::<usize>();
             ensure!(retained <= 4 * 1024 * 1024, "post-tool history limit");
+            super::plugin_once::settle_post_raw(&mut hook);
             if hook.uncertain_effects {
                 record.recovery_pending = true;
             }
@@ -410,6 +445,7 @@ impl SharedRuntime {
                     && lifecycle.hooks.iter().all(|h| h.outcome.is_some()),
                 "post-tool effects lack retained outcomes"
             );
+            super::plugin_once::validate_skips(record, &lifecycle.once_skips)?;
             let mut continuation = effects.continuation;
             if lifecycle.hooks.iter().any(|h| h.uncertain_effects) {
                 continuation = PostContinuation::Held {
@@ -453,6 +489,7 @@ impl SharedRuntime {
             lifecycle.continuation = continuation.clone();
             lifecycle.correction_required = correction_required;
             lifecycle.settled = true;
+            super::plugin_once::settle_post(lifecycle, &effects.once_successful);
             ensure!(
                 serde_json::to_vec(lifecycle)?.len() <= 6 * 1024 * 1024,
                 "post-tool lifecycle retention limit"

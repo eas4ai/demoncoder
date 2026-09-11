@@ -10,7 +10,7 @@
 
 ## Status and execution rules
 
-- Complete: Immutable import foundation, backend compaction qualification probes, wire validation, result decoding, gate snapshots, durable tool receipts, pre-tool final-candidate admission, the confined command-runner/snapshot-materialization prerequisite, bounded PreToolUse prompt/agent runners, the admitted HTTP runner prerequisite, and managed MCP service/hook admission.
+- Complete: Immutable import foundation, backend compaction qualification probes, wire validation, result decoding, gate snapshots, durable tool receipts, pre-tool final-candidate admission, the confined command-runner/snapshot-materialization prerequisite, bounded PreToolUse prompt/agent runners, the admitted HTTP runner prerequisite, managed MCP service/hook admission, and durable synchronous one-shot activation and recovery.
 - **In progress:** Complete lifecycle dispatch.
 - Pending: Integrate state, recovery, services and all package components.
 - Pending: Exercise the complete public management and coding workflows.
@@ -294,6 +294,100 @@ partial change cannot leak into a later persisted record.
 
 ## 10. Real host lifecycle transitions
 
+### Durable synchronous one-shot prerequisite
+
+Decision: [activation and exact outcomes](../decisions/bind-one-shot-hooks-to-durable-activation-and-exact-outcomes.md).
+Build this before async ownership; both remain required in this commitment.
+The existing session store and hook receipts provide persistence and ownership.
+Package generation cannot serve as a skill invocation counter: it also pins MCP
+service identity. Add a bounded host-recorded activation fact, with explicit
+reinvocation distinct from loading a saved registration or starting a new turn.
+Only trusted host activation can mint or retrieve the binding used by a declaration;
+upstream output, arbitrary registration strings and ordinary plan rebuilds cannot
+invent an activation or erase a reservation. Source origin determines whether
+Claude once is effective (skill frontmatter) or ignored (settings/agent).
+The source loader and public management flow will use this same binding later.
+
+- [x] Extend the existing runtime record with bounded durable activation and once
+  state. Use the session mutex and the existing clone/validate/publish pattern;
+  failed validation must not leak a partial reservation into a later write.
+- [x] Integrate eligibility and reservation with existing pre-tool and post-tool
+  admission. Preserve unique invocation identity, grouped concurrency, original
+  receipts and final-candidate checks. Persist explicit consumption references
+  for skipped handlers; never manufacture an invocation outcome or reapply a
+  previous rewrite/context effect. Required one-shot behavior must remain explicit
+  when a consumed declaration is absent from later execution.
+- [x] Settle only the exact reserved invocation. Consume on actual valid success;
+  failed/blocked results remain eligible only on a later matching event. Unknown
+  effects remain held across restart, task/turn changes, source/generation changes
+  and attempted reactivation until explicit reconciliation. Generic recovery
+  acknowledgment must not manufacture successful hook evidence.
+- [x] Test actual confined command effects, concurrent admission, known failure,
+  blocked results, malformed output, cancellation, persistence/restart, duplicate
+  references and distinct package/scope/skill identities. Demonstrate an old
+  success skips later work without replaying its effects, explicit skill
+  reinvocation restores known eligibility, and uncertain attempts cannot escape
+  through a new epoch. Cover both pre-tool and post-tool production dispatch.
+- [x] Retain reproducible pinned Claude source probes with synthetic local peers,
+  executable/input hashes and corrupted-evidence controls. Record the deliberate
+  host async difference: Claude consumes on launch, while this contract consumes
+  only after actual success. Source probes are not host or live-provider passes.
+  Seven source cases and 48 corrupted-evidence controls pass; both independent
+  reviews approved [the retained source qualification](../reviews/plugin-once-source.md).
+- [x] Run affected tests, Clippy, formatting, independent specification then
+  quality review, and the production self-audit before committing this prerequisite.
+  Final verification passed 721 tests with 16 explicitly ignored cases, Clippy
+  and formatting; both independent reviews approved the candidate. See the
+  [runtime review](../reviews/plugin-once-runtime.md) for failure controls and limits.
+  Public package activation, all remaining lifecycle events, owned async jobs,
+  rewake and full installed/live conformance remain pending.
+
+
+### Owned asynchronous observers
+
+Implement after the synchronous one-shot prerequisite is verified. Record the
+ownership decision before changing code. Reuse the existing durable hook receipt,
+session store, runner supervision and cumulative allocation. Do not add another
+job database or redefine an idle foreground task as a cancelled owner.
+
+- [ ] Add a bounded observer execution lease for an exact reserved invocation.
+  Capture its original task or child, package and policy, allocation, absolute
+  deadline and snapshot resources before launch. Retain cancellation and join
+  ownership in a bounded runtime collection; jobs must not keep the runtime
+  alive through an event sink. Acquiring capacity must precede queueing work.
+- [ ] Transfer only eligible observer work. Required gates remain synchronous.
+  Handle a source-supported first-line async marker while the command is still
+  running; waiting for its exit cannot establish asynchronous execution. Keep
+  the bounded launch marker separate from final output and reject transfer when
+  the admitted role is a required gate.
+  Keep the process supervisor, mutation guard and capacity until actual teardown.
+  Ordinary turn completion may leave that observer running; explicit cancellation,
+  shutdown, owner replacement or expired authority must stop it. Forward idle
+  cancellation through both workflow and delegation wrappers.
+- [ ] Persist transfer and exact completion separately from synchronous lifecycle
+  settlement. Launch does not consume a one-shot handler. Actual valid success
+  may consume it; uncertain effects remain reserved. Restart restores evidence
+  and holds without replaying jobs or pretending the old execution is live.
+- [ ] Retain bounded attributed context references for delivery at a safe model
+  boundary. Late results cannot rewrite an old tool result or authorize a gate.
+  Reserve delivery durably; an interrupted delivery cannot be automatically sent
+  twice. Command-shaped context is data and cannot invoke developer controls.
+- [ ] Implement source-supported explicit rewake through internal work admission.
+  Ordinary async completion while idle queues context for the next eligible turn.
+  Rewake retains the original task or child and remaining allowance; cancellation,
+  changed ownership and exhausted corrections prevent it. It cannot allocate a
+  new task, borrow another owner's budget or imply acceptance.
+- [ ] Quiesce admitted writers before verification, review, acceptance and owner
+  replacement. Test late completion after a new allocation, weak-owner loss,
+  process cleanup, queue saturation, cancellation during UI backpressure and
+  restart at transfer, completion and delivery boundaries.
+- [ ] Qualify configuration and first-line async output, deadlines and rewake
+  against the pinned source runtimes. Keep source differences explicit, including
+  Claude launch-time once consumption versus the host's actual-success rule.
+  Then exercise production effects and downstream requests through native and
+  both external loop owners, with independent specification and quality review.
+
+
 The developer-approved [profile revision 3 correction](../reviews/plugin-profile-revision-3.md)
 marks only Codex SessionEnd MCP declarations as source-nonexecuting. Command
 shutdown and explicit native MCP execution remain required.
@@ -361,6 +455,7 @@ the busy-control rejection or through plugin/channel text interpreted as prompts
 - [ ] Include `tests/plugin_mcp_source_inputs.py --claude <qualified-2.1.267-binary>` in source qualification. Require the pinned executable and a successful actual run; this source check does not replace MCP production tests. Its expected values are retained in `tests/fixtures/plugins/claude-mcp-input-source.json`.
 - [ ] Include `tests/plugin_post_source_inputs.py --claude <qualified-2.1.267-binary>` in source qualification. It checks actual SDK tool correlation, success/failure event frames, downstream MCP replacements and interrupted correction with exact user-message acknowledgment against `tests/fixtures/plugins/claude-post-source.json`; it does not establish DemonCoder lifecycle delivery.
 - [ ] Include `tests/plugin_codex_post_source.py --codex <qualified-managed-binary>` in source qualification. It checks dynamic-tool correlation, successful post frames, the absence of post events on failed dynamic results, and interrupt acknowledgment plus terminal completion before a correction turn against `tests/fixtures/plugins/codex-post-source.json`.
+- [ ] Include `tests/plugin_once_source_inputs.py --claude <qualified-2.1.267-binary> --output <new-output-directory>` in source qualification. Require all seven source cases, their corruption controls and retained artifact hashes against `tests/fixtures/plugins/claude-once-source.json`. Source async launch consumption cannot substitute for DemonCoder's actual-success rule.
 - [ ] Run formatting, clippy, all existing regression tests, installed language services and the complete plugin gate. Commit implementation before Cairn; commit receipts and captured outputs afterward.
 - [ ] Perform specification and quality reviews followed by an adversarial whole-commitment review. Resolve findings as separate implementation actions and rerun affected evidence.
 - [ ] Install and verify the final executable. Follow Cairn until Done; only then integrate the feature branch with `git merge --no-ff` and report the complete commitment.

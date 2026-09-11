@@ -98,6 +98,8 @@ async fn cancel_final_release(block_capture: bool) {
             HookEvent::PostToolUse,
             vec![Registration {
                 declaration: Declaration {
+                    source: None,
+                    once: None,
                     identity: DeclarationIdentity {
                         package: "cancellation-regression".into(),
                         code: "code".into(),

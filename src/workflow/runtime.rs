@@ -2,6 +2,7 @@
 mod delegation;
 pub(crate) mod plugin_admission;
 pub(crate) mod plugin_lifecycle;
+mod plugin_once;
 mod tool_operations;
 pub(crate) use tool_operations::ToolAdmission;
 pub use tool_operations::ToolReceipt;
@@ -178,6 +179,8 @@ pub struct ContextBinding {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Record {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub plugin_activations: Vec<crate::plugins::once::Activation>,
     pub workspace: PathBuf,
     #[serde(
         default,
@@ -217,6 +220,7 @@ struct Runtime {
     learning_view: Option<Arc<crate::learning::control::View>>,
     mutation_boundaries: std::collections::BTreeMap<(u64, u64), Arc<tokio::sync::Mutex<()>>>,
     service_slots: Arc<tokio::sync::Semaphore>,
+    once_live: plugin_once::LiveHooks,
 }
 
 #[derive(Clone)]
@@ -305,6 +309,7 @@ impl SharedRuntime {
             learning_view: None,
             mutation_boundaries: Default::default(),
             service_slots: Arc::new(tokio::sync::Semaphore::new(8)),
+            once_live: Default::default(),
         }))))
     }
 
@@ -364,6 +369,7 @@ impl SharedRuntime {
             let name = format!("{}-{}", super::allocation::now_ms()?, std::process::id());
             let store = Store::create(&sessions.join(name))?;
             let record = Record {
+                plugin_activations: Vec::new(),
                 workspace: workspace.into(),
                 capture_scope: capture_scope.clone(),
                 identity: Identity::from(connection),
@@ -425,6 +431,7 @@ impl SharedRuntime {
                 learning_view: None,
                 mutation_boundaries: Default::default(),
                 service_slots: Arc::new(tokio::sync::Semaphore::new(8)),
+                once_live: Default::default(),
             }))),
             resumed,
         ))
@@ -984,6 +991,7 @@ mod tests {
             learning_view: None,
             mutation_boundaries: Default::default(),
             service_slots: Arc::new(tokio::sync::Semaphore::new(8)),
+            once_live: Default::default(),
         })));
         let result = runtime.admission(|record| {
             let allocation = record.allocation.as_mut().unwrap();

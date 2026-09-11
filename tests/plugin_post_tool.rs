@@ -62,6 +62,8 @@ fn output(value: Value) -> RawOutcome {
 fn registration(name: &str, class: HandlerClass, run: Arc<dyn HookRunner>) -> Registration {
     Registration {
         declaration: Declaration {
+            source: None,
+            once: None,
             identity: DeclarationIdentity {
                 package: name.into(),
                 code: "code".into(),

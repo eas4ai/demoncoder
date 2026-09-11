@@ -48,6 +48,8 @@ pub(crate) struct PostEffects {
     pub(crate) model_content: Option<serde_json::Value>,
     output: Option<String>,
     pub(crate) consume_correction: bool,
+    /// Exact validated source results; retained only when their proposals settle.
+    pub(crate) once_successful: Vec<u32>,
 }
 impl PostEffects {
     fn hold(&mut self, reason: &str) {
@@ -68,6 +70,9 @@ impl PostEffects {
         let mut replacement_messages = Vec::new();
         let mut conflict = false;
         for (receipt, result) in decoded {
+            if receipt.once.is_some() && super::once::succeeded(&receipt, &result) {
+                self.once_successful.push(receipt.invocation);
+            }
             self.consume_correction |= matches!(
                 result.model_outcome,
                 Some(
@@ -267,6 +272,8 @@ impl PostToolPlan {
                 .collect::<Result<Vec<_>, _>>()?,
             events.tool_representation(),
         )?;
+        // Register before any reservation; retain ownership through proposal settlement.
+        let _lifecycle_owner = runtime.own_post_lifecycle(operation, event)?;
         let mut groups: Vec<Vec<usize>> = Vec::new();
         let mut named = BTreeMap::new();
         for (index, handler) in self
@@ -282,6 +289,7 @@ impl PostToolPlan {
                     .entry((
                         declaration.identity.scope.clone(),
                         declaration.identity.package.clone(),
+                        declaration.source.as_ref().map(|s| s.0.identity.clone()),
                         group.clone(),
                     ))
                     .or_insert_with(|| {
@@ -393,6 +401,8 @@ impl PostToolPlan {
                     "post-tool external atomic precondition is unavailable"
                 );
                 let receipt = HookReceipt {
+                    source: declaration.source.as_ref().map(|s| s.0.clone()),
+                    once: None,
                     invocation: 0,
                     declaration: declaration.identity.clone(),
                     class: declaration.class,
@@ -427,10 +437,26 @@ impl PostToolPlan {
                         .then(|| guard.clone()),
                     class: declaration.class,
                 };
-                jobs.push((receipt, invocation, registration.runner.clone()));
+                jobs.push((
+                    receipt,
+                    invocation,
+                    registration.runner.clone(),
+                    declaration.once.as_ref(),
+                ));
             }
             drop(guard);
-            for (_, invocation, runner) in &jobs {
+            // A current declaration without once can still have an unresolved
+            // historical attempt. No member prepares until every reservation passes.
+            let mut runnable = Vec::new();
+            for (receipt, mut invocation, runner, binding) in jobs {
+                if let super::once::HookReservation::Run(receipt) =
+                    runtime.reserve_post_hook(operation, event, receipt, binding, Some(&lease))?
+                {
+                    invocation.invocation = receipt.invocation;
+                    runnable.push((*receipt, invocation, runner));
+                }
+            }
+            for (_, invocation, runner) in &runnable {
                 runtime.plugin_runner_owner(operation, event)?;
                 tokio::time::timeout(
                     runtime.remaining()?.min(std::time::Duration::from_secs(30)),
@@ -438,12 +464,8 @@ impl PostToolPlan {
                 )
                 .await??;
             }
-            for (receipt, invocation, _) in &mut jobs {
-                receipt.invocation = runtime.begin_post_hook(operation, event, receipt.clone())?;
-                invocation.invocation = receipt.invocation;
-            }
             let work = runtime.post_model_context(operation, event)?;
-            let outcomes = futures_util::future::join_all(jobs.into_iter().map(
+            let outcomes = futures_util::future::join_all(runnable.into_iter().map(
                 |(mut receipt, invocation, runner)| async move {
                     let mut outcome = run_owned(&invocation, runner.as_ref()).await;
                     if !outcome.within_retention_bound() {

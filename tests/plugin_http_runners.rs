@@ -143,6 +143,8 @@ fn call(path: &str) -> ToolCall {
 }
 fn declaration(name: &str, dialect: HookDialect, class: HandlerClass) -> Declaration {
     Declaration {
+        source: None,
+        once: None,
         identity: DeclarationIdentity {
             package: name.into(),
             code: "replaced-by-captured-code".into(),
@@ -329,6 +331,16 @@ async fn actual_http_source_verdicts_and_literal_event() {
 
 fn native() -> Declaration {
     declaration("http", HookDialect::Native, HandlerClass::DecisionGate)
+}
+
+#[test]
+fn package_runner_rejects_foreign_source_even_without_once() {
+    let mut d = native();
+    d.source = Some(plugins::once::ActivationSource::host_namespace("http-fixture").unwrap());
+    let error = register(d, HttpConfig::new("http://127.0.0.1:1/hook".into()), None)
+        .err()
+        .expect("foreign captured source must be rejected");
+    assert!(error.to_string().contains("captured source"), "{error:#}");
 }
 fn authenticated(peer: &Peer) -> HttpConfig {
     let mut c = HttpConfig::new(peer.endpoint.clone());

@@ -1694,6 +1694,7 @@ mod tests {
         };
         let record_root = root.path().join("record");
         let record = Record {
+            plugin_activations: Vec::new(),
             capture_scope: Default::default(),
             workspace: workspace_root.clone(),
             identity: identity_record,
@@ -1788,6 +1789,7 @@ mod tests {
         std::fs::create_dir(&workspace_root).unwrap();
         let connection = connection();
         let record = Record {
+            plugin_activations: Vec::new(),
             capture_scope: Default::default(),
             workspace: workspace_root.clone(),
             identity: Identity::from(&connection),
@@ -1892,6 +1894,7 @@ mod tests {
         let identity = Identity::from(&connection);
         let agents_root = root.path().join("record/agents");
         let record = Record {
+            plugin_activations: Vec::new(),
             capture_scope: Default::default(),
             workspace: workspace_root.clone(),
             identity: identity.clone(),

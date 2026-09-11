@@ -90,7 +90,9 @@ impl McpRunner {
         profile.require_runner(dialect, event, HandlerKind::McpTool)?;
         ensure!(
             binding.service.package().digest() == package.digest()
-                && binding.service.package().name() == package.name(),
+                && binding.service.package().name() == package.name()
+                && binding.service.package().source().canonical_root
+                    == package.source().canonical_root,
             "MCP hook package differs from managed service"
         );
         ensure!(
@@ -150,6 +152,7 @@ impl McpRunner {
             "MCP source framing invalid"
         );
         declaration.identity.package = package.name().into();
+        declaration.bind_package_source(&package)?;
         declaration.identity.code = package.digest().into();
         declaration.identity.configuration = crate::plugins::admission::digest(&(
             event,

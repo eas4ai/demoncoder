@@ -273,6 +273,8 @@ fn call() -> ToolCall {
 }
 fn declaration(kind: HandlerKind, dialect: HookDialect, index: u32) -> Declaration {
     Declaration {
+        source: None,
+        once: None,
         identity: DeclarationIdentity {
             package: "fixture".into(),
             code: "captured".into(),
@@ -320,6 +322,20 @@ fn config(server: &Server, adapter: &str) -> ModelConfig {
         server.connection(adapter),
         "Inspect the proposed operation; approve only if the evidence permits it.".into(),
     )
+}
+
+#[test]
+fn package_runner_rejects_foreign_source_even_without_once() {
+    let mut d = declaration(HandlerKind::Prompt, HookDialect::Native, 0);
+    d.source = Some(plugins::once::ActivationSource::host_namespace("model-fixture").unwrap());
+    let connection = serde_json::from_value(json!({"adapter":"openai-api","model":"synthetic-hook-model","endpoint":"http://127.0.0.1:1/v1/responses","api_key":"synthetic"})).unwrap();
+    let error = try_register(
+        d,
+        ModelConfig::new(connection, "Inspect the operation.".into()),
+    )
+    .err()
+    .expect("foreign captured source must be rejected");
+    assert!(error.to_string().contains("captured source"), "{error:#}");
 }
 fn hook(record: &Record) -> &demoncoder::plugins::receipts::HookReceipt {
     record

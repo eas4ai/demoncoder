@@ -147,6 +147,8 @@ fn call(path: &str) -> ToolCall {
 }
 fn declaration(name: &str, dialect: HookDialect, class: HandlerClass) -> Declaration {
     Declaration {
+        source: None,
+        once: None,
         identity: DeclarationIdentity {
             package: name.into(),
             code: "replaced-by-captured-code".into(),
@@ -175,6 +177,63 @@ fn declaration(name: &str, dialect: HookDialect, class: HandlerClass) -> Declara
 
 fn metadata() -> serde_json::Value {
     json!({"name":"gate","inputSchema":{"type":"object","additionalProperties":true}})
+}
+
+#[tokio::test]
+async fn package_runner_rejects_foreign_source_even_without_once() {
+    let _lock = FIXTURES.lock().await;
+    let fixture = Fixture::new();
+    let package = package(HookDialect::Native);
+    let service = service(
+        &fixture,
+        package.clone(),
+        ServiceTransport::Http(HttpConfig::new("http://127.0.0.1:1/mcp".into())),
+    );
+    let mut d = declaration("mcp", HookDialect::Native, HandlerClass::DecisionGate);
+    d.source = Some(plugins::once::ActivationSource::host_namespace("mcp-fixture").unwrap());
+    let error = McpRunner::registration(
+        package,
+        d,
+        McpBinding {
+            service,
+            tool: "gate".into(),
+            input: json!({}),
+        },
+        None,
+        McpConfig::default(),
+    )
+    .err()
+    .expect("foreign captured source must be rejected");
+    assert!(error.to_string().contains("captured source"), "{error:#}");
+}
+#[tokio::test]
+async fn package_runner_rejects_service_from_same_named_distinct_source() {
+    let _lock = FIXTURES.lock().await;
+    let fixture = Fixture::new();
+    let actual = package(HookDialect::Native);
+    let different = package(HookDialect::Native);
+    assert_eq!(actual.name(), different.name());
+    assert_eq!(actual.digest(), different.digest());
+    let service = service(
+        &fixture,
+        actual,
+        ServiceTransport::Http(HttpConfig::new("http://127.0.0.1:1/mcp".into())),
+    );
+    let d = declaration("mcp", HookDialect::Native, HandlerClass::DecisionGate);
+    let error = McpRunner::registration(
+        different,
+        d,
+        McpBinding {
+            service,
+            tool: "gate".into(),
+            input: json!({}),
+        },
+        None,
+        McpConfig::default(),
+    )
+    .err()
+    .expect("service from another source must be rejected");
+    assert!(error.to_string().contains("package differs"), "{error:#}");
 }
 fn package(dialect: HookDialect) -> Arc<plugins::Package> {
     let source = tempfile::tempdir().unwrap();
@@ -408,7 +467,10 @@ impl Drop for Peer {
     fn drop(&mut self) {
         self.stopped
             .store(true, std::sync::atomic::Ordering::Release);
-        self.worker.take().unwrap().join().unwrap();
+        let joined = self.worker.take().unwrap().join();
+        if !std::thread::panicking() {
+            joined.unwrap();
+        }
     }
 }
 #[tokio::test]
@@ -703,6 +765,13 @@ fn hooks(record: &Record) -> Vec<&plugins::receipts::HookReceipt> {
         .flat_map(|p| &p.hooks)
         .collect()
 }
+fn pending_hook(record: &Record) -> &plugins::receipts::HookReceipt {
+    let reserved = hooks(record);
+    assert_eq!(reserved.len(), 1);
+    assert!(reserved[0].outcome.is_none());
+    assert!(reserved[0].uncertain_effects);
+    reserved[0]
+}
 #[tokio::test]
 async fn actual_http_protocol_failures_hold_effects_and_never_replay_calls() {
     let _lock = FIXTURES.lock().await;
@@ -944,10 +1013,14 @@ async fn cancelled_bootstrap_is_durable_and_blocks_the_live_runtime_before_hook_
     let observed = active.clone();
     let fixture = Fixture::new();
     let runtime = fixture.runtime.clone();
+    let reservation = Arc::new(Mutex::new(None));
+    let captured = reservation.clone();
     let peer = Peer::new(move |_, request| {
         if request["method"] == "initialize" {
             let record = runtime.record().unwrap();
-            assert!(hooks(&record).is_empty());
+            // Dependency preparation owns a reservation, not an observed hook result.
+            let reserved = pending_hook(&record);
+            *captured.lock().unwrap() = Some(serde_json::to_value(reserved).unwrap());
             assert!(record.operations.iter().any(|o| !o.complete
                 && matches!(
                     o.host_invocation,
@@ -993,7 +1066,12 @@ async fn cancelled_bootstrap_is_durable_and_blocks_the_live_runtime_before_hook_
         record.recovery_pending,
         "cancelled bootstrap left the live runtime open"
     );
-    assert!(hooks(&record).is_empty());
+    let reserved = pending_hook(&record);
+    assert_eq!(
+        serde_json::to_value(reserved).unwrap(),
+        reservation.lock().unwrap().clone().unwrap(),
+        "cancellation must retain the exact pending reservation"
+    );
     let replacement = service(
         &fixture,
         package.clone(),
@@ -1412,10 +1490,7 @@ async fn discovery_pages_are_bounded_before_any_hook_call_or_write() {
             "{mode}"
         );
         if !allow {
-            assert!(
-                hooks(&fixture.record()).is_empty(),
-                "{mode} reserved a hook before failed discovery"
-            );
+            pending_hook(&fixture.record());
         }
         managed.stop().await.unwrap();
     }
@@ -1543,7 +1618,7 @@ async fn admitted_input_schema_rejects_invalid_data_before_bootstrap_on_both_tra
             if !valid {
                 assert_eq!(managed.state(), plugins::services::ServiceState::Admitted);
                 assert!(peer.no_requests());
-                assert!(hooks(&fixture.record()).is_empty());
+                pending_hook(&fixture.record());
             }
             managed.stop().await.unwrap();
         }
@@ -1925,7 +2000,7 @@ async fn failed_startup_releases_its_slot_after_observed_teardown_and_explicit_r
         )
         .await;
     assert!(!fixture.root.path().join("failed").exists());
-    assert!(hooks(&fixture.record()).is_empty());
+    pending_hook(&fixture.record());
     failed.stop().await.unwrap();
     fixture.runtime.reconcile("Test peer unsupported version; exact confined owner stopped and no guarded file exists",None).unwrap();
     let peer = Peer::result(true, false, false, HookDialect::Native);

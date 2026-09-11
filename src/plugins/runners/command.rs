@@ -252,6 +252,7 @@ impl CommandRunner {
             config.validate(HandlerClass::DecisionGate, dialect)?;
         }
         declaration.identity.package = package.name().to_owned();
+        declaration.bind_package_source(&package)?;
         declaration.identity.code = package.digest().to_owned();
         declaration.identity.configuration =
             crate::plugins::admission::digest(&(event, &config, &revalidation))?;

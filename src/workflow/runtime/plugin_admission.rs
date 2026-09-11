@@ -488,13 +488,30 @@ impl SharedRuntime {
             Ok(())
         })
     }
+    #[cfg(test)]
     pub(crate) fn begin_plugin_hook(
+        &self,
+        id: u64,
+        hook: HookReceipt,
+        call: &crate::tools::ToolCall,
+    ) -> Result<u32> {
+        match self.reserve_plugin_hook(id, hook, call, None, None)? {
+            crate::plugins::once::HookReservation::Run(hook) => Ok(hook.invocation),
+            crate::plugins::once::HookReservation::Skipped => {
+                anyhow::bail!("unexpected one-shot skip")
+            }
+        }
+    }
+    pub(crate) fn reserve_plugin_hook(
         &self,
         id: u64,
         mut hook: HookReceipt,
         call: &crate::tools::ToolCall,
-    ) -> Result<u32> {
+        binding: Option<&crate::plugins::once::OnceBinding>,
+        lease: Option<&std::sync::Arc<tokio::sync::OwnedSemaphorePermit>>,
+    ) -> Result<crate::plugins::once::HookReservation> {
         let session = self.plugin_session()?;
+        let tracker = self.once_live()?;
         self.admission(|record| {
             let receipt = active(record, id)?;
             let plan = receipt
@@ -502,7 +519,7 @@ impl SharedRuntime {
                 .as_ref()
                 .context("plugin plan missing")?;
             ensure!(
-                plan.hooks.len() < 128 && plan.final_key.is_none(),
+                plan.hooks.len() + plan.once_skips.len() < 128 && plan.final_key.is_none(),
                 "plugin invocation limit or frozen admission"
             );
             ensure!(
@@ -522,15 +539,23 @@ impl SharedRuntime {
                 "hook role mismatch"
             );
             let declaration = serde_json::to_value(&hook.declaration)?;
+            let encoded_binding = serde_json::to_value(binding)?;
+            let encoded_source = serde_json::to_value(&hook.source)?;
             ensure!(
                 plan.declarations
                     .iter()
-                    .any(|d| d["identity"] == declaration),
+                    .any(|d| d["identity"] == declaration
+                        && d["once"] == encoded_binding
+                        && d["source"] == encoded_source),
                 "hook package or generation is not part of the captured plan"
             );
             validate_binding(operation, call, &hook.inspected, &plan.plan)?;
             let index = plan.hooks.len() as u32;
             hook.invocation = index;
+            let skipped = super::plugin_once::reserve(record, &mut hook, binding)?;
+            if skipped.is_none() {
+                super::plugin_once::track_live(&tracker, &hook, lease)?;
+            }
             let operation = record
                 .operations
                 .iter_mut()
@@ -544,11 +569,16 @@ impl SharedRuntime {
                 .plugin_admission
                 .as_mut()
                 .expect("validated");
-            plan.hooks.push(hook);
-            Ok(index)
+            if let Some(skip) = skipped {
+                plan.once_skips.push(skip);
+                Ok(crate::plugins::once::HookReservation::Skipped)
+            } else {
+                plan.hooks.push(hook.clone());
+                Ok(crate::plugins::once::HookReservation::Run(Box::new(hook)))
+            }
         })
     }
-    pub(crate) fn finish_plugin_hook(&self, id: u64, hook: HookReceipt) -> Result<()> {
+    pub(crate) fn finish_plugin_hook(&self, id: u64, mut hook: HookReceipt) -> Result<()> {
         let session = self.plugin_session()?;
         self.update(|record| {
             // Reserving a runner required an active owner. Settling that exact
@@ -576,7 +606,9 @@ impl SharedRuntime {
                     && previous.inspected == hook.inspected
                     && previous.declaration == hook.declaration
                     && previous.endpoint == hook.endpoint
-                    && previous.class == hook.class,
+                    && previous.class == hook.class
+                    && previous.once == hook.once
+                    && previous.source == hook.source,
                 "duplicate or mismatched hook outcome"
             );
             ensure!(
@@ -607,6 +639,7 @@ impl SharedRuntime {
                 .into_iter()
                 .sum::<usize>();
             ensure!(retained <= 4 * 1024 * 1024, "plugin history limit reached");
+            super::plugin_once::settle_pre(&mut hook)?;
             let index = hook.invocation as usize;
             if hook.uncertain_effects {
                 record.recovery_pending = true;
@@ -658,6 +691,7 @@ impl SharedRuntime {
                 .find(|op| op.id == id)
                 .expect("validated");
             validate_binding(operation, call, &key, &plan.plan)?;
+            super::plugin_once::validate_skips(record, &plan.once_skips)?;
             let operation = record
                 .operations
                 .iter_mut()

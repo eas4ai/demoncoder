@@ -244,6 +244,7 @@ impl HttpRunner {
             );
         }
         declaration.identity.package = package.name().into();
+        declaration.bind_package_source(&package)?;
         declaration.identity.code = package.digest().into();
         declaration.identity.configuration = crate::plugins::admission::digest(&(
             event,

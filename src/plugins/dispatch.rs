@@ -21,6 +21,12 @@ pub struct Matcher {
 }
 #[derive(Clone, Serialize)]
 pub struct Declaration {
+    /// Captured independently of once so removing once cannot erase an unknown fence.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source: Option<super::once::ActivationSource>,
+    /// Bound only by an explicit host activation; absent preserves ordinary hooks.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub once: Option<super::once::OnceBinding>,
     pub identity: DeclarationIdentity,
     pub class: HandlerClass,
     pub priority: i32,
@@ -111,12 +117,16 @@ impl PreToolPlan {
                 &a.identity.scope,
                 &a.identity.package,
                 a.identity.index,
+                a.source.as_ref().map(|s| &s.0.identity),
+                a.once.as_ref().map(|b| &b.0.component),
             )
                 .cmp(&(
                     b.priority,
                     &b.identity.scope,
                     &b.identity.package,
                     b.identity.index,
+                    b.source.as_ref().map(|s| &s.0.identity),
+                    b.once.as_ref().map(|b| &b.0.component),
                 ))
         });
         let mut seen = std::collections::BTreeMap::new();
@@ -154,6 +164,23 @@ impl PreToolPlan {
                 );
             }
             profile.require_runner(id.dialect, event, id.runner)?;
+            if let Some(source) = &d.source {
+                ensure!(
+                    source.0.package == id.package,
+                    "declaration source package mismatch"
+                );
+                ensure!(
+                    id.dialect == HookDialect::Native || source.0.packaged,
+                    "source hooks require a captured package source"
+                );
+            }
+            if let Some(binding) = &d.once {
+                binding.validate(id)?;
+                ensure!(
+                    d.source.as_ref().is_some_and(|s| s.0 == binding.0.source),
+                    "one-shot binding has a different canonical source"
+                );
+            }
             ensure!(
                 event != HookEvent::PreToolUse || d.class != HandlerClass::Observer,
                 "pre-tool observers require later owned observer integration"
@@ -199,7 +226,13 @@ impl PreToolPlan {
             }
             let encoded = serde_json::to_vec(d)?;
             ensure!(encoded.len() <= 65536, "declaration exceeds bounds");
-            let canonical = (id.scope.clone(), id.package.clone(), id.declaration.clone());
+            let canonical = (
+                id.scope.clone(),
+                id.package.clone(),
+                d.source.as_ref().map(|s| s.0.identity.clone()),
+                d.once.as_ref().map(|b| b.0.component.clone()),
+                id.declaration.clone(),
+            );
             if let Some(previous) = seen.get(&canonical) {
                 ensure!(
                     previous == &encoded,
@@ -208,7 +241,13 @@ impl PreToolPlan {
                 continue;
             }
             ensure!(
-                positions.insert((id.scope.clone(), id.package.clone(), id.index)),
+                positions.insert((
+                    id.scope.clone(),
+                    id.package.clone(),
+                    d.source.as_ref().map(|s| s.0.identity.clone()),
+                    d.once.as_ref().map(|b| b.0.component.clone()),
+                    id.index
+                )),
                 "duplicate declaration index makes ordering ambiguous"
             );
             seen.insert(canonical, encoded.clone());
@@ -378,5 +417,21 @@ pub(crate) async fn run_owned(invocation: &HookInvocation, runner: &dyn HookRunn
         _ => RawOutcome::Failure {
             reason: "handler owner or deadline unavailable".into(),
         },
+    }
+}
+
+impl Declaration {
+    pub(crate) fn bind_package_source(&mut self, package: &super::Package) -> Result<()> {
+        let source = super::once::ActivationSource::from_package(package)?;
+        ensure!(
+            self.source.as_ref().is_none_or(|s| s.0 == source.0),
+            "registration has a different captured source"
+        );
+        ensure!(
+            self.once.as_ref().is_none_or(|b| b.0.source == source.0),
+            "one-shot binding does not belong to this captured package source"
+        );
+        self.source = Some(source);
+        Ok(())
     }
 }
