@@ -11,4 +11,4 @@ Extend the existing Operation and hook receipt ledger with typed host lifecycle 
 
 ## Realized by
 
-(none yet: recorded, not built)
+- c8d06d72079412bdc13c909f31015102dfa3f749 Bind managed Codex Submit and Stop to durable lifecycle owners
