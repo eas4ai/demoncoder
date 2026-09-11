@@ -195,6 +195,7 @@ impl CommandConfig {
 }
 
 pub struct CommandRunner {
+    event: HookEvent,
     package: Arc<Package>,
     identity: DeclarationIdentity,
     config: CommandConfig,
@@ -205,7 +206,22 @@ pub struct CommandRunner {
 impl CommandRunner {
     pub fn registration(
         package: Arc<Package>,
+        declaration: Declaration,
+        config: CommandConfig,
+        revalidation: Option<CommandConfig>,
+    ) -> Result<Registration> {
+        Self::registration_for_event(
+            package,
+            declaration,
+            HookEvent::PreToolUse,
+            config,
+            revalidation,
+        )
+    }
+    pub fn registration_for_event(
+        package: Arc<Package>,
         mut declaration: Declaration,
+        event: HookEvent,
         config: CommandConfig,
         revalidation: Option<CommandConfig>,
     ) -> Result<Registration> {
@@ -238,10 +254,11 @@ impl CommandRunner {
         declaration.identity.package = package.name().to_owned();
         declaration.identity.code = package.digest().to_owned();
         declaration.identity.configuration =
-            crate::plugins::admission::digest(&(&config, &revalidation))?;
+            crate::plugins::admission::digest(&(event, &config, &revalidation))?;
         let profile = Arc::new(CompatibilityProfile::embedded()?);
-        profile.require_runner(dialect, HookEvent::PreToolUse, HandlerKind::Command)?;
+        profile.require_runner(dialect, event, HandlerKind::Command)?;
         let runner = Arc::new(Self {
+            event,
             package: package.clone(),
             identity: declaration.identity.clone(),
             config,
@@ -251,6 +268,7 @@ impl CommandRunner {
         });
         let revalidation = revalidation.map(|config| {
             Arc::new(Self {
+                event,
                 package,
                 identity: declaration.identity.clone(),
                 config,
@@ -288,13 +306,22 @@ impl Drop for Cancellation {
 
 #[async_trait::async_trait]
 impl HookRunner for CommandRunner {
+    fn bound_event(&self) -> Option<HookEvent> {
+        Some(self.event)
+    }
+    fn side_effect_free(&self) -> bool {
+        self.config.write_paths.is_empty()
+    }
     fn mutates_workspace(&self) -> bool {
         !self.config.write_paths.is_empty()
     }
     async fn run(&self, invocation: &HookInvocation) -> Result<RawOutcome> {
+        let event = self.event;
         let checked = (|| -> Result<_> {
             ensure!(
-                invocation.declaration == self.identity
+                invocation.key.event == self.event.as_str()
+                    && invocation.events.plugin_event() == self.event
+                    && invocation.declaration == self.identity
                     && invocation.endpoint == self.endpoint
                     && invocation.class == self.class,
                 "command declaration/configuration identity mismatch"
@@ -316,7 +343,7 @@ impl HookRunner for CommandRunner {
             );
             let input = self.input(invocation)?;
             let (runtime, operation) = invocation.events.plugin_context()?;
-            runtime.plugin_owner(operation)?;
+            runtime.plugin_runner_owner(operation, event)?;
             // Leave normal cleanup headroom before run_owned's existing outer
             // deadline. A stuck kernel reap still retains all resources even if
             // that outer owner returns an unknown outcome; no late settlement.
@@ -392,7 +419,7 @@ impl HookRunner for CommandRunner {
                     },
                     &cancelled,
                 )?;
-                runtime.plugin_owner(operation)?;
+                runtime.plugin_runner_owner(operation, event)?;
                 ensure!(
                     !runtime.remaining()?.is_zero()
                         && !cancelled.load(Ordering::Acquire)
@@ -410,7 +437,7 @@ impl HookRunner for CommandRunner {
                     deadline,
                     &cancelled,
                     &|| {
-                        runtime.plugin_owner(operation)?;
+                        runtime.plugin_runner_owner(operation, event)?;
                         ensure!(!runtime.remaining()?.is_zero(), "command owner expired");
                         Ok(())
                     },

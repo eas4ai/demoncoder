@@ -1,0 +1,126 @@
+//! Correction authority belongs to the exact task or supervised assignment.
+use super::{PostToolFacts, Record, delegation};
+use crate::subagents::state::{AgentStatus, OrchestrationStage};
+use anyhow::{Context, Result, ensure};
+
+enum Owner {
+    Task,
+    Child { id: u64, limit: u32 },
+}
+
+fn resolve(record: &Record, facts: &PostToolFacts, available: bool) -> Result<Owner> {
+    ensure!(
+        facts.task == record.task.as_ref().map(|t| t.id)
+            && record.task.as_ref().is_none_or(|t| t.accepted.is_none()),
+        "post-tool correction parent owner changed or accepted"
+    );
+    if facts.role == "worker" {
+        let task = record
+            .task
+            .as_ref()
+            .context("post-tool correction task missing")?;
+        ensure!(
+            !task.stopped && (!available || task.corrections < task.correction_limit),
+            "post-tool task correction unavailable"
+        );
+        return Ok(Owner::Task);
+    }
+    let id: u64 = facts
+        .role
+        .strip_prefix("agent:")
+        .and_then(|s| s.strip_suffix(":worker"))
+        .context("post-tool correction requires an exact worker phase")?
+        .parse()?;
+    ensure!(
+        facts.role == format!("agent:{id}:worker"),
+        "post-tool child worker phase is not canonical"
+    );
+    delegation::ensure_agent_active(record, &facts.role)?;
+    let child = record
+        .agents
+        .iter()
+        .find(|a| a.id == id)
+        .context("post-tool child missing")?;
+    let source = record
+        .operations
+        .iter()
+        .find(|o| o.id == facts.source_operation)
+        .context("post-tool child source missing")?;
+    ensure!(
+        child.status == AgentStatus::Running
+            && child.parent_task == facts.task
+            && source.phase == facts.role
+            && source.identity.as_ref().unwrap_or(&record.identity) == &child.identity,
+        "post-tool child identity, assignment or worker status changed"
+    );
+    let limit = record
+        .delegation
+        .as_ref()
+        .and_then(|d| d.orchestration.as_ref())
+        .context("post-tool child lacks retained supervision authority")?
+        .correction_limit;
+    ensure!(limit == 2, "post-tool child supervision limit changed");
+    let state = child
+        .orchestration
+        .as_ref()
+        .context("post-tool child lacks a correction ledger")?;
+    // The supervisor retains completion of the initial worker while running
+    // an admitted corrective worker. Completion alone does not end that phase.
+    ensure!(
+        !child.completed
+            || (state.stage == OrchestrationStage::Correcting && state.correction_rounds > 0),
+        "post-tool child completed outside an admitted corrective worker phase"
+    );
+    ensure!(
+        matches!(
+            state.stage,
+            OrchestrationStage::Working | OrchestrationStage::Correcting
+        ) && (!available || state.correction_rounds < limit),
+        "post-tool child correction is unavailable in this supervision stage"
+    );
+    Ok(Owner::Child { id, limit })
+}
+
+pub(super) fn available(record: &Record, facts: &PostToolFacts) -> bool {
+    resolve(record, facts, true).is_ok()
+}
+
+pub(super) fn validate(record: &Record, facts: &PostToolFacts) -> Result<()> {
+    resolve(record, facts, false).map(|_| ())
+}
+
+pub(super) fn objective<'a>(record: &'a Record, facts: &PostToolFacts) -> Result<&'a str> {
+    Ok(match resolve(record, facts, true)? {
+        Owner::Task => &record.task.as_ref().expect("validated").objective,
+        Owner::Child { id, .. } => {
+            &record
+                .agents
+                .iter()
+                .find(|a| a.id == id)
+                .expect("validated")
+                .request
+                .objective
+        }
+    })
+}
+
+pub(super) fn charge(record: &mut Record, facts: &PostToolFacts) -> Result<()> {
+    match resolve(record, facts, true)? {
+        Owner::Task => record.task.as_mut().expect("validated").start_work(true)?,
+        Owner::Child { id, limit } => {
+            let child = record
+                .agents
+                .iter_mut()
+                .find(|a| a.id == id)
+                .expect("validated");
+            let state = child.orchestration.as_mut().expect("validated");
+            let round = state.admit_correction(limit)?;
+            state.stage = OrchestrationStage::Correcting;
+            state.reason = format!(
+                "Plugin-origin correction round {round} admitted before worker continuation; retained supervision findings still require verification."
+            );
+            child.outcome = state.reason.clone();
+        }
+    }
+    Ok(())
+}

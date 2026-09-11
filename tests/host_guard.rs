@@ -43,6 +43,8 @@ fn executor(path: &Path) -> ToolExecutor {
             extension: None,
             lifecycle: None,
             snapshot: None,
+            post_tools: Vec::new(),
+            pre_tool: None,
             language_servers: Default::default(),
         },
     )

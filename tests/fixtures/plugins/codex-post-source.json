@@ -1,0 +1,12 @@
+{
+  "kind": "controlled-pinned-source-observation",
+  "backend": "Managed Codex 0.153.4",
+  "executable_sha256": "80315a32acf1b625129a46b0bd75537cf76ef09701ae986154159076cc0b6aff",
+  "source_revision": "3d2ee51ca2d5db578f328aa75e20aa22c0197c9a",
+  "limits": "Actual managed app-server with a local model peer and trusted source hooks; establishes dynamic-tool source framing, not DemonCoder production lifecycle delivery.",
+  "tool_use_id": "post_source_operation",
+  "tool_name": "capture",
+  "arguments": {"path": "candidate.txt"},
+  "response": "captured candidate",
+  "permission_mode": "bypassPermissions"
+}

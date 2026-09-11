@@ -501,6 +501,11 @@ impl WorkflowSession {
         } else {
             self.inner.turn(prompt, commands, events).await
         };
+        // Post-tool correction is admitted by the durable loop owner. Refresh
+        // before any outer save so local task state cannot erase that correction.
+        let authoritative = self.runtime.record()?;
+        self.task = authoritative.task;
+        self.next_id = authoritative.next_task;
         self.inner.settle_interruption()?;
         events.checkpoint(self.inner.checkpoint())?;
         if let Some(task) = &mut self.task {
@@ -537,7 +542,7 @@ impl WorkflowSession {
             let result = {
                 let run = tokio::time::timeout(
                     self.runtime.remaining()?,
-                    executor.execute(call, &events),
+                    executor.execute_for_evidence(call, &events),
                 );
                 tokio::pin!(run);
                 loop {

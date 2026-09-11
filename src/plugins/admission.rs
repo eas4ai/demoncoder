@@ -349,6 +349,7 @@ impl Admission<'_> {
                 endpoint: receipt.endpoint.clone(),
                 candidate: call.clone(),
                 snapshot,
+                completed: None,
                 events: self.events.clone(),
                 host: self.executor.hook_host(),
                 class: receipt.class,

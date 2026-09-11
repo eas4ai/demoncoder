@@ -303,7 +303,20 @@ fn post_tool(result: &mut DecodedResult, context: &ResultContext, value: &Value)
             );
         }
     } else if let Some(replacement) = value.get("updatedMCPToolOutput") {
-        if result.dialect == HookDialect::Codex && replacement.is_null() {
+        if result.dialect == HookDialect::Claude
+            && match replacement {
+                Value::Null => true,
+                Value::Bool(value) => !value,
+                Value::Number(value) => value.as_f64() == Some(0.0),
+                Value::String(value) => value.is_empty(),
+                Value::Array(_) | Value::Object(_) => false,
+            }
+        {
+            result.ignored(
+                "/hookSpecificOutput/updatedMCPToolOutput",
+                "Claude ignores falsy MCP output replacements",
+            );
+        } else if result.dialect == HookDialect::Codex && replacement.is_null() {
             result.ignored(
                 "/hookSpecificOutput/updatedMCPToolOutput",
                 "Codex treats optional null replacement as absent",

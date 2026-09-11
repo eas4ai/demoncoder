@@ -1,10 +1,10 @@
-//! Shared bounded source PreToolUse framing for command and HTTP transports.
+//! Shared bounded host event framing for every synchronous tool runner.
 use crate::plugins::{
     dispatch::HookInvocation,
     hook_types::{HookDialect, HookEvent},
     profile::{CompatibilityProfile, SchemaKey},
 };
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, ensure};
 pub(super) struct EventInput<'a> {
     pub dialect: HookDialect,
     pub maximum: usize,
@@ -33,27 +33,137 @@ pub(super) fn input(
     serde_json::to_writer(&mut preflight, &invocation.candidate.arguments)
         .context("hook event input exceeds configured bound")?;
     drop(preflight);
-    let mut input = json!({"session_id":invocation.key.session,"cwd":invocation.host.workspace,"hook_event_name":"PreToolUse","tool_name":invocation.candidate.name,"tool_input":invocation.candidate.arguments,"tool_use_id":invocation.candidate.id});
-    match dialect {
-        HookDialect::Codex => {
+    let event = invocation.events.plugin_event();
+    ensure!(
+        invocation.key.event == event.as_str(),
+        "hook event capability mismatch"
+    );
+    let mut input = json!({"session_id":invocation.key.session,"cwd":invocation.host.workspace,"hook_event_name":event.as_str(),"tool_name":invocation.candidate.name,"tool_input":invocation.candidate.arguments,"tool_use_id":invocation.candidate.id});
+    if event == HookEvent::PreToolUse {
+        ensure!(
+            invocation.completed.is_none(),
+            "pre-tool input cannot contain completed authority"
+        );
+        if dialect == HookDialect::Codex {
             input["model"] = json!(model);
             input["permission_mode"] = json!(permission_mode);
             input["transcript_path"] = json!(transcript_path);
             input["turn_id"] = json!(invocation.key.source_operation.to_string());
+        } else if dialect == HookDialect::Claude {
+            input["transcript_path"] = json!(transcript_path.unwrap_or(""));
+            input["permission_mode"] = json!(permission_mode);
+        }
+    } else {
+        ensure!(
+            matches!(
+                event,
+                HookEvent::PostToolUse | HookEvent::PostToolUseFailure
+            ),
+            "runner event is not integrated"
+        );
+        let completed = invocation
+            .completed
+            .as_ref()
+            .context("post-tool input requires completed host evidence")?;
+        ensure!(
+            completed.facts.event == event
+                && completed.facts.operation == invocation.key.operation
+                && completed.original.call_id == invocation.candidate.id
+                && completed.original.tool == invocation.candidate.name
+                && completed.original.success == (event == HookEvent::PostToolUse),
+            "post-tool evidence identity mismatch"
+        );
+        let facts = &completed.facts;
+        input["permission_mode"] = json!(facts.host_permission_mode);
+        input["transcript_path"] = json!(facts.host_transcript_path);
+        if dialect == HookDialect::Codex {
+            input["model"] = json!(facts.host_model);
+            input["turn_id"] = json!(facts.source_operation.to_string());
+        }
+        let mut response = serde_json::to_value(&completed.original)?;
+        let mut error = completed.original.output.clone();
+        use crate::plugins::receipts::ToolRepresentation;
+        match &facts.representation {
+            ToolRepresentation::Native => {}
+            ToolRepresentation::ClaudeMcp {
+                tool_name,
+                tool_use_id,
+                source_input,
+            } => {
+                // These fields were observed on the adapter's private SDK channel;
+                // the host post event is still a translation of actual completion.
+                if dialect == HookDialect::Claude {
+                    for name in [
+                        "session_id",
+                        "transcript_path",
+                        "cwd",
+                        "permission_mode",
+                        "agent_id",
+                        "agent_type",
+                        "prompt_id",
+                        "effort",
+                    ] {
+                        if let Some(value) = source_input.get(name) {
+                            input[name] = value.clone();
+                        } else {
+                            input.as_object_mut().expect("object").remove(name);
+                        }
+                    }
+                }
+                input["tool_name"] = json!(tool_name);
+                input["tool_use_id"] = json!(tool_use_id);
+                error = serde_json::to_string(&completed.original)?;
+                response = json!([{"type":"text", "text":error}]);
+            }
+            ToolRepresentation::CodexDynamic {
+                tool_use_id,
+                turn_id,
+                session_id,
+                model,
+                permission_mode,
+                transcript_path,
+            } => {
+                input["session_id"] = json!(session_id);
+                input["tool_use_id"] = json!(tool_use_id);
+                if dialect == HookDialect::Codex {
+                    input["turn_id"] = json!(turn_id);
+                    input["model"] = json!(model);
+                    input["permission_mode"] = json!(permission_mode);
+                    input["transcript_path"] = json!(transcript_path);
+                }
+                response = json!(serde_json::to_string(&completed.original)?);
+            }
+        }
+        if event == HookEvent::PostToolUse {
+            input["tool_response"] = response;
+        } else {
+            input["error"] = json!(error);
+            if dialect == HookDialect::Claude {
+                input["is_interrupt"] = json!(false);
+            }
+        }
+        if dialect == HookDialect::Native {
+            input["demoncoder"] = serde_json::to_value(facts)?;
+        }
+    }
+    match dialect {
+        HookDialect::Codex => {
+            let name = match event {
+                HookEvent::PreToolUse => "pre-tool-use",
+                HookEvent::PostToolUse => "post-tool-use",
+                _ => anyhow::bail!("Codex has no source post-tool failure event"),
+            };
             profile.validate_schema(
                 &SchemaKey::Codex {
-                    path: "codex-rs/hooks/schema/generated/pre-tool-use.command.input.schema.json"
-                        .into(),
+                    path: format!(
+                        "codex-rs/hooks/schema/generated/{name}.command.input.schema.json"
+                    ),
                     definition: None,
                 },
                 &input,
             )?;
         }
-        HookDialect::Claude => {
-            input["transcript_path"] = json!(transcript_path.unwrap_or(""));
-            input["permission_mode"] = json!(permission_mode);
-            profile.validate_claude_input(HookEvent::PreToolUse, &input)?;
-        }
+        HookDialect::Claude => profile.validate_claude_input(event, &input)?,
         HookDialect::Native => {}
     }
     let mut bytes = LimitedInput {

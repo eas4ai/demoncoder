@@ -24,7 +24,7 @@ pub struct SnapshotInspection {
 }
 
 impl SnapshotInspection {
-    pub(super) fn new(
+    pub(crate) fn new(
         snapshot: Arc<GateSnapshot>,
         host: HookHost,
         limit: usize,

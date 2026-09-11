@@ -129,7 +129,12 @@ struct CallCancellation {
     service: Arc<ManagedService>,
     complete: bool,
     bootstrap: Option<(RuntimeReference, u64)>,
-    hook: Option<(RuntimeReference, u64, u32)>,
+    hook: Option<(
+        RuntimeReference,
+        u64,
+        u32,
+        crate::plugins::hook_types::HookEvent,
+    )>,
 }
 impl Drop for CallCancellation {
     fn drop(&mut self) {
@@ -138,10 +143,10 @@ impl Drop for CallCancellation {
                 .state
                 .store(ServiceState::Failed as u8, Ordering::Release);
             self.service.revoke();
-            if let Some((runtime, owner, invocation)) = &self.hook
+            if let Some((runtime, owner, invocation, event)) = &self.hook
                 && let Ok(runtime) = runtime.upgrade()
             {
-                let _ = runtime.cancel_plugin_hook(*owner, *invocation);
+                let _ = runtime.cancel_plugin_invocation(*owner, *event, *invocation);
             }
             if let Some((runtime, id)) = &self.bootstrap
                 && let Ok(runtime) = runtime.upgrade()
@@ -312,7 +317,7 @@ impl ManagedService {
             "MCP service authority mismatch"
         );
         let (runtime, operation) = invocation.events.plugin_context()?;
-        runtime.plugin_owner(operation)?;
+        runtime.plugin_runner_owner(operation, invocation.events.plugin_event())?;
         Ok((runtime, operation))
     }
     /// Only the host dependency phase calls this; it never invokes hooks/models/OAuth.
@@ -340,8 +345,13 @@ impl ManagedService {
             bootstrap: None,
             hook: None,
         };
-        let owner = runtime.admit_plugin_service(operation)?;
-        let startup = runtime.begin_plugin_service(operation, &self.identity)?;
+        let owner =
+            runtime.admit_plugin_service_for(operation, invocation.events.plugin_event())?;
+        let startup = runtime.begin_plugin_service_for(
+            operation,
+            invocation.events.plugin_event(),
+            &self.identity,
+        )?;
         cancellation.bootstrap = Some((runtime.downgrade(), startup));
         let deadline = Instant::now()
             + runtime
@@ -357,7 +367,7 @@ impl ManagedService {
             self.monitor();
             self.initialize(slot.as_mut().expect("stored connection"), deadline)
                 .await?;
-            runtime.plugin_owner(operation)?;
+            runtime.plugin_runner_owner(operation, invocation.events.plugin_event())?;
             runtime.complete_plugin_service(startup)?;
             if let Transport::Stdio(pipe) = &slot.as_ref().expect("stored connection").transport {
                 pipe.lock()
@@ -374,7 +384,7 @@ impl ManagedService {
         let result = loop {
             tokio::select! {biased;
                 _ = poll.tick() => {
-                    ensure!(!self.revoked.load(Ordering::Acquire) && runtime.plugin_owner(operation).is_ok()
+                    ensure!(!self.revoked.load(Ordering::Acquire) && runtime.plugin_runner_owner(operation, invocation.events.plugin_event()).is_ok()
                         && Instant::now() < deadline, "MCP dependency startup cancelled; reconciliation required");
                 }
                 result = &mut prepare => break result,
@@ -405,7 +415,12 @@ impl ManagedService {
             service: self.clone(),
             complete: false,
             bootstrap: None,
-            hook: Some((runtime.downgrade(), operation, invocation.invocation)),
+            hook: Some((
+                runtime.downgrade(),
+                operation,
+                invocation.invocation,
+                invocation.events.plugin_event(),
+            )),
         };
         let mut poll = tokio::time::interval(Duration::from_millis(20));
         let run = async {
@@ -414,7 +429,7 @@ impl ManagedService {
                 !self.revoked.load(Ordering::Acquire),
                 "MCP queued call was revoked"
             );
-            runtime.plugin_owner(operation)?;
+            runtime.plugin_runner_owner(operation, invocation.events.plugin_event())?;
             let connection = slot.as_mut().context("MCP connection missing")?;
             connection.lease = Some(invocation.runner_lease.clone());
             connection
@@ -439,7 +454,7 @@ impl ManagedService {
                 self.discover(connection, deadline).await?;
             }
             connection.calls += 1;
-            runtime.plugin_owner(operation)?;
+            runtime.plugin_runner_owner(operation, invocation.events.plugin_event())?;
             let result = connection
                 .request(
                     "tools/call",
@@ -461,7 +476,7 @@ impl ManagedService {
         let result = loop {
             tokio::select! {biased;
                 _ = poll.tick() => {
-                    if self.revoked.load(Ordering::Acquire) || runtime.plugin_owner(operation).is_err() || Instant::now() >= deadline {
+                    if self.revoked.load(Ordering::Acquire) || runtime.plugin_runner_owner(operation, invocation.events.plugin_event()).is_err() || Instant::now() >= deadline {
                         break Err(anyhow::anyhow!("MCP call cancelled or owner expired; effects may be unknown"));
                     }
                 }

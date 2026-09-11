@@ -149,6 +149,8 @@ pub struct EventSink {
     invocation: Option<u64>,
     tool_operation: Option<u64>,
     hook_model: Option<crate::workflow::runtime::plugin_admission::ModelAdmission>,
+    plugin_event: crate::plugins::hook_types::HookEvent,
+    tool_representation: crate::plugins::receipts::ToolRepresentation,
 }
 
 impl EventSink {
@@ -182,6 +184,8 @@ impl EventSink {
             invocation: None,
             tool_operation: None,
             hook_model: None,
+            plugin_event: crate::plugins::hook_types::HookEvent::PreToolUse,
+            tool_representation: Default::default(),
         })
     }
 
@@ -230,6 +234,8 @@ impl EventSink {
                 phase.into()
             },
             hook_model: self.hook_model.clone(),
+            plugin_event: self.plugin_event,
+            tool_representation: self.tool_representation.clone(),
         }
     }
 
@@ -323,6 +329,124 @@ impl EventSink {
         ))
     }
 
+    pub(crate) fn backend_invocation_id(&self) -> Option<u64> {
+        self.invocation
+    }
+
+    pub(crate) fn plugin_event(&self) -> crate::plugins::hook_types::HookEvent {
+        self.plugin_event
+    }
+    pub(crate) fn for_plugin_event(&self, event: crate::plugins::hook_types::HookEvent) -> Self {
+        Self {
+            plugin_event: event,
+            ..self.clone()
+        }
+    }
+    pub(crate) fn tool_representation(&self) -> crate::plugins::receipts::ToolRepresentation {
+        self.tool_representation.clone()
+    }
+    pub(crate) fn with_tool_representation(
+        &self,
+        representation: crate::plugins::receipts::ToolRepresentation,
+    ) -> Self {
+        Self {
+            tool_representation: representation,
+            ..self.clone()
+        }
+    }
+    pub(crate) fn ensure_continuation(&self) -> Result<()> {
+        if self.hook_model.is_none()
+            && let Some(runtime) = &self.runtime
+        {
+            runtime.ensure_post_continuation(&self.phase)?;
+        }
+        Ok(())
+    }
+    pub(crate) fn original_tool_evidence(
+        &self,
+        call_id: &str,
+    ) -> Result<Option<crate::tools::ToolResult>> {
+        let (Some(runtime), Some(invocation)) = (&self.runtime, self.invocation) else {
+            return Ok(None);
+        };
+        let record = runtime.record()?;
+        let mut matches = record.operations.iter().filter(|o| {
+            o.tool_receipt
+                .as_ref()
+                .is_some_and(|r| r.invocation == invocation && r.original_call.id == call_id)
+        });
+        let operation = matches.next().context("completed tool evidence missing")?;
+        anyhow::ensure!(
+            matches.next().is_none(),
+            "completed tool evidence correlation ambiguous"
+        );
+        Ok(Some(
+            operation
+                .result
+                .clone()
+                .context("original tool evidence missing")?,
+        ))
+    }
+    pub(crate) fn post_delivery_context(
+        &self,
+        call_id: &str,
+    ) -> Result<Option<(crate::workflow::runtime::SharedRuntime, u64)>> {
+        let Some(runtime) = &self.runtime else {
+            return Ok(None);
+        };
+        let Some(invocation) = self.invocation else {
+            return Ok(None);
+        };
+        Ok(runtime
+            .post_delivery_operation(invocation, call_id)?
+            .map(|id| (runtime.clone(), id)))
+    }
+    pub(crate) fn complete_local_post_release(&self, call_id: &str) -> Result<()> {
+        if let Some((runtime, id)) = self.post_delivery_context(call_id)? {
+            runtime.complete_local_post_release(id)?;
+        }
+        Ok(())
+    }
+    pub(crate) fn reserve_post_correction(&self, call_id: &str) -> Result<u64> {
+        let (runtime, id) = self
+            .post_delivery_context(call_id)?
+            .context("post-tool correction lacks a durable owner")?;
+        runtime.reserve_post_correction(id, &self.phase, self.identity.as_ref())
+    }
+    pub(crate) fn reserve_post_delivery(&self, call_id: &str) -> Result<()> {
+        if let Some((runtime, id)) = self.post_delivery_context(call_id)? {
+            runtime.reserve_post_delivery(id)?;
+        }
+        Ok(())
+    }
+    pub(crate) fn ack_post_delivery(&self, call_id: &str) -> Result<()> {
+        if let Some((runtime, id)) = self.post_delivery_context(call_id)? {
+            runtime.ack_post_delivery(id)?;
+        }
+        Ok(())
+    }
+    pub(crate) fn post_continuation(
+        &self,
+        call_id: &str,
+    ) -> Result<crate::plugins::receipts::PostContinuation> {
+        let Some(runtime) = &self.runtime else {
+            return Ok(Default::default());
+        };
+        let record = runtime.record()?;
+        Ok(record
+            .operations
+            .iter()
+            .find(|o| {
+                o.tool_receipt.as_ref().is_some_and(|r| {
+                    Some(r.invocation) == self.invocation && r.original_call.id == call_id
+                })
+            })
+            .and_then(|o| o.tool_receipt.as_ref())
+            .and_then(|r| r.plugin_lifecycle.as_ref())
+            .map(|p| p.continuation.clone())
+            .unwrap_or_default())
+    }
+
     pub(crate) fn for_hook_model(
         &self,
         invocation: u32,
@@ -332,10 +456,12 @@ impl EventSink {
         sender: mpsc::Sender<Envelope>,
     ) -> Result<Self> {
         let (runtime, owner) = self.plugin_context()?;
-        runtime.plugin_owner(owner)?;
+        runtime.plugin_runner_owner(owner, self.plugin_event)?;
         let mut sink = self.child(&format!("hook:{owner}:{invocation}"), sender);
         sink.hook_model = Some(crate::workflow::runtime::plugin_admission::ModelAdmission {
+            key: runtime.plugin_hook_key(owner, self.plugin_event, invocation)?,
             owner,
+            event: self.plugin_event,
             invocation,
             maximum,
             snapshot,
@@ -345,6 +471,7 @@ impl EventSink {
     }
 
     pub(crate) fn validate_hook_delivery(&self) -> Result<()> {
+        self.ensure_continuation()?;
         if let Some(hook) = &self.hook_model {
             self.validate_model_owner()?;
             hook.snapshot.validate_delivery()?;
@@ -373,7 +500,7 @@ impl EventSink {
             .runtime
             .as_ref()
             .context("model hook runtime missing")?;
-        runtime.plugin_owner(hook.owner)?;
+        runtime.plugin_runner_owner(hook.owner, hook.event)?;
         anyhow::ensure!(
             !runtime.remaining()?.is_zero(),
             "model hook owner deadline expired"
@@ -440,6 +567,12 @@ impl EventSink {
         Ok(())
     }
 
+    pub(crate) fn refuse_tool_execution(&self) -> Result<()> {
+        if let (Some(runtime), Some(id)) = (&self.runtime, self.tool_operation) {
+            runtime.refuse_tool_execution(id)?;
+        }
+        Ok(())
+    }
     pub(crate) fn settle_tool(&self) -> Result<()> {
         if let (Some(runtime), Some(id)) = (&self.runtime, self.tool_operation) {
             runtime.settle_tool(id)?;
@@ -480,6 +613,25 @@ impl EventSink {
             .send(envelope)
             .await
             .context("terminal event receiver closed")
+    }
+
+    /// Retain original completion before post hooks, but deliver it only after
+    /// the caller has settled model feedback and observer-free completion.
+    pub(crate) fn retain_tool_completion(
+        &self,
+        result: crate::tools::ToolResult,
+    ) -> Result<impl std::future::Future<Output = Result<()>> + '_> {
+        let envelope = Envelope {
+            connection: self.connection.clone(),
+            event: Event::ToolFinished { result },
+        };
+        self.retain(&envelope)?;
+        Ok(async move {
+            self.sender
+                .send(envelope)
+                .await
+                .context("terminal event receiver closed")
+        })
     }
 
     /// Retain a control acknowledgement without letting UI backpressure delay

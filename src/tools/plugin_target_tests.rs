@@ -99,6 +99,7 @@ async fn final_rescan_rechecks_file_and_parent_after_await_before_actual_write()
             let mut effect = ToolEffect {
                 events: &events,
                 started: false,
+                admission_refused: false,
                 admission: Some(admitted),
                 boundary: events.mutation_boundary(identity).unwrap(),
                 guard: None,

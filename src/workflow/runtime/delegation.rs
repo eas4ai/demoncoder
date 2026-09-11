@@ -140,49 +140,7 @@ impl SharedRuntime {
         identity: Option<&super::Identity>,
         hook: Option<&super::plugin_admission::ModelAdmission>,
     ) -> Result<u64> {
-        self.admission(|record| {
-            ensure!(
-                !record.recovery_pending,
-                "uncertain work needs reconciliation before backend admission"
-            );
-            ensure_agent_active(record, phase)?;
-            if let Some(delegation) = &record.delegation {
-                ensure!(
-                    record.backend_invocations < delegation.backend_limit,
-                    "cumulative backend invocation allowance exhausted"
-                );
-            }
-            ensure!(
-                record.operations.len() < 4096,
-                "session operation history is full"
-            );
-            if let Some(hook) = hook {
-                super::plugin_admission::validate_model_admission(record, phase, hook)?;
-                record
-                    .allocation
-                    .as_mut()
-                    .context("hook allocation missing")?
-                    .admit(true)?;
-            }
-            if record.delegation.is_some() || hook.is_some() {
-                record.backend_invocations += 1;
-            }
-            let id = record.operations.len() as u64 + 1;
-            record.operations.push(Operation {
-                id,
-                phase: phase.into(),
-                verification: None,
-                call: None,
-                result: None,
-                tool_receipt: None,
-                host_invocation: Some(super::HostInvocation::Backend),
-                complete: false,
-                reconciled: false,
-                usage_reported: false,
-                identity: identity.cloned(),
-            });
-            Ok(id)
-        })
+        self.admission(|record| begin_backend_record(record, phase, identity, hook))
     }
 
     pub(crate) fn update_agent<T>(
@@ -264,6 +222,57 @@ impl SharedRuntime {
             Ok(())
         })
     }
+}
+
+/// The caller owns the admission transaction. Corrections reuse the same
+/// accounting while atomically reserving their one exact superseded receipt.
+pub(super) fn begin_backend_record(
+    record: &mut Record,
+    phase: &str,
+    identity: Option<&super::Identity>,
+    hook: Option<&super::plugin_admission::ModelAdmission>,
+) -> Result<u64> {
+    ensure!(
+        !record.recovery_pending,
+        "uncertain work needs reconciliation before backend admission"
+    );
+    ensure_agent_active(record, phase)?;
+    if let Some(delegation) = &record.delegation {
+        ensure!(
+            record.backend_invocations < delegation.backend_limit,
+            "cumulative backend invocation allowance exhausted"
+        );
+    }
+    ensure!(
+        record.operations.len() < 4096,
+        "session operation history is full"
+    );
+    if let Some(hook) = hook {
+        super::plugin_admission::validate_model_admission(record, phase, hook)?;
+        record
+            .allocation
+            .as_mut()
+            .context("hook allocation missing")?
+            .admit(true)?;
+    }
+    if record.delegation.is_some() || hook.is_some() {
+        record.backend_invocations += 1;
+    }
+    let id = record.operations.len() as u64 + 1;
+    record.operations.push(Operation {
+        id,
+        phase: phase.into(),
+        verification: None,
+        call: None,
+        result: None,
+        tool_receipt: None,
+        host_invocation: Some(super::HostInvocation::Backend),
+        complete: false,
+        reconciled: false,
+        usage_reported: false,
+        identity: identity.cloned(),
+    });
+    Ok(id)
 }
 
 #[cfg(test)]

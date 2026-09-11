@@ -32,6 +32,8 @@ pub struct ToolReceipt {
     pub invocation: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub plugin_admission: Option<crate::plugins::receipts::AdmissionReceipt>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plugin_lifecycle: Option<crate::plugins::receipts::LifecycleReceipt>,
     pub original_call: ToolCall,
     pub attempt_admitted: bool,
     pub admitted: bool,
@@ -59,6 +61,18 @@ impl Operation {
             && (!self.complete
                 || self.tool_receipt.as_ref().is_some_and(|receipt| {
                     !receipt.observers_complete
+                        || receipt.plugin_lifecycle.as_ref().is_some_and(|plan| {
+                            !plan.settled
+                                || matches!(
+                            plan.delivery,
+                            crate::plugins::receipts::PostDelivery::LocalPending
+                                | crate::plugins::receipts::PostDelivery::Staged
+                                | crate::plugins::receipts::PostDelivery::Reserved
+                                | crate::plugins::receipts::PostDelivery::Superseding
+                                | crate::plugins::receipts::PostDelivery::Superseded
+                                | crate::plugins::receipts::PostDelivery::CorrectionReserved { .. }
+                        ) || plan.hooks.iter().any(|h| h.uncertain_effects)
+                        })
                         || receipt.plugin_admission.as_ref().is_some_and(|plan| {
                             plan.hooks.iter().any(|hook| hook.uncertain_effects)
                         })
@@ -80,6 +94,7 @@ impl SharedRuntime {
         identity: Option<&super::Identity>,
     ) -> Result<u64> {
         self.admission(|record| {
+            super::plugin_lifecycle::ensure_continuation(record, phase)?;
             delegation::ensure_agent_active(record, phase)?;
             ensure!(
                 !record.recovery_pending,
@@ -136,7 +151,8 @@ impl SharedRuntime {
                 let receipt = operation.tool_receipt.as_ref().expect("matched receipt");
                 let reason = if receipt.original_call.name != call.name || receipt.original_call.arguments != call.arguments {
                     "tool correlation changed its original request; execution is held"
-                } else if receipt.observers_complete && receipt.observer_error.is_none() {
+                } else if receipt.observers_complete && receipt.observer_error.is_none()
+                    && receipt.plugin_lifecycle.as_ref().is_none_or(|p|p.settled && matches!(p.delivery,crate::plugins::receipts::PostDelivery::Local|crate::plugins::receipts::PostDelivery::Acknowledged) && !matches!(p.continuation,crate::plugins::receipts::PostContinuation::Held{..})) {
                     return Ok(ToolAdmission::Replay(operation.model_result().context("settled tool has no original result")?.clone()));
                 } else {
                     "tool invocation already admitted; inspect its retained result and unfinished observers before continuing"
@@ -144,6 +160,7 @@ impl SharedRuntime {
                 record.recovery_pending = true;
                 return Ok(ToolAdmission::Held(reason));
             }
+            super::plugin_lifecycle::ensure_continuation(record, phase)?;
             delegation::ensure_agent_active(record, phase)?;
             ensure!(!record.recovery_pending, "uncertain work needs reconciliation before tool admission");
             ensure!(record.operations.len() < 4096, "session operation history is full");
@@ -172,7 +189,7 @@ impl SharedRuntime {
                 reconciled: false, usage_reported: false,
                 host_invocation: None,
                 tool_receipt: Some(ToolReceipt {
-                    invocation, plugin_admission: None, original_call: call.clone(), attempt_admitted: denied.is_none(), admitted: false,
+                    invocation, plugin_admission: None, plugin_lifecycle: None, original_call: call.clone(), attempt_admitted: denied.is_none(), admitted: false,
                     effect_started: false, observers_complete: denied.is_some(),
                     observer_pending: None, observer_error: None, presentations: Vec::new(), model_result: None,
                     model_result_settled: denied.is_some(),
@@ -227,6 +244,31 @@ impl SharedRuntime {
                 .as_mut()
                 .expect("validated receipt")
                 .admitted = true;
+            Ok(())
+        })
+    }
+
+    /// A later host policy/Oracle refusal is not an executed tool failure.
+    pub(crate) fn refuse_tool_execution(&self, id: u64) -> Result<()> {
+        self.update(|record| {
+            let operation = record
+                .operations
+                .iter_mut()
+                .find(|o| o.id == id)
+                .context("tool operation missing")?;
+            ensure!(
+                operation.result.is_none(),
+                "completed tool admission cannot be revoked"
+            );
+            let receipt = operation
+                .tool_receipt
+                .as_mut()
+                .context("tool receipt missing")?;
+            ensure!(
+                receipt.admitted && !receipt.effect_started && receipt.plugin_lifecycle.is_none(),
+                "policy refusal followed executed tool work"
+            );
+            receipt.admitted = false;
             Ok(())
         })
     }
@@ -454,6 +496,7 @@ impl SharedRuntime {
                 .context("tool correlation missing")?;
             ensure!(
                 receipt.model_result_settled
+                    && receipt.plugin_lifecycle.as_ref().is_none_or(|p| p.settled)
                     && receipt.observer_pending.is_none()
                     && receipt.observer_error.is_none(),
                 "tool observers are not settled"

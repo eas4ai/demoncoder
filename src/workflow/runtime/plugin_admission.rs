@@ -1,6 +1,6 @@
 //! Plugin admissions share the existing tool operation, store, owner and allowance.
 use super::{Record, SharedRuntime, delegation};
-use crate::plugins::receipts::*;
+use crate::plugins::{hook_types::HookEvent, receipts::*};
 use anyhow::{Context, Result, ensure};
 use std::sync::Arc;
 
@@ -54,8 +54,10 @@ fn service_fingerprint(record: &Record, session: &std::path::Path, role: &str) -
 /// A host-marked hook model request. Package/model data cannot create this value.
 #[derive(Clone)]
 pub(crate) struct ModelAdmission {
+    pub key: AdmissionKey,
     pub owner: u64,
     pub invocation: u32,
+    pub event: HookEvent,
     pub maximum: u32,
     pub snapshot: Arc<crate::plugins::runners::SnapshotInspection>,
     pub cancelled: Arc<std::sync::atomic::AtomicBool>,
@@ -70,16 +72,18 @@ pub(super) fn validate_model_admission(
         !hook.cancelled.load(std::sync::atomic::Ordering::Acquire),
         "model hook cancelled before admission"
     );
-    let receipt = active(record, hook.owner)?;
+    let receipt = active_for_event(record, hook.owner, hook.event)?;
     ensure!(
         record.allocation.is_some(),
         "model hook requires an owning task or explicitly configured session allowance"
     );
-    let invocation = receipt
-        .plugin_admission
-        .as_ref()
-        .and_then(|plan| plan.hooks.iter().find(|h| h.invocation == hook.invocation))
+    let invocation = hook_receipts(receipt, hook.event)
+        .and_then(|hooks| hooks.iter().find(|h| h.invocation == hook.invocation))
         .context("model hook lacks a reserved invocation")?;
+    ensure!(
+        invocation.inspected == hook.key,
+        "model hook capability belongs to a different admission or session"
+    );
     ensure!(
         invocation.outcome.is_none(),
         "model hook invocation already settled"
@@ -101,13 +105,22 @@ pub(super) fn validate_model_admission(
 }
 
 impl SharedRuntime {
+    #[cfg(test)]
     pub(crate) fn begin_plugin_service(&self, owner: u64, service: &str) -> Result<u64> {
+        self.begin_plugin_service_for(owner, HookEvent::PreToolUse, service)
+    }
+    pub(crate) fn begin_plugin_service_for(
+        &self,
+        owner: u64,
+        event: HookEvent,
+        service: &str,
+    ) -> Result<u64> {
         ensure!(
             service.len() == 64 && service.bytes().all(|b| b.is_ascii_hexdigit()),
             "MCP service operation identity is invalid"
         );
         self.admission(|record| {
-            active(record,owner)?;
+            active_for_event(record,owner,event)?;
             ensure!(record.operations.len() < 4096, "session operation history is full");
             ensure!(!record.operations.iter().any(|o| !o.complete && !o.reconciled && matches!(&o.host_invocation,
                 Some(super::HostInvocation::PluginService {service: existing,..}) if existing == service)), "MCP startup is unresolved; reconcile before readmission");
@@ -171,13 +184,17 @@ impl SharedRuntime {
             Ok(())
         })
     }
-    pub(crate) fn admit_plugin_service(&self, operation: u64) -> Result<ServiceOwner> {
+    pub(crate) fn admit_plugin_service_for(
+        &self,
+        operation: u64,
+        event: HookEvent,
+    ) -> Result<ServiceOwner> {
         let runtime = self
             .0
             .lock()
             .map_err(|_| anyhow::anyhow!("runtime lock failed"))?;
         ensure!(!runtime.failed, "session persistence failed");
-        active(&runtime.record, operation)?;
+        active_for_event(&runtime.record, operation, event)?;
         let role = runtime
             .record
             .operations
@@ -258,6 +275,37 @@ impl SharedRuntime {
             }
             Ok(())
         })
+    }
+}
+
+pub(super) fn active_for_event(
+    record: &Record,
+    id: u64,
+    event: HookEvent,
+) -> Result<&super::ToolReceipt> {
+    if event == HookEvent::PreToolUse {
+        return active(record, id);
+    }
+    super::plugin_lifecycle::active(record, id, event)?;
+    record
+        .operations
+        .iter()
+        .find(|o| o.id == id)
+        .and_then(|o| o.tool_receipt.as_ref())
+        .context("post-tool receipt missing")
+}
+fn hook_receipts(receipt: &super::ToolReceipt, event: HookEvent) -> Option<&[HookReceipt]> {
+    if event == HookEvent::PreToolUse {
+        receipt
+            .plugin_admission
+            .as_ref()
+            .map(|p| p.hooks.as_slice())
+    } else {
+        receipt
+            .plugin_lifecycle
+            .as_ref()
+            .filter(|p| p.facts.event == event)
+            .map(|p| p.hooks.as_slice())
     }
 }
 
@@ -378,6 +426,20 @@ impl SharedRuntime {
             .mutation_boundaries
             .entry(identity)
             .or_default()
+            .clone())
+    }
+    pub(crate) fn plugin_hook_key(
+        &self,
+        id: u64,
+        event: HookEvent,
+        invocation: u32,
+    ) -> Result<AdmissionKey> {
+        let record = self.record()?;
+        let receipt = active_for_event(&record, id, event)?;
+        Ok(hook_receipts(receipt, event)
+            .and_then(|hooks| hooks.get(invocation as usize))
+            .context("hook reservation missing")?
+            .inspected
             .clone())
     }
     pub(crate) fn plugin_owner(&self, id: u64) -> Result<(u64, String)> {
@@ -614,15 +676,20 @@ impl SharedRuntime {
             Ok(())
         })
     }
-    pub(crate) fn cancel_plugin_hook(&self, owner: u64, invocation: u32) -> Result<()> {
+    pub(crate) fn cancel_plugin_invocation(
+        &self,
+        owner: u64,
+        event: HookEvent,
+        invocation: u32,
+    ) -> Result<()> {
         let record = self.record()?;
         let mut hook = record
             .operations
             .iter()
             .find(|o| o.id == owner)
             .and_then(|o| o.tool_receipt.as_ref())
-            .and_then(|r| r.plugin_admission.as_ref())
-            .and_then(|p| p.hooks.get(invocation as usize))
+            .and_then(|r| hook_receipts(r, event))
+            .and_then(|hooks| hooks.get(invocation as usize))
             .context("cancelled hook receipt missing")?
             .clone();
         if hook.outcome.is_some() {
@@ -632,7 +699,11 @@ impl SharedRuntime {
             reason: "MCP hook cancelled; effects may be unknown".into(),
         });
         hook.uncertain_effects = true;
-        self.finish_plugin_hook(owner, hook)
+        if event == HookEvent::PreToolUse {
+            self.finish_plugin_hook(owner, hook)
+        } else {
+            self.finish_post_hook(owner, event, hook)
+        }
     }
     pub(crate) fn hold_plugin(&self, id: u64, reason: &str) -> Result<()> {
         self.update(|record| {

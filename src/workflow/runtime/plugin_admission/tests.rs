@@ -323,3 +323,354 @@ fn service_bootstrap_cannot_authorize_tools_or_be_settled_as_a_model_call() {
         })
     ));
 }
+
+#[test]
+fn completed_post_owner_cannot_revive_pretool_index_zero_or_borrow_another_session() {
+    use crate::plugins::{
+        gate_snapshot::{GateReadSet, GateWorkspace},
+        runners::SnapshotInspection,
+    };
+    use std::sync::atomic::AtomicBool;
+    let root = tempfile::tempdir().unwrap();
+    let (runtime, id, call) = fixture(root.path());
+    runtime
+        .allocate(crate::workflow::allocation::Limits::default(), None)
+        .unwrap();
+    let pre = reserve(&runtime, id, &call, 0);
+    let snapshot = Arc::new(
+        GateWorkspace::open(root.path())
+            .unwrap()
+            .capture(&GateReadSet::default(), &AtomicBool::new(false))
+            .unwrap(),
+    );
+    let tools = crate::tools::ToolExecutor::new(root.path()).unwrap();
+    let mut capability = ModelAdmission {
+        key: pre.inspected.clone(),
+        owner: id,
+        invocation: 0,
+        event: HookEvent::PreToolUse,
+        maximum: 8,
+        snapshot: Arc::new(SnapshotInspection::new(
+            snapshot,
+            tools.hook_host(),
+            65536,
+            65536,
+            4,
+        )),
+        cancelled: Arc::new(AtomicBool::new(false)),
+    };
+    assert!(validate_model_admission(&runtime.record().unwrap(), "hook", &capability).is_ok());
+    let mut complete = pre.clone();
+    complete.outcome = Some(RawOutcome::Callback { value: json!({}) });
+    complete.uncertain_effects = false;
+    runtime.finish_plugin_hook(id, complete).unwrap();
+    runtime
+        .freeze_plugin(id, key(&runtime, id, &call), &call, None)
+        .unwrap();
+    runtime.admit_tool(id, &call).unwrap();
+    runtime.tool_effect(id).unwrap();
+    runtime
+        .original_tool_result(
+            id,
+            &crate::tools::ToolResult {
+                call_id: call.id.clone(),
+                tool: call.name.clone(),
+                success: true,
+                output: "done".into(),
+                exit_code: None,
+            },
+        )
+        .unwrap();
+    runtime
+        .begin_post_tool(
+            id,
+            HookEvent::PostToolUse,
+            "post-plan".into(),
+            vec![json!({"identity":pre.declaration})],
+            ToolRepresentation::Native,
+        )
+        .unwrap();
+    let mut post = pre.clone();
+    post.inspected.event = "PostToolUse".into();
+    post.inspected.plan = "post-plan".into();
+    assert_eq!(
+        runtime
+            .begin_post_hook(id, HookEvent::PostToolUse, post.clone())
+            .unwrap(),
+        0
+    );
+    assert!(
+        runtime
+            .plugin_runner_owner(id, HookEvent::PreToolUse)
+            .is_err()
+    );
+    assert!(
+        runtime
+            .begin_plugin_service_for(id, HookEvent::PreToolUse, &"b".repeat(64))
+            .is_err()
+    );
+    assert!(
+        validate_model_admission(&runtime.record().unwrap(), "hook", &capability).is_err(),
+        "stale pre capability used live post index zero"
+    );
+    capability.event = HookEvent::PostToolUse;
+    assert!(
+        validate_model_admission(&runtime.record().unwrap(), "hook", &capability).is_err(),
+        "changing event cannot rewrite inspected authority"
+    );
+    capability.key = post.inspected;
+    assert!(validate_model_admission(&runtime.record().unwrap(), "hook", &capability).is_ok());
+    let (other, other_id, other_call) = fixture_at(root.path(), &root.path().join("other"));
+    other
+        .allocate(crate::workflow::allocation::Limits::default(), None)
+        .unwrap();
+    let other_pre = reserve(&other, other_id, &other_call, 0);
+    let mut complete = other_pre.clone();
+    complete.outcome = Some(RawOutcome::Callback { value: json!({}) });
+    complete.uncertain_effects = false;
+    other.finish_plugin_hook(other_id, complete).unwrap();
+    other
+        .freeze_plugin(
+            other_id,
+            key(&other, other_id, &other_call),
+            &other_call,
+            None,
+        )
+        .unwrap();
+    other.admit_tool(other_id, &other_call).unwrap();
+    other.tool_effect(other_id).unwrap();
+    other
+        .original_tool_result(
+            other_id,
+            &crate::tools::ToolResult {
+                call_id: other_call.id.clone(),
+                tool: other_call.name.clone(),
+                success: true,
+                output: "done".into(),
+                exit_code: None,
+            },
+        )
+        .unwrap();
+    other
+        .begin_post_tool(
+            other_id,
+            HookEvent::PostToolUse,
+            "post-plan".into(),
+            vec![json!({"identity":other_pre.declaration})],
+            ToolRepresentation::Native,
+        )
+        .unwrap();
+    let mut post = other_pre;
+    post.inspected.event = "PostToolUse".into();
+    post.inspected.plan = "post-plan".into();
+    other
+        .begin_post_hook(other_id, HookEvent::PostToolUse, post)
+        .unwrap();
+    assert!(
+        validate_model_admission(&other.record().unwrap(), "hook", &capability).is_err(),
+        "sibling session borrowed post capability"
+    );
+}
+
+fn completed_lifecycle(
+    root: &std::path::Path,
+    representation: ToolRepresentation,
+) -> (SharedRuntime, u64, ToolCall) {
+    let (runtime, id, call) = fixture(root);
+    runtime
+        .allocate(crate::workflow::allocation::Limits::default(), None)
+        .unwrap();
+    runtime
+        .freeze_plugin(id, key(&runtime, id, &call), &call, None)
+        .unwrap();
+    runtime.admit_tool(id, &call).unwrap();
+    runtime.tool_effect(id).unwrap();
+    let original = crate::tools::ToolResult {
+        call_id: call.id.clone(),
+        tool: call.name.clone(),
+        success: true,
+        output: "completed evidence".into(),
+        exit_code: None,
+    };
+    runtime.original_tool_result(id, &original).unwrap();
+    runtime
+        .begin_post_tool(
+            id,
+            HookEvent::PostToolUse,
+            "post-plan".into(),
+            vec![],
+            representation,
+        )
+        .unwrap();
+    (runtime, id, call)
+}
+#[test]
+fn rejected_post_publication_does_not_consume_task_correction_or_settle_receipt() {
+    let root = tempfile::tempdir().unwrap();
+    let (runtime, id, _) = completed_lifecycle(root.path(), ToolRepresentation::Native);
+    let task = crate::workflow::state::Task::new(
+        1,
+        "task".into(),
+        vec![],
+        crate::workflow::workspace::capture(root.path()).unwrap(),
+        2,
+    )
+    .unwrap();
+    runtime.save_task(&Some(task), 2, None).unwrap();
+    let mut effects = crate::plugins::lifecycle::PostEffects::default();
+    effects.continuation = PostContinuation::Correction;
+    effects.messages.push(PluginMessage {
+        invocation: 0,
+        package: "plugin".into(),
+        kind: ProposalKind::AdditionalContext,
+        text: "x".repeat(6 * 1024 * 1024),
+    });
+    let before = serde_json::to_value(runtime.record().unwrap()).unwrap();
+    assert!(
+        runtime
+            .settle_post_tool(id, HookEvent::PostToolUse, effects)
+            .is_err()
+    );
+    assert_eq!(
+        serde_json::to_value(runtime.record().unwrap()).unwrap(),
+        before
+    );
+}
+#[test]
+fn pending_native_and_external_delivery_survives_reload_and_cannot_be_replayed() {
+    for (native, reserve) in [(false, false), (false, true), (true, false)] {
+        let root = tempfile::tempdir().unwrap();
+        let representation = ToolRepresentation::CodexDynamic {
+            tool_use_id: "source".into(),
+            turn_id: "turn".into(),
+            session_id: "thread".into(),
+            model: None,
+            permission_mode: "bypassPermissions".into(),
+            transcript_path: None,
+        };
+        let (runtime, id, call) = completed_lifecycle(
+            root.path(),
+            if native {
+                ToolRepresentation::Native
+            } else {
+                representation
+            },
+        );
+        runtime
+            .settle_post_tool(
+                id,
+                HookEvent::PostToolUse,
+                crate::plugins::lifecycle::PostEffects::default(),
+            )
+            .unwrap();
+        let original = runtime
+            .record()
+            .unwrap()
+            .operations
+            .iter()
+            .find(|o| o.id == id)
+            .unwrap()
+            .result
+            .clone()
+            .unwrap();
+        runtime.model_tool_result(id, &original).unwrap();
+        runtime.settle_tool(id).unwrap();
+        if reserve {
+            runtime.reserve_post_delivery(id).unwrap();
+        }
+        let loaded: Record =
+            serde_json::from_slice(&serde_json::to_vec(&runtime.record().unwrap()).unwrap())
+                .unwrap();
+        let op = loaded.operations.iter().find(|o| o.id == id).unwrap();
+        assert!(op.needs_reconciliation());
+        assert!(super::super::plugin_lifecycle::ensure_continuation(&loaded, "worker").is_err());
+        if reserve {
+            assert!(runtime.reserve_post_delivery(id).is_err());
+        }
+        let source = op.tool_receipt.as_ref().unwrap().invocation;
+        let resumed =
+            SharedRuntime::for_test(&root.path().join("resumed"), loaded.clone()).unwrap();
+        resumed.reconcile("Inspected recorded original tool and quarantined unknown delivery; not gate approval",None).unwrap();
+        assert!(
+            resumed.begin_model("worker").is_err(),
+            "plain reconciliation approved unresolved delivery"
+        );
+        let mut next = call.clone();
+        next.id = "next".into();
+        assert!(
+            resumed.begin_tool("worker", source, &next).is_err(),
+            "plain reconciliation admitted another tool"
+        );
+        assert!(
+            matches!(
+                runtime.begin_tool("worker", source, &call).unwrap(),
+                super::super::ToolAdmission::Held(_)
+            ),
+            "unacknowledged model presentation replayed"
+        );
+        assert_eq!(
+            runtime
+                .record()
+                .unwrap()
+                .operations
+                .iter()
+                .find(|o| o.id == id)
+                .unwrap()
+                .result
+                .as_ref()
+                .unwrap()
+                .output,
+            "completed evidence"
+        );
+    }
+}
+
+#[test]
+fn ordinary_reconciliation_does_not_approve_unfinished_or_held_required_lifecycle() {
+    for settled in [false, true] {
+        let root = tempfile::tempdir().unwrap();
+        let (runtime, id, call) = completed_lifecycle(root.path(), ToolRepresentation::Native);
+        if settled {
+            let mut effects = crate::plugins::lifecycle::PostEffects::default();
+            effects.continuation = PostContinuation::Held {
+                reason: "required decision unmet".into(),
+            };
+            runtime
+                .settle_post_tool(id, HookEvent::PostToolUse, effects)
+                .unwrap();
+        }
+        let loaded: Record =
+            serde_json::from_slice(&serde_json::to_vec(&runtime.record().unwrap()).unwrap())
+                .unwrap();
+        let source = loaded
+            .operations
+            .iter()
+            .find(|o| o.id == id)
+            .unwrap()
+            .tool_receipt
+            .as_ref()
+            .unwrap()
+            .invocation;
+        let resumed = SharedRuntime::for_test(&root.path().join("resumed"), loaded).unwrap();
+        resumed
+            .reconcile(
+                "Inspected original effect only; no required gate approval",
+                None,
+            )
+            .unwrap();
+        assert!(
+            resumed
+                .record()
+                .unwrap()
+                .operations
+                .iter()
+                .find(|o| o.id == id)
+                .unwrap()
+                .reconciled
+        );
+        assert!(resumed.begin_model("worker").is_err());
+        let mut next = call;
+        next.id = "different-tool".into();
+        assert!(resumed.begin_tool("worker", source, &next).is_err());
+    }
+}

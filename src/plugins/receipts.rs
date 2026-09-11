@@ -1,4 +1,4 @@
-//! Bounded durable pre-tool history. Every field originates in the host except raw outcomes.
+//! Bounded durable tool lifecycle history. Every field originates in the host except raw outcomes.
 use super::hook_types::{HandlerKind, HookDialect};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -182,4 +182,151 @@ impl From<&super::results::ProposedEffect> for ProposalKind {
             P::ScheduleObserver { .. } => Self::ScheduleObserver,
         }
     }
+}
+
+/// Host-captured tool representation. This is never accepted from plugin output.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ToolRepresentation {
+    #[default]
+    Native,
+    ClaudeMcp {
+        tool_name: String,
+        tool_use_id: String,
+        /// Validated SDK PreToolUse base and exact source tool correlation.
+        source_input: Value,
+    },
+    CodexDynamic {
+        tool_use_id: String,
+        turn_id: String,
+        session_id: String,
+        model: Option<String>,
+        permission_mode: String,
+        transcript_path: Option<String>,
+    },
+}
+impl ToolRepresentation {
+    pub fn is_mcp(&self) -> bool {
+        matches!(self, Self::ClaudeMcp { .. })
+    }
+}
+
+/// Versioned host facts refer to the immutable call/result in the same operation.
+/// Source translations are host operation events, never observed SDK callbacks.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PostToolFacts {
+    pub version: u32,
+    pub session: String,
+    pub task: Option<u64>,
+    pub role: String,
+    pub operation: u64,
+    pub source_operation: u64,
+    pub event: super::hook_types::HookEvent,
+    /// A host translation, not an observed backend post callback.
+    pub provenance: String,
+    pub host_transcript_path: String,
+    pub host_model: Option<String>,
+    pub host_permission_mode: String,
+    pub representation: ToolRepresentation,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "state", rename_all = "snake_case")]
+pub enum PostContinuation {
+    #[default]
+    Continue,
+    Correction,
+    Held {
+        reason: String,
+    },
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProposalDisposition {
+    Applied,
+    Held,
+    Pending,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct AppliedProposal {
+    pub invocation: u32,
+    pub proposal: PendingProposal,
+    pub disposition: ProposalDisposition,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PluginMessage {
+    pub invocation: u32,
+    pub package: String,
+    pub kind: ProposalKind,
+    pub text: String,
+}
+/// Post-operation ownership is distinct from pre-tool approval. Historical tool
+/// receipts omit this entire record and retain their previous semantics.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct LifecycleReceipt {
+    #[serde(default)]
+    pub delivery: PostDelivery,
+    pub version: u32,
+    pub facts: PostToolFacts,
+    pub plan: String,
+    pub declarations: Vec<Value>,
+    pub hooks: Vec<HookReceipt>,
+    pub proposals: Vec<AppliedProposal>,
+    pub messages: Vec<PluginMessage>,
+    pub diagnostics: Vec<String>,
+    pub model_content: Option<Value>,
+    pub continuation: PostContinuation,
+    #[serde(default)]
+    pub correction_required: bool,
+    pub correction_admitted: bool,
+    /// None is the historical text-only corrective prompt representation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub correction_presentation: Option<CorrectionPresentation>,
+    pub settled: bool,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum CorrectionPresentation {
+    ClaudeProviderBlocksV1,
+}
+
+/// Reservation precedes an external write. An unacknowledged reservation is never replayed.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum PostDelivery {
+    #[default]
+    Local,
+    LocalPending,
+    Staged,
+    Reserved,
+    Acknowledged,
+    /// Original backend response is withheld while its turn is interrupted.
+    Superseding,
+    /// Correlated interrupt acknowledgment and terminal completion are retained.
+    Superseded,
+    /// A new backend invocation owns the one charged correction. The old result
+    /// was never delivered as a normal tool response.
+    CorrectionReserved {
+        invocation: u64,
+    },
+    CorrectionAcknowledged {
+        invocation: u64,
+        acknowledgment: CorrectionAcknowledgment,
+    },
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "source", rename_all = "snake_case")]
+pub enum CorrectionAcknowledgment {
+    ClaudeUser {
+        session_id: String,
+        uuid: String,
+        content_digest: String,
+    },
+    CodexTurn {
+        thread_id: String,
+        turn_id: String,
+        request_id: u64,
+    },
 }

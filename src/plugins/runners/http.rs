@@ -169,6 +169,7 @@ fn insert_header(headers: &mut HeaderMap, name: &str, value: &str, secret: bool)
     Ok(())
 }
 pub struct HttpRunner {
+    event: HookEvent,
     identity: DeclarationIdentity,
     class: HandlerClass,
     endpoint_identity: Option<String>,
@@ -181,7 +182,22 @@ pub struct HttpRunner {
 impl HttpRunner {
     pub fn registration(
         package: Arc<Package>,
+        declaration: Declaration,
+        config: HttpConfig,
+        revalidation: Option<HttpConfig>,
+    ) -> Result<Registration> {
+        Self::registration_for_event(
+            package,
+            declaration,
+            HookEvent::PreToolUse,
+            config,
+            revalidation,
+        )
+    }
+    pub fn registration_for_event(
+        package: Arc<Package>,
         mut declaration: Declaration,
+        event: HookEvent,
         config: HttpConfig,
         revalidation: Option<HttpConfig>,
     ) -> Result<Registration> {
@@ -200,7 +216,7 @@ impl HttpRunner {
             "HTTP source dialect differs or is nonexecuting"
         );
         let profile = Arc::new(CompatibilityProfile::embedded()?);
-        profile.require_runner(dialect, HookEvent::PreToolUse, HandlerKind::Http)?;
+        profile.require_runner(dialect, event, HandlerKind::Http)?;
         let (url, headers) = config.validate()?;
         ensure!(
             declaration.read_only_endpoint.is_some() == revalidation.is_some(),
@@ -230,6 +246,7 @@ impl HttpRunner {
         declaration.identity.package = package.name().into();
         declaration.identity.code = package.digest().into();
         declaration.identity.configuration = crate::plugins::admission::digest(&(
+            event,
             &config,
             &revalidation,
             &declaration.read_only_endpoint,
@@ -245,6 +262,7 @@ impl HttpRunner {
                 .collect(),
         );
         let runner = Arc::new(Self {
+            event,
             identity: declaration.identity.clone(),
             class: declaration.class,
             endpoint_identity: None,
@@ -256,6 +274,7 @@ impl HttpRunner {
         });
         let revalidation = revalidation.zip(read_only).map(|(config, (url, headers))| {
             Arc::new(Self {
+                event,
                 identity: declaration.identity.clone(),
                 class: HandlerClass::DecisionGate,
                 endpoint_identity: declaration.read_only_endpoint.clone(),
@@ -338,7 +357,20 @@ impl HttpRunner {
         }
         let raw = RawOutcome::Http { status, body };
         ensure!(
-            !raw.decode(&self.profile, &self.identity).failed(),
+            !raw.decode_for(
+                &self.profile,
+                &self.identity,
+                self.event,
+                &crate::plugins::results::ResultContext {
+                    role: if self.class == HandlerClass::Observer {
+                        crate::plugins::results::ResultRole::Observer
+                    } else {
+                        crate::plugins::results::ResultRole::RequiredGate
+                    },
+                    ..Default::default()
+                }
+            )
+            .failed(),
             "HTTP hook returned an invalid source result"
         );
         Ok(raw)
@@ -356,16 +388,21 @@ fn reflects(value: &serde_json::Value, secret: &str) -> bool {
 }
 #[async_trait::async_trait]
 impl HookRunner for HttpRunner {
+    fn bound_event(&self) -> Option<HookEvent> {
+        Some(self.event)
+    }
     async fn run(&self, invocation: &HookInvocation) -> Result<RawOutcome> {
         let run = async {
             ensure!(
-                invocation.declaration == self.identity
+                invocation.key.event == self.event.as_str()
+                    && invocation.events.plugin_event() == self.event
+                    && invocation.declaration == self.identity
                     && invocation.endpoint == self.endpoint_identity
                     && invocation.class == self.class,
                 "HTTP declaration/configuration identity mismatch"
             );
             let (runtime, operation) = invocation.events.plugin_context()?;
-            runtime.plugin_owner(operation)?;
+            runtime.plugin_runner_owner(operation, self.event)?;
             ensure!(
                 runtime.record()?.allocation.is_some(),
                 "HTTP hook requires an owning allowance"
@@ -401,7 +438,7 @@ impl HookRunner for HttpRunner {
                         tokio::select! {
                             biased;
                             _ = owner.tick() => {
-                                runtime.plugin_owner(operation)?;
+                                runtime.plugin_runner_owner(operation, self.event)?;
                                 ensure!(!runtime.remaining()?.is_zero(), "HTTP hook owner expired");
                             }
                             result = &mut exchange => return result,

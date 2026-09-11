@@ -228,6 +228,7 @@ pub struct DecodedResult {
     pub event: HookEvent,
     pub handler: HandlerKind,
     pub gate: GateDisposition,
+    pub model_outcome: Option<ModelOutcome>,
     pub source_decision: SourceDecision,
     pub stderr: Option<Untrusted<String>>,
     pub effects: Vec<ProposedEffect>,
@@ -265,6 +266,7 @@ pub fn decode_response(
         } else {
             GateDisposition::NoObjection
         },
+        model_outcome: None,
         source_decision: SourceDecision::NoSourceDecision,
         stderr: None,
         effects: Vec::new(),
@@ -290,37 +292,40 @@ pub fn decode_response(
 
 /// The bounded model runner supplies host configuration separately from the
 /// untrusted response. Keep the profile's source control request in the receipt.
-pub(crate) fn decode_model_pretool(
+pub(crate) fn decode_model(
     profile: &CompatibilityProfile,
     dialect: HookDialect,
+    event: HookEvent,
     handler: HandlerKind,
     value: &Value,
-    continue_on_block: bool,
+    context: &ResultContext,
 ) -> DecodedResult {
-    let context = ResultContext {
-        work: ModelCallContext {
-            continue_on_block,
-            ..ModelCallContext::default()
-        },
-        ..ResultContext::default()
-    };
     let mut result = DecodedResult {
         dialect,
-        event: HookEvent::PreToolUse,
+        event,
         handler,
-        gate: GateDisposition::NoObjection,
+        gate: if context.role == ResultRole::Observer {
+            GateDisposition::NotAGate
+        } else {
+            GateDisposition::NoObjection
+        },
+        model_outcome: None,
         source_decision: SourceDecision::NoSourceDecision,
         stderr: None,
         effects: Vec::new(),
         diagnostics: Vec::new(),
     };
     let validated = profile
-        .validate_model(dialect, handler, value)
+        .require_runner(dialect, event, handler)
+        .and_then(|()| profile.validate_model(dialect, handler, value))
         .and_then(|verdict| {
             profile
-                .model_outcome(HookEvent::PreToolUse, &verdict, &context.work)
+                .model_outcome(event, &verdict, &context.work)
                 .map(|outcome| (verdict, outcome))
         });
+    if let Ok((_, outcome)) = &validated {
+        result.model_outcome = Some(*outcome);
+    }
     match validated {
         Ok((verdict, ModelOutcome::NoModelObjection)) => result.push(ProposedEffect::Decision {
             choice: DecisionChoice::NoObjection,
@@ -340,13 +345,37 @@ pub(crate) fn decode_model_pretool(
                 result.push(ProposedEffect::Control(ControlRequest::EndTurn));
             }
         }
+        Ok((
+            verdict,
+            outcome @ (ModelOutcome::ContinueAfterResult
+            | ModelOutcome::ContinueWithFailure
+            | ModelOutcome::EndTurnUnmet
+            | ModelOutcome::StopUnmet
+            | ModelOutcome::BoundedCorrection),
+        )) => {
+            result.push(ProposedEffect::Feedback(Untrusted::new(
+                verdict.reason().unwrap_or("model hook objected").into(),
+            )));
+            match outcome {
+                ModelOutcome::EndTurnUnmet => {
+                    result.push(ProposedEffect::Control(ControlRequest::EndTurn))
+                }
+                ModelOutcome::StopUnmet => {
+                    result.push(ProposedEffect::Control(ControlRequest::StopUnmet))
+                }
+                ModelOutcome::BoundedCorrection => result.push(ProposedEffect::Control(
+                    ControlRequest::Followup(FollowupTarget::Task),
+                )),
+                _ => {}
+            }
+        }
         Ok(_) => result.fail(WireError::new(
             "/model_result_rules",
-            "unexpected model PreToolUse outcome",
+            "model outcome is not supported by this synchronous tool owner",
         )),
         Err(error) => result.fail(error),
     }
-    result.finish(&context);
+    result.finish(context);
     result
 }
 

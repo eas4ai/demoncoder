@@ -45,20 +45,35 @@ pub struct HookInvocation {
     pub endpoint: Option<String>,
     pub candidate: ToolCall,
     pub snapshot: Arc<GateSnapshot>,
+    /// Present only on host-created post-operation invocations.
+    pub completed: Option<CompletedTool>,
     pub(crate) events: crate::events::EventSink,
     pub(crate) host: super::runners::HookHost,
     pub(crate) runner_lease: Arc<tokio::sync::OwnedSemaphorePermit>,
     pub(crate) mutation_guard: Option<Arc<tokio::sync::OwnedMutexGuard<()>>>,
     pub(crate) class: HandlerClass,
 }
+#[derive(Clone)]
+pub struct CompletedTool {
+    pub facts: PostToolFacts,
+    pub original: crate::tools::ToolResult,
+}
 #[async_trait::async_trait]
 pub trait HookRunner: Send + Sync {
+    /// Production runners bind event identity into their immutable configuration.
+    fn bound_event(&self) -> Option<HookEvent> {
+        None
+    }
     /// Host-only dependency admission, completed before any group hook is dispatched.
     async fn prepare(&self, _invocation: &HookInvocation) -> Result<()> {
         Ok(())
     }
     /// Host implementation capability, never a flag supplied by hook output.
     fn mutates_workspace(&self) -> bool {
+        false
+    }
+    /// Host implementation fact. Unknown outcomes otherwise require reconciliation.
+    fn side_effect_free(&self) -> bool {
         false
     }
     async fn run(&self, invocation: &HookInvocation) -> Result<RawOutcome>;
@@ -68,6 +83,7 @@ pub(crate) struct Handler {
     path: Option<GlobMatcher>,
 }
 pub struct PreToolPlan {
+    pub(crate) event: HookEvent,
     pub(crate) handlers: Vec<Handler>,
     pub(crate) digest: String,
     pub(crate) profile: CompatibilityProfile,
@@ -75,7 +91,14 @@ pub struct PreToolPlan {
     pub(crate) runners: Arc<tokio::sync::Semaphore>,
 }
 impl PreToolPlan {
-    pub fn new(mut registrations: Vec<Registration>) -> Result<Self> {
+    pub fn new(registrations: Vec<Registration>) -> Result<Self> {
+        Self::for_event(HookEvent::PreToolUse, registrations)
+    }
+
+    pub(crate) fn for_event(
+        event: HookEvent,
+        mut registrations: Vec<Registration>,
+    ) -> Result<Self> {
         ensure!(
             !registrations.is_empty() && registrations.len() <= 32,
             "pre-tool plan requires 1 to 32 declarations"
@@ -101,6 +124,19 @@ impl PreToolPlan {
         let mut positions = std::collections::BTreeSet::new();
         let mut declarations = Vec::new();
         for registration in registrations {
+            ensure!(
+                registration
+                    .runner
+                    .bound_event()
+                    .is_none_or(|bound| bound == event)
+                    && registration
+                        .revalidation
+                        .as_ref()
+                        .is_none_or(|runner| runner
+                            .bound_event()
+                            .is_none_or(|bound| bound == event)),
+                "runner configuration belongs to a different hook event"
+            );
             let d = &registration.declaration;
             let id = &d.identity;
             for text in [
@@ -117,14 +153,18 @@ impl PreToolPlan {
                     "invalid immutable declaration identity"
                 );
             }
-            profile.require_runner(id.dialect, HookEvent::PreToolUse, id.runner)?;
+            profile.require_runner(id.dialect, event, id.runner)?;
             ensure!(
-                d.class != HandlerClass::Observer,
+                event != HookEvent::PreToolUse || d.class != HandlerClass::Observer,
                 "pre-tool observers require later owned observer integration"
             );
             ensure!(
                 id.dialect == HookDialect::Native || d.class == HandlerClass::Combined,
                 "source declarations retain combined semantics; explicit conversion is not integrated"
+            );
+            ensure!(
+                event == HookEvent::PreToolUse || registration.revalidation.is_none(),
+                "post-tool handlers cannot revalidate pre-tool admission"
             );
             ensure!(
                 d.read_only_endpoint.is_some() == registration.revalidation.is_some(),
@@ -187,8 +227,9 @@ impl PreToolPlan {
                 .transpose()?;
             handlers.push(Handler { registration, path });
         }
-        let digest = super::admission::digest(&declarations)?;
+        let digest = super::admission::digest(&(event, &declarations))?;
         Ok(Self {
+            event,
             handlers,
             digest,
             profile,
@@ -248,18 +289,29 @@ impl RawOutcome {
         profile: &CompatibilityProfile,
         id: &DeclarationIdentity,
     ) -> results::DecodedResult {
+        self.decode_for(
+            profile,
+            id,
+            HookEvent::PreToolUse,
+            &ResultContext::default(),
+        )
+    }
+
+    pub(crate) fn decode_for(
+        &self,
+        profile: &CompatibilityProfile,
+        id: &DeclarationIdentity,
+        event: HookEvent,
+        context: &ResultContext,
+    ) -> results::DecodedResult {
         if let Self::Model {
             value,
             continue_on_block,
         } = self
         {
-            return results::decode_model_pretool(
-                profile,
-                id.dialect,
-                id.runner,
-                value,
-                *continue_on_block,
-            );
+            let mut context = context.clone();
+            context.work.continue_on_block = *continue_on_block;
+            return results::decode_model(profile, id.dialect, event, id.runner, value, &context);
         }
         let texts;
         let response = match self {
@@ -294,14 +346,7 @@ impl RawOutcome {
                 HookResponse::Failure(results::TransportFailure::Execution)
             }
         };
-        results::decode_response(
-            profile,
-            id.dialect,
-            HookEvent::PreToolUse,
-            id.runner,
-            &ResultContext::default(),
-            response,
-        )
+        results::decode_response(profile, id.dialect, event, id.runner, context, response)
     }
 }
 
@@ -310,7 +355,7 @@ impl RawOutcome {
 pub(crate) async fn run_owned(invocation: &HookInvocation, runner: &dyn HookRunner) -> RawOutcome {
     // All source group futures are polled together against the same candidate.
     let owner = invocation.events.plugin_context().and_then(|(r, id)| {
-        r.plugin_owner(id)?;
+        r.plugin_runner_owner(id, invocation.events.plugin_event())?;
         r.remaining()
     });
     match owner {

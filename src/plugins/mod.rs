@@ -21,6 +21,7 @@ pub mod gate_snapshot;
 
 pub mod admission;
 pub mod dispatch;
+pub mod lifecycle;
 pub mod receipts;
 pub mod runners;
 pub mod services;

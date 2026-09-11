@@ -1,4 +1,4 @@
-//! PreToolUse calls bind admitted managed tools; event data never chooses authority.
+//! Hook calls bind admitted managed tools; event data never chooses authority.
 use super::{
     event::{self, EventInput},
     mcp_input,
@@ -38,6 +38,7 @@ impl Default for McpConfig {
     }
 }
 pub struct McpRunner {
+    event: HookEvent,
     identity: DeclarationIdentity,
     class: HandlerClass,
     endpoint: Option<String>,
@@ -49,7 +50,24 @@ pub struct McpRunner {
 impl McpRunner {
     pub fn registration(
         package: Arc<Package>,
+        declaration: Declaration,
+        binding: McpBinding,
+        revalidation: Option<McpBinding>,
+        config: McpConfig,
+    ) -> Result<Registration> {
+        Self::registration_for_event(
+            package,
+            declaration,
+            HookEvent::PreToolUse,
+            binding,
+            revalidation,
+            config,
+        )
+    }
+    pub fn registration_for_event(
+        package: Arc<Package>,
         mut declaration: Declaration,
+        event: HookEvent,
         binding: McpBinding,
         revalidation: Option<McpBinding>,
         config: McpConfig,
@@ -69,7 +87,7 @@ impl McpRunner {
             "MCP source dialect differs"
         );
         let profile = Arc::new(CompatibilityProfile::embedded()?);
-        profile.require_runner(dialect, HookEvent::PreToolUse, HandlerKind::McpTool)?;
+        profile.require_runner(dialect, event, HandlerKind::McpTool)?;
         ensure!(
             binding.service.package().digest() == package.digest()
                 && binding.service.package().name() == package.name(),
@@ -134,6 +152,7 @@ impl McpRunner {
         declaration.identity.package = package.name().into();
         declaration.identity.code = package.digest().into();
         declaration.identity.configuration = crate::plugins::admission::digest(&(
+            event,
             &binding.service.identity,
             &binding.tool,
             &binding.input,
@@ -149,6 +168,7 @@ impl McpRunner {
                 .collect(),
         );
         let runner = Arc::new(Self {
+            event,
             identity: declaration.identity.clone(),
             class: declaration.class,
             endpoint: None,
@@ -159,6 +179,7 @@ impl McpRunner {
         });
         let revalidation = revalidation.map(|binding| {
             Arc::new(Self {
+                event,
                 identity: declaration.identity.clone(),
                 class: HandlerClass::DecisionGate,
                 endpoint: declaration.read_only_endpoint.clone(),
@@ -176,7 +197,9 @@ impl McpRunner {
     }
     fn input(&self, invocation: &HookInvocation) -> Result<Value> {
         ensure!(
-            invocation.declaration == self.identity
+            invocation.key.event == self.event.as_str()
+                && invocation.events.plugin_event() == self.event
+                && invocation.declaration == self.identity
                 && invocation.class == self.class
                 && invocation.endpoint == self.endpoint,
             "MCP declaration/configuration identity mismatch"
@@ -244,7 +267,13 @@ impl McpRunner {
             is_error,
         };
         ensure!(
-            !raw.decode(&self.profile, &self.identity).failed(),
+            !raw.decode_for(
+                &self.profile,
+                &self.identity,
+                self.event,
+                &crate::plugins::results::ResultContext::default()
+            )
+            .failed(),
             "MCP returned an invalid source result"
         );
         Ok(raw)
@@ -252,6 +281,15 @@ impl McpRunner {
 }
 #[async_trait::async_trait]
 impl HookRunner for McpRunner {
+    fn bound_event(&self) -> Option<HookEvent> {
+        Some(self.event)
+    }
+    fn side_effect_free(&self) -> bool {
+        self.binding
+            .service
+            .tool(&self.binding.tool)
+            .is_ok_and(|tool| tool.read_only)
+    }
     async fn prepare(&self, invocation: &HookInvocation) -> Result<()> {
         let input = self.input(invocation)?;
         crate::plugins::wire::SchemaValidator::compile(

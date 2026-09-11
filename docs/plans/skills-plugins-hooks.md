@@ -294,6 +294,31 @@ partial change cannot leak into a later persisted record.
 
 ## 10. Real host lifecycle transitions
 
+The synchronous tool completion prerequisite is implemented and independently
+reviewed. It extends the existing runners and result ledger before the other
+lifecycle families below.
+The decision [retains original results before lifecycle effects](../decisions/retain-completed-tool-evidence-before-synchronous-lifecycle-effects.md).
+External correction [supersedes the old backend turn before replanning](../decisions/supersede-external-backend-turns-before-post-tool-correction.md).
+Claude correction [preserves structured replacement content](../decisions/preserve-structured-claude-content-through-post-tool-corrections.md).
+
+- [x] Generalize host-created invocation framing and source result decoding for PostToolUse and PostToolUseFailure without weakening PreToolUse admission. Preserve its existing registration API where practical.
+- [x] Persist causal post-operation receipts separately from pre-tool approval, retain original results before awaits, and preserve old serialized records. Distinguish an admitted execution failure from a pre-admission refusal; missing file opens can fail before a mutation starts.
+- [x] Use the existing command, prompt, agent, HTTP and MCP runners for every applicable synchronous post-tool source pair. Unsupported source cells remain explicit; they do not acquire another dialect silently.
+- [x] Apply bounded attributed context, feedback and supported model-facing replacements while preserving original success and exit status. Honor event-specific continuation and correction semantics with the same owner and allowance; no hook can accept work.
+- [x] Enforce continuation holds across native and both external loop owners before further tool/model work, preserving completed effects and visible evidence on failure or cancellation. Do not claim a backend-owned event from a synthetic callback.
+- [x] Verify actual write/failure traces, source outputs and downstream requests, malformed/late/cancelled responses, observer failure, duplicate correlation/restart, original allowance, read-only snapshots and no replay. Run affected regressions, then independent specification and quality reviews.
+
+Verification: 283 affected tests, all-target Clippy and formatting passed. The
+independent broader Rust run passed 688 tests with 16 explicitly ignored cases.
+Specification and quality reviews closed their findings, including typed content,
+atomic citation policy, complete frame bounds, pre-reply buffering and dispatch
+deadlines. The [review](../reviews/plugin-post-tool-lifecycle.md) retains failure
+demonstrations, source qualification and static-check limitations.
+
+One-shot/asynchronous jobs, permission events, explicit batches and the remaining
+real transitions below are subsequent lifecycle work in this same commitment.
+This synchronous prerequisite cannot discharge their conformance obligations.
+
 **Files:** `src/plugins/lifecycle.rs`, `src/native.rs`, `src/session.rs`, `src/workflow/mod.rs`, `src/subagents/`, `src/adapters/`, `tests/plugin_lifecycle.rs`.
 
 - [ ] Add explicit host batch membership/settle barriers and native compaction transactions that retain durable evidence and pinned policy outside model context.
@@ -330,6 +355,8 @@ the busy-control rejection or through plugin/channel text interpreted as prompts
 - [ ] Build a requirement-to-production-case manifest whose keys cover all 41 IDs, every profile field/branch, every applicability cell and five pinned real packages. Require actual case results, not source-name presence or empty test filters.
 - [ ] Run source reconstruction and negative mutation probes, runtime conformance, all four adapter workflows, actual backend barriers and authorized live connector cases. Keep controlled/live labels distinct.
 - [ ] Include `tests/plugin_mcp_source_inputs.py --claude <qualified-2.1.267-binary>` in source qualification. Require the pinned executable and a successful actual run; this source check does not replace MCP production tests. Its expected values are retained in `tests/fixtures/plugins/claude-mcp-input-source.json`.
+- [ ] Include `tests/plugin_post_source_inputs.py --claude <qualified-2.1.267-binary>` in source qualification. It checks actual SDK tool correlation, success/failure event frames, downstream MCP replacements and interrupted correction with exact user-message acknowledgment against `tests/fixtures/plugins/claude-post-source.json`; it does not establish DemonCoder lifecycle delivery.
+- [ ] Include `tests/plugin_codex_post_source.py --codex <qualified-managed-binary>` in source qualification. It checks dynamic-tool correlation, successful post frames, the absence of post events on failed dynamic results, and interrupt acknowledgment plus terminal completion before a correction turn against `tests/fixtures/plugins/codex-post-source.json`.
 - [ ] Run formatting, clippy, all existing regression tests, installed language services and the complete plugin gate. Commit implementation before Cairn; commit receipts and captured outputs afterward.
 - [ ] Perform specification and quality reviews followed by an adversarial whole-commitment review. Resolve findings as separate implementation actions and rerun affected evidence.
 - [ ] Install and verify the final executable. Follow Cairn until Done; only then integrate the feature branch with `git merge --no-ff` and report the complete commitment.

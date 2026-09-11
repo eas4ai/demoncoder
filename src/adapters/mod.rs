@@ -4,6 +4,7 @@ mod claude;
 mod codex;
 pub(crate) mod http;
 mod openai;
+mod post_correction;
 pub(crate) mod process;
 
 use crate::session::{ADAPTER_INTERFACE_VERSION, Registry, SessionCapabilities};

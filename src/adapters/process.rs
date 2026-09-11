@@ -12,6 +12,9 @@ use tokio::{
     process::{Child, ChildStdin, ChildStdout},
 };
 
+/// Complete newline-delimited JSON frame budget, including the newline.
+pub(super) const RESPONSE_FRAME_LIMIT: usize = 4 * 1024 * 1024;
+
 pub struct BackendProcess {
     child: Child,
     stdin: ChildStdin,
@@ -160,7 +163,7 @@ impl BackendProcess {
     }
 
     pub async fn receive(&mut self) -> Result<Value> {
-        self.receive_limited(4 * 1024 * 1024).await
+        self.receive_limited(RESPONSE_FRAME_LIMIT).await
     }
 
     pub async fn finite_json(&mut self, limit: usize) -> Result<Value> {

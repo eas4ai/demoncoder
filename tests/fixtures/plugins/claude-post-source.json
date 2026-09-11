@@ -1,0 +1,238 @@
+{
+  "kind": "controlled-pinned-source-observation",
+  "backend": "Claude Code 2.1.267",
+  "executable_sha256": "0399c793ff571d5946ef923d80b4f330d05ac4b6842a6b0775468f5d389403c0",
+  "limits": "Actual pinned SDK transport with a permissive local model peer. Establishes source framing and transformations, not DemonCoder production delivery, provider acceptance, media decoding, remote URL access, or file existence. File IDs are deliberately synthetic; forwarding does not qualify Files capability.",
+  "tool_use_id": "post_source_operation",
+  "tool_name": "mcp__demoncoder__capture",
+  "arguments": {
+    "content": "literal $HOME ${tool_input.content}"
+  },
+  "original_content": [
+    {
+      "type": "text",
+      "text": "original-result"
+    }
+  ],
+  "replacement_content": [
+    {
+      "type": "text",
+      "text": "replacement-result"
+    }
+  ],
+  "replacement_cases": {
+    "replacement": [
+      {
+        "type": "text",
+        "text": "replacement-result"
+      }
+    ],
+    "replacement-string": "replacement-string",
+    "replacement-null": null,
+    "replacement-false": false,
+    "replacement-zero": 0,
+    "replacement-empty-string": "",
+    "replacement-object": {
+      "message": "not-content"
+    },
+    "replacement-image-base64": [
+      {
+        "type": "image",
+        "source": {
+          "type": "base64",
+          "media_type": "image/png",
+          "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4//8/AAX+Av4N70a4AAAAAElFTkSuQmCC"
+        }
+      }
+    ],
+    "replacement-image-url": [
+      {
+        "type": "image",
+        "source": {
+          "type": "url",
+          "url": "https://example.invalid/image.png"
+        }
+      }
+    ],
+    "replacement-document-text": [
+      {
+        "type": "document",
+        "source": {
+          "type": "text",
+          "media_type": "text/plain",
+          "data": "fixture document"
+        },
+        "title": "Fixture"
+      }
+    ],
+    "replacement-search-result": [
+      {
+        "type": "search_result",
+        "source": "https://example.invalid/fixture",
+        "title": "Fixture",
+        "content": [
+          {
+            "type": "text",
+            "text": "fixture search evidence"
+          }
+        ],
+        "citations": {
+          "enabled": true
+        }
+      }
+    ],
+    "replacement-document-pdf": [
+      {
+        "type": "document",
+        "source": {
+          "type": "base64",
+          "media_type": "application/pdf",
+          "data": "JVBERi0xLjQKMSAwIG9iago8PCAvVHlwZSAvQ2F0YWxvZyAvUGFnZXMgMiAwIFIgPj4KZW5kb2JqCjIgMCBvYmoKPDwgL1R5cGUgL1BhZ2VzIC9LaWRzIFszIDAgUl0gL0NvdW50IDEgPj4KZW5kb2JqCjMgMCBvYmoKPDwgL1R5cGUgL1BhZ2UgL1BhcmVudCAyIDAgUiAvTWVkaWFCb3ggWzAgMCA3MiA3Ml0gL0NvbnRlbnRzIDQgMCBSID4+CmVuZG9iago0IDAgb2JqCjw8IC9MZW5ndGggMCA+PgpzdHJlYW0KCmVuZHN0cmVhbQplbmRvYmoKeHJlZgowIDUKMDAwMDAwMDAwMCA2NTUzNSBmIAowMDAwMDAwMDA5IDAwMDAwIG4gCjAwMDAwMDAwNTggMDAwMDAgbiAKMDAwMDAwMDExNSAwMDAwMCBuIAowMDAwMDAwMjAwIDAwMDAwIG4gCnRyYWlsZXIKPDwgL1NpemUgNSAvUm9vdCAxIDAgUiA+PgpzdGFydHhyZWYKMjQ5CiUlRU9GCg=="
+        }
+      }
+    ],
+    "replacement-document-url": [
+      {
+        "type": "document",
+        "source": {
+          "type": "url",
+          "url": "https://example.invalid/fixture.pdf"
+        }
+      }
+    ],
+    "replacement-document-content": [
+      {
+        "type": "document",
+        "source": {
+          "type": "content",
+          "content": [
+            {
+              "type": "text",
+              "text": "fixture document"
+            },
+            {
+              "type": "image",
+              "source": {
+                "type": "base64",
+                "media_type": "image/png",
+                "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4//8/AAX+Av4N70a4AAAAAElFTkSuQmCC"
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "replacement-tool-reference": [
+      {
+        "type": "tool_reference",
+        "tool_name": "mcp__demoncoder__capture"
+      }
+    ],
+    "replacement-image-file": [
+      {
+        "type": "image",
+        "source": {
+          "type": "file",
+          "file_id": "file_synthetic"
+        }
+      }
+    ],
+    "replacement-document-file": [
+      {
+        "type": "document",
+        "source": {
+          "type": "file",
+          "file_id": "file_synthetic"
+        }
+      }
+    ],
+    "replacement-search-context": [
+      {
+        "type": "search_result",
+        "source": "https://example.invalid/fixture",
+        "title": "Fixture",
+        "content": [
+          {
+            "type": "text",
+            "text": "fixture search evidence"
+          }
+        ],
+        "citations": {
+          "enabled": true
+        }
+      }
+    ],
+    "replacement-empty-array": []
+  },
+  "invalid_replacement_error_fragment": "reduce is not a function",
+  "failure_error": "original-result",
+  "metadata_key": "claudecode/toolUseId",
+  "additional_context": {
+    "replacement-search-context": "[Plugin-origin attribution] search evidence"
+  },
+  "observed_replacements": {
+    "replacement-tool-reference": [
+      {
+        "type": "text",
+        "text": "[Tool references removed - tool search not enabled]"
+      }
+    ],
+    "replacement-empty-array": "(mcp__demoncoder__capture completed with no output)"
+  },
+  "provider_type_baseline": {
+    "package": "@anthropic-ai/sdk",
+    "version": "0.93.0",
+    "archive_sha256": "bf747fe9ab5922edf2a6bc7871927ea525fae9239ec384a3092e7d8023ee88b9",
+    "relationship": "Reproducible minimum peer version allowed by Agent SDK 0.3.267; not an identified internal executable dependency."
+  },
+  "correction_cases": {
+    "correction-image-base64": [
+      {
+        "type": "image",
+        "source": {
+          "type": "base64",
+          "media_type": "image/png",
+          "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4//8/AAX+Av4N70a4AAAAAElFTkSuQmCC"
+        }
+      }
+    ],
+    "correction-document-content": [
+      {
+        "type": "document",
+        "source": {
+          "type": "content",
+          "content": [
+            {
+              "type": "text",
+              "text": "fixture document"
+            },
+            {
+              "type": "image",
+              "source": {
+                "type": "base64",
+                "media_type": "image/png",
+                "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4//8/AAX+Av4N70a4AAAAAElFTkSuQmCC"
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "correction-search-result": [
+      {
+        "type": "search_result",
+        "source": "https://example.invalid/fixture",
+        "title": "Fixture",
+        "content": [
+          {
+            "type": "text",
+            "text": "fixture search evidence"
+          }
+        ],
+        "citations": {
+          "enabled": true
+        }
+      }
+    ]
+  }
+}

@@ -124,6 +124,15 @@ impl NativeSession {
         events.checkpoint(self.checkpoint())?;
         loop {
             let mut corrections = Vec::new();
+            while let Ok(command) = commands.try_recv() {
+                if let Some(end) = control(Some(command), &mut corrections, events)? {
+                    return Ok(end);
+                }
+            }
+            for correction in corrections.drain(..) {
+                self.tools.set_intent(&correction);
+                self.model.prompt(correction);
+            }
             let admission = events.begin_model()?;
             let invocation_events = events.for_invocation(admission);
             let calls = {
@@ -175,10 +184,49 @@ impl NativeSession {
                         result = &mut operation => break result?,
                     }
                 };
+                let release_call_id = result.call_id.clone();
+                let post = invocation_events.post_continuation(&result.call_id)?;
                 self.model.results(vec![result]);
                 self.pending.pop_front();
                 self.tools.take_completed();
                 events.checkpoint(self.checkpoint())?;
+                if !matches!(
+                    post,
+                    crate::plugins::receipts::PostContinuation::Held { .. }
+                ) {
+                    let release = self
+                        .tools
+                        .validate_post_release(&release_call_id, &invocation_events);
+                    tokio::pin!(release);
+                    loop {
+                        tokio::select! {
+                            biased;
+                            command = commands.recv() => if let Some(end) = control(command, &mut corrections, events)? { return Ok(end); },
+                            result = &mut release => { result?; break; },
+                        }
+                    }
+                    // Validation may finish in the same poll that queues a
+                    // command. Cancellation still precedes correction charge.
+                    while let Ok(command) = commands.try_recv() {
+                        if let Some(end) = control(Some(command), &mut corrections, events)? {
+                            return Ok(end);
+                        }
+                    }
+                    invocation_events.complete_local_post_release(&release_call_id)?;
+                }
+                match post {
+                    crate::plugins::receipts::PostContinuation::Held { reason } => {
+                        anyhow::bail!("post-tool continuation held: {reason}")
+                    }
+                    crate::plugins::receipts::PostContinuation::Correction => {
+                        while let Some(skipped) = self.pending.pop_front() {
+                            self.model.results(vec![ToolResult { call_id: skipped.id, tool: skipped.name, success: false,
+                                output: "Not executed: plugin-origin correction superseded the remaining response.".into(), exit_code: None }]);
+                        }
+                        break;
+                    }
+                    crate::plugins::receipts::PostContinuation::Continue => {}
+                }
             }
             let corrected = !corrections.is_empty();
             for correction in corrections {
@@ -243,6 +291,10 @@ fn correction_notice(events: &EventSink, admitted: bool) -> Result<()> {
         }
     })
 }
+
+#[cfg(test)]
+#[path = "native/post_tests.rs"]
+mod post_tests;
 
 #[cfg(test)]
 mod tests {

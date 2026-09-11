@@ -44,6 +44,10 @@ pub struct AccessPolicy {
     pub lifecycle: Option<Arc<crate::plugins::bridge::Lifecycle>>,
     /// Host-only model-hook evidence capability; never deserialized with Connection.
     pub snapshot: Option<Arc<crate::plugins::runners::SnapshotInspection>>,
+    /// Frozen host-owned synchronous completed-tool plans.
+    pub post_tools: Vec<Arc<crate::plugins::lifecycle::PostToolPlan>>,
+    /// Frozen host-owned pre-tool admission plan.
+    pub pre_tool: Option<Arc<crate::plugins::dispatch::PreToolPlan>>,
 }
 
 impl Default for AccessPolicy {
@@ -59,6 +63,8 @@ impl Default for AccessPolicy {
             language_servers: crate::language_services::LanguageServers::default(),
             lifecycle: None,
             snapshot: None,
+            post_tools: Vec::new(),
+            pre_tool: None,
         }
     }
 }
@@ -138,6 +144,7 @@ pub trait ToolExtension: Send + Sync {
 struct ToolEffect<'a> {
     events: &'a EventSink,
     started: bool,
+    admission_refused: bool,
     admission: Option<crate::plugins::admission::AdmittedCandidate>,
     boundary: Option<Arc<tokio::sync::Mutex<()>>>,
     guard: Option<Arc<tokio::sync::OwnedMutexGuard<()>>>,
@@ -211,6 +218,9 @@ pub struct ToolExecutor {
     intent: Mutex<String>,
     hooks: Vec<Box<dyn ToolHook>>,
     plugin_plan: Option<Arc<crate::plugins::dispatch::PreToolPlan>>,
+    post_tool_plans: Vec<Arc<crate::plugins::lifecycle::PostToolPlan>>,
+    post_validations:
+        Mutex<std::collections::BTreeMap<u64, crate::plugins::lifecycle::PostValidation>>,
     gate_workspace: Arc<crate::plugins::gate_snapshot::GateWorkspace>,
     // Execution is sequential. Keep the current receipt across cancellation
     // during event delivery or a presentation error; never retain a full copy
@@ -241,8 +251,21 @@ impl ToolExecutor {
                     && access.oracle.is_none()
                     && access.extension.is_none()
                     && !access.language_servers.enabled()
-                    && access.lifecycle.is_none()),
+                    && access.lifecycle.is_none()
+                    && access.post_tools.is_empty()
+                    && access.pre_tool.is_none()),
             "snapshot hook policy cannot inherit live tools, extensions, language services or lifecycle dispatch"
+        );
+        ensure!(
+            access.post_tools.len() <= 2
+                && access
+                    .post_tools
+                    .iter()
+                    .enumerate()
+                    .all(|(index, plan)| access.post_tools[..index]
+                        .iter()
+                        .all(|earlier| earlier.plan.event != plan.plan.event)),
+            "post-tool plans repeat an event or exceed supported events"
         );
         access.language_servers.validate()?;
         ensure!(
@@ -356,7 +379,9 @@ impl ToolExecutor {
             },
             intent: Mutex::new(String::new()),
             hooks: Vec::new(),
-            plugin_plan: None,
+            plugin_plan: access.pre_tool.clone(),
+            post_tool_plans: access.post_tools.clone(),
+            post_validations: Mutex::new(Default::default()),
             gate_workspace: Arc::new(
                 crate::plugins::gate_snapshot::GateWorkspace::open_with_credentials(
                     &workspace,
@@ -442,6 +467,73 @@ impl ToolExecutor {
         Ok(())
     }
 
+    pub fn register_post_tool_plan(
+        &mut self,
+        plan: Arc<crate::plugins::lifecycle::PostToolPlan>,
+    ) -> Result<()> {
+        ensure!(
+            self.access.snapshot.is_none(),
+            "snapshot tools cannot dispatch lifecycle hooks"
+        );
+        ensure!(
+            !self
+                .post_tool_plans
+                .iter()
+                .any(|p| p.plan.event == plan.plan.event),
+            "post-tool event already registered"
+        );
+        self.post_tool_plans.push(plan);
+        Ok(())
+    }
+
+    pub(crate) fn retain_post_validation(
+        &self,
+        id: u64,
+        validation: crate::plugins::lifecycle::PostValidation,
+    ) -> Result<()> {
+        let mut pending = self
+            .post_validations
+            .lock()
+            .map_err(|_| anyhow::anyhow!("post validation lock failed"))?;
+        ensure!(
+            pending.len() < 64 && !pending.contains_key(&id),
+            "post-tool validation reservation repeated or exceeds bound"
+        );
+        pending.insert(id, validation);
+        Ok(())
+    }
+    pub(crate) async fn validate_post_release(
+        &self,
+        call_id: &str,
+        events: &EventSink,
+    ) -> Result<()> {
+        let Some((runtime, id)) = events.post_delivery_context(call_id)? else {
+            return events.validate_hook_delivery();
+        };
+        let validation = self
+            .post_validations
+            .lock()
+            .map_err(|_| anyhow::anyhow!("post validation lock failed"))?
+            .remove(&id)
+            .context("post-tool validation missing; never replay release")?;
+        let result = async {
+            runtime.validate_post_delivery_owner(id)?;
+            tokio::time::timeout(runtime.remaining()?, validation.validate())
+                .await
+                .context("post-tool release freshness validation timed out")??;
+            runtime.validate_post_delivery_owner(id)?;
+            Ok(())
+        }
+        .await;
+        if let Err(error) = &result {
+            runtime.hold_post_delivery(
+                id,
+                &format!("post-tool release validation failed: {error:#}"),
+            )?;
+        }
+        result
+    }
+
     pub fn add_hook(&mut self, hook: Box<dyn ToolHook>) {
         self.hooks.push(hook);
     }
@@ -451,6 +543,22 @@ impl ToolExecutor {
             .lock()
             .expect("tool receipt lock poisoned")
             .take()
+    }
+
+    /// Verification consumes immutable evidence after post-tool continuation is
+    /// released. Plugin presentation remains separate from check receipts.
+    pub(crate) async fn execute_for_evidence(
+        &self,
+        call: ToolCall,
+        events: &EventSink,
+    ) -> Result<ToolResult> {
+        let presentation = self.execute(call, events).await?;
+        self.validate_post_release(&presentation.call_id, events)
+            .await?;
+        events.complete_local_post_release(&presentation.call_id)?;
+        Ok(events
+            .original_tool_evidence(&presentation.call_id)?
+            .unwrap_or(presentation))
     }
 
     pub async fn execute(&self, mut call: ToolCall, events: &EventSink) -> Result<ToolResult> {
@@ -467,6 +575,7 @@ impl ToolExecutor {
         let mut effect = ToolEffect {
             events,
             started: false,
+            admission_refused: false,
             admission: None,
             boundary: if matches!(call.name.as_str(), "write" | "edit" | "bash") {
                 events.mutation_boundary(workspace_identity)?
@@ -475,6 +584,7 @@ impl ToolExecutor {
             },
             guard: None,
         };
+        let mut admitted_attempt = false;
         let execution = async {
             ensure!(self.access.tools_enabled, "the Oracle cannot execute tools");
             for hook in &self.hooks {
@@ -497,6 +607,7 @@ impl ToolExecutor {
             }
             self.validate_final_call(&call)?;
             events.admit_tool(&call)?;
+            admitted_attempt = true;
             events
                 .emit(Event::ToolStarted { call: call.clone() })
                 .await?;
@@ -548,7 +659,7 @@ impl ToolExecutor {
                         "invalid Bash command size"
                     );
                     if self.access.unrestricted {
-                        self.review(&call, None, None, events).await?;
+                        self.review(&call, None, None, &mut effect).await?;
                     }
                     self.bash(&call.id, &args.command, &mut effect).await
                 }
@@ -579,6 +690,14 @@ impl ToolExecutor {
         }
         .await;
         effect.guard.take();
+        if effect.admission_refused {
+            ensure!(
+                !effect.started && execution.is_err(),
+                "refused policy admission cannot have executed effects"
+            );
+            events.refuse_tool_execution()?;
+            admitted_attempt = false;
+        }
         let mut result = match execution {
             Ok((output, exit_code)) => ToolResult {
                 call_id: identity.0,
@@ -599,6 +718,9 @@ impl ToolExecutor {
         // recover it even if event delivery is cancelled or presentation fails.
         *self.completed.lock().expect("tool receipt lock poisoned") = Some(result.clone());
         events.original_tool_result(&result)?;
+        // The visible completion is original evidence, retained before any post await.
+        let completion = events.retain_tool_completion(result.clone())?;
+        let original = result.clone();
         if result.success
             && matches!(result.tool.as_str(), "write" | "edit")
             && let Some(path) = call.arguments["path"].as_str()
@@ -619,17 +741,36 @@ impl ToolExecutor {
                 )),
             }
         }
+        if admitted_attempt {
+            let event = if original.success {
+                crate::plugins::hook_types::HookEvent::PostToolUse
+            } else {
+                crate::plugins::hook_types::HookEvent::PostToolUseFailure
+            };
+            if let Some(plan) = self
+                .post_tool_plans
+                .iter()
+                .find(|plan| plan.plan.event == event)
+            {
+                result = plan
+                    .dispatch(
+                        &call,
+                        &result,
+                        events,
+                        self.gate_workspace.clone(),
+                        workspace_identity,
+                        self,
+                    )
+                    .await?;
+            }
+        }
         events.model_tool_result(&result)?;
         *self.completed.lock().expect("tool receipt lock poisoned") = Some(result.clone());
         if self.hooks.is_empty() || !effect.started {
             events.settle_tool()?;
         }
+        completion.await?;
         // Presentation never replaces the original evidence.
-        events
-            .emit(Event::ToolFinished {
-                result: result.clone(),
-            })
-            .await?;
         if !effect.started {
             return Ok(result);
         }
@@ -898,7 +1039,6 @@ impl ToolExecutor {
         create: bool,
         effect: &mut ToolEffect<'_>,
     ) -> Result<File> {
-        let events = effect.events;
         if self.access.strict_worktree {
             effect.lock().await;
             return self.open(path, flags, create, effect).await;
@@ -937,7 +1077,7 @@ impl ToolExecutor {
                 );
                 let target = descriptor_path(&file)?;
                 if !self.approved_path(&target) || meta.nlink() > 1 {
-                    self.review(call, Some(&target), Some(meta.nlink()), events)
+                    self.review(call, Some(&target), Some(meta.nlink()), effect)
                         .await?;
                 }
                 ensure!(
@@ -968,7 +1108,7 @@ impl ToolExecutor {
                 let parent_path = descriptor_path(&directory)?;
                 let target = parent_path.join(name);
                 if !self.approved_path(&target) {
-                    self.review(call, Some(&target), None, events).await?;
+                    self.review(call, Some(&target), None, effect).await?;
                 }
                 ensure!(
                     descriptor_path(&directory)? == parent_path,
@@ -1006,8 +1146,10 @@ impl ToolExecutor {
         call: &ToolCall,
         target: Option<&Path>,
         links: Option<u64>,
-        events: &EventSink,
+        effect: &mut ToolEffect<'_>,
     ) -> Result<()> {
+        effect.admission_refused = true;
+        let events = effect.events;
         let config = self
             .access
             .oracle
@@ -1053,6 +1195,7 @@ impl ToolExecutor {
                     })
                     .await?;
                 ensure!(allowed, "Oracle blocked this request: {}", decision.reason);
+                effect.admission_refused = false;
                 Ok(())
             }
             Err(error) => {

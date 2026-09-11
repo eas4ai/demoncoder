@@ -133,6 +133,11 @@ impl Store {
         &self.directory
     }
 
+    #[cfg_attr(test, allow(dead_code))]
+    pub(crate) fn state_path(&self) -> PathBuf {
+        self.directory.join(STATE)
+    }
+
     pub fn read(&self) -> Result<Value> {
         Self::read_directory(&self.dir)
     }

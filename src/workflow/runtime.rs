@@ -1,6 +1,7 @@
 //! Durable admissions and results shared by worker, checks, Oracle and reviewer.
 mod delegation;
 pub(crate) mod plugin_admission;
+pub(crate) mod plugin_lifecycle;
 mod tool_operations;
 pub(crate) use tool_operations::ToolAdmission;
 pub use tool_operations::ToolReceipt;
@@ -663,6 +664,8 @@ impl SharedRuntime {
             );
             if let Some(hook) = hook {
                 plugin_admission::validate_model_admission(r, phase, hook)?;
+            } else {
+                plugin_lifecycle::ensure_continuation(r, phase)?;
             }
             if let Some(a) = &mut r.allocation {
                 a.admit(true)?;

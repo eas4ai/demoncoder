@@ -847,7 +847,7 @@ impl Manager {
             .for_commands()?;
         for (index, command) in agent.commands.iter().enumerate() {
             let result = executor
-                .execute(
+                .execute_for_evidence(
                     ToolCall {
                         id: format!(
                             "agent-{id}-orchestration-{}-{index}",
@@ -1090,7 +1090,7 @@ impl Manager {
         executor.set_intent(&agent.request.objective);
         for (index, command) in agent.commands.iter().enumerate() {
             let result = executor
-                .execute(
+                .execute_for_evidence(
                     ToolCall {
                         id: format!("agent-{id}-verify-{}-{index}", agent.validation_generation),
                         name: "bash".into(),
