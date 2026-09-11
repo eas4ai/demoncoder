@@ -12,4 +12,7 @@ Qualify backend cleanup through the real stdin-lease supervisor and BackendProce
 
 ## Realized by
 
-(none yet: recorded, not built)
+7fd8d0b2734abf709bc1c6c42d3fdd9da7ac8805 — Real process controls and
+topology-specific integration checks passed; specification and quality reviews
+approved the bounded change. The runtime review retains the original failure's
+unknown cause and the exact verification chronology.
