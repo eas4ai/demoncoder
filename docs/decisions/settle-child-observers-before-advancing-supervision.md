@@ -11,4 +11,4 @@ Keep the existing child worker session and assignment owner active after ordinar
 
 ## Realized by
 
-0190b6ccb2fc4af111a87c8fa9798bc500c266f0 Own asynchronous hooks through completion and child continuation
+- 0190b6ccb2fc4af111a87c8fa9798bc500c266f0 Own asynchronous hooks through completion and child continuation
