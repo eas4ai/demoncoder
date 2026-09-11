@@ -421,3 +421,40 @@ async fn async_non_tool_completion_case(child:bool,event:crate::plugins::hook_ty
     assert!(fixture.runtime.record().unwrap().task.as_ref().unwrap().accepted.is_none());
     session.as_mut().unwrap().close().await.unwrap();
 }
+
+
+#[tokio::test]
+async fn observed_source_callback_keeps_exact_child_backend_owner() {
+    use crate::plugins::{hook_types::HookEvent, receipts::*};
+    let fixture = active_lifecycle_child(false).await;
+    let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let mut tools = ToolExecutor::new(&fixture.identity.root).unwrap();
+    tools.register_non_tool_plan(child_lifecycle_plan(HookEvent::UserPromptSubmit, Arc::new(ChildLifecycle { deny: false, calls: calls.clone() }))).unwrap();
+    let (sender, _receiver) = mpsc::channel(128);
+    let events = fixture.events.child("agent:1:worker", sender).with_identity(&fixture.manager.connection_for(1).unwrap());
+    let events = events.for_invocation(events.begin_backend().unwrap());
+    let backend = events.backend_invocation_id().unwrap();
+    let source = ObservedCallback {
+        input: ObservedLifecycle::Claude(json!({"hook_event_name":"UserPromptSubmit","session_id":"actual-source-session","cwd":fixture.identity.root,"transcript_path":"/source/transcript.jsonl","prompt_id":"source-prompt","prompt":"child prompt","permission_mode":"default"})),
+        correlation: SourceCallback { origin: Some(SourceOrigin::HostSubmission), backend_operation: backend, sequence: 1, request_id: "request".into(), command_uuid: Some("command".into()), envelope_id: Some("envelope".into()), model: Some("configured-model".into()) },
+    };
+    for phase in ["worker", "agent:2:worker"] {
+        let (sender, _receiver) = mpsc::channel(128);
+        let wrong = fixture.events.child(phase, sender).with_identity(&fixture.manager.connection_for(1).unwrap()).for_invocation(Some(backend));
+        let wrong = wrong.for_observed_lifecycle(source.clone()).unwrap();
+        assert!(tools.dispatch_non_tool(NonToolOccurrence::UserPromptSubmit { prompt: "child prompt".into(), correction: false }, &wrong).await.is_err());
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+    }
+    let observed = events.for_observed_lifecycle(source).unwrap();
+    let outcome = tools.dispatch_non_tool(NonToolOccurrence::UserPromptSubmit { prompt: "child prompt".into(), correction: false }, &observed).await.unwrap().unwrap();
+    assert!(outcome.hold.is_none());
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    let record = fixture.runtime.record().unwrap();
+    let receipt = record.operations.iter().find_map(|o| o.non_tool_receipt()).unwrap();
+    assert_eq!(receipt.facts.role, "agent:1:worker");
+    assert!(receipt.facts.child_owner.is_some());
+    assert_eq!(receipt.hooks[0].declaration.role, "worker");
+    assert_eq!(receipt.hooks[0].inspected.source_operation, backend);
+    assert_eq!(receipt.facts.callback.as_ref().unwrap().backend_operation, backend);
+    assert!(record.phase.is_none());
+}

@@ -258,7 +258,7 @@ impl NonToolPlan {
             let key = AdmissionKey {
                 session: facts.session.clone(),
                 operation,
-                source_operation: facts.native_turn.unwrap_or(operation),
+                source_operation: facts.causal_operation(),
                 event: event.as_str().into(),
                 tool: None,
                 arguments: None,

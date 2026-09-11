@@ -1,3 +1,5 @@
+#[path = "claude_non_tool.rs"]
+mod non_tool;
 #[path = "claude_post.rs"]
 mod post;
 use super::process::{BackendProcess, executable};
@@ -31,6 +33,8 @@ struct Claude {
     next_control_id: u64,
     lifecycle: Option<Arc<crate::plugins::bridge::Lifecycle>>,
     callbacks: Option<crate::plugins::bridge::Callbacks>,
+    non_tool_enabled: bool,
+    non_tool_callbacks: Option<non_tool::Callbacks>,
     post_enabled: bool,
     post_callbacks: Option<post::Callbacks>,
 }
@@ -46,6 +50,7 @@ pub fn open(config: &Connection, workspace: &Path) -> Result<Box<dyn Session>> {
         supervisor: if config.access.lifecycle.is_some()
             || config.access.snapshot.is_some()
             || !config.access.post_tools.is_empty()
+            || !config.access.non_tools.is_empty()
         {
             Some(
                 config
@@ -69,6 +74,8 @@ pub fn open(config: &Connection, workspace: &Path) -> Result<Box<dyn Session>> {
         next_control_id: 1,
         lifecycle: config.access.lifecycle.clone(),
         callbacks: None,
+        non_tool_enabled: !config.access.non_tools.is_empty(),
+        non_tool_callbacks: None,
         post_enabled: !config.access.post_tools.is_empty(),
         post_callbacks: None,
     }))
@@ -84,6 +91,10 @@ impl Claude {
         if self.process.is_none() {
             self.callbacks = self.lifecycle.as_ref().map(|l| l.callbacks()).transpose()?;
             self.post_callbacks = self.post_enabled.then(post::Callbacks::new).transpose()?;
+            self.non_tool_callbacks = self
+                .non_tool_enabled
+                .then(|| non_tool::Callbacks::new(self.workspace.clone(), self.model.clone()))
+                .transpose()?;
             let mut args: Vec<String> = [
                 "-p",
                 "--input-format",
@@ -105,7 +116,7 @@ impl Claude {
             .into_iter()
             .map(str::to_owned)
             .collect();
-            if self.post_enabled {
+            if self.post_enabled || self.non_tool_enabled {
                 args.push("--replay-user-messages".into());
             }
             if self.model_hook {
@@ -153,6 +164,9 @@ impl Claude {
                 .as_ref()
                 .map(|c| c.registration())
                 .unwrap_or(Value::Null);
+            if let Some(ordinary) = &self.non_tool_callbacks {
+                hooks = ordinary.registration(hooks);
+            }
             if let Some(post) = &self.post_callbacks {
                 hooks = post.registration(hooks);
             }
@@ -160,6 +174,7 @@ impl Claude {
             tokio::time::timeout(std::time::Duration::from_secs(30), async {
                 loop {
                     let message = process.receive().await?;
+                    capture_session(&mut self.session, &message)?;
                     if message["type"] == "control_response"
                         && message["response"]["request_id"] == "initialize"
                     {
@@ -176,7 +191,11 @@ impl Claude {
                             &message,
                             events,
                             false,
-                            (self.callbacks.as_mut(), self.post_callbacks.as_mut()),
+                            (
+                                self.callbacks.as_mut(),
+                                self.post_callbacks.as_mut(),
+                                self.non_tool_callbacks.as_mut(),
+                            ),
                             self.session.as_deref(),
                         )
                         .await?;
@@ -198,6 +217,7 @@ impl Claude {
         let mut next_correction: Option<super::post_correction::ExternalCorrection> = None;
         'turns: loop {
             let mut handoff = next_correction.take();
+            let source_correction_turn = handoff.is_some();
             let mut deadline = super::post_correction::CorrectionDeadline::new(handoff.is_some());
             deadline
                 .during(events.emit(Event::Context {
@@ -224,14 +244,31 @@ impl Claude {
                 || prompt.clone(),
                 |delivery| format!("{}\n{}", prompt, delivery.text),
             );
-            let user = if let Some(correction) = &handoff {
+            let mut user = if let Some(correction) = &handoff {
                 correction
                     .request
                     .clone()
                     .context("Claude correction frame was not prepared")?
             } else {
-                json!({"type":"user","message":{"role":"user","content":outgoing_prompt},"parent_tool_use_id":null,"session_id":self.session.as_deref().unwrap_or("")})
+                let mut user = json!({"type":"user","message":{"role":"user","content":outgoing_prompt},"parent_tool_use_id":null});
+                if let Some(session) = &self.session {
+                    user["session_id"] = json!(session);
+                }
+                user
             };
+            if let Some(ordinary) = &mut self.non_tool_callbacks {
+                if user.get("uuid").is_none() {
+                    user["uuid"] = json!(post::user_uuid()?);
+                }
+                let origin = if let Some(correction) = &handoff {
+                    correction.source_origin(events, &user)?
+                } else if events.is_plugin_prompt() {
+                    crate::plugins::receipts::SourceOrigin::PluginContext
+                } else {
+                    crate::plugins::receipts::SourceOrigin::HostSubmission
+                };
+                ordinary.begin(&user, origin, events)?;
+            }
             deadline.during(process.send(user.clone())).await?;
             if let Some(delivery) = &observer_delivery {
                 events.complete_observer_context(delivery)?;
@@ -281,6 +318,9 @@ impl Claude {
                     } else {
                         prompt = steering_prompt;
                     }
+                    if let Some(ordinary) = &mut self.non_tool_callbacks {
+                        ordinary.superseded();
+                    }
                     continue 'turns;
                 }
                 let message = tokio::select! {
@@ -304,18 +344,10 @@ impl Claude {
                     interrupt_ack = true;
                     return Ok(None);
                 }
-                if let Some(session) = message["session_id"].as_str().filter(|id| !id.is_empty()) {
-                    if self
-                        .session
-                        .as_deref()
-                        .is_some_and(|current| current != session)
-                    {
-                        bail!("Claude event belongs to a different session");
-                    }
-                    self.session = Some(session.into());
-                }
+                capture_session(&mut self.session, &message)?;
+                if !interrupting && let Some(ordinary) = &mut self.non_tool_callbacks { ordinary.observe(&message, events)?; }
                 match message["type"].as_str() {
-                    Some("user") if message["isReplay"] == true && user["uuid"].is_string() => {
+                    Some("user") if message["isReplay"] == true && user["uuid"].is_string() && source_correction_turn => {
                         anyhow::ensure!(
                             message["uuid"] == user["uuid"]
                                 && message["session_id"] == user["session_id"]
@@ -461,6 +493,7 @@ impl Claude {
                     Some("control_request") => {
                         anyhow::ensure!(
                             handoff.is_none()
+                                || self.non_tool_callbacks.as_ref().is_some_and(|ordinary| ordinary.permits_handoff_submit(&message["request"]))
                                 || message["request"]["subtype"] == "mcp_message"
                                     && message["request"]["message"]["method"] != "tools/call",
                             "Claude requested a tool or hook before correction acknowledgment"
@@ -478,7 +511,7 @@ impl Claude {
                             corrections.is_empty()
                                 && plugin_correction.is_none()
                                 && self.subscription_confirmed,
-                            (self.callbacks.as_mut(), self.post_callbacks.as_mut()),
+                            (self.callbacks.as_mut(), self.post_callbacks.as_mut(), self.non_tool_callbacks.as_mut()),
                             self.session.as_deref(),
                         )
                         .await?;
@@ -508,6 +541,17 @@ impl Claude {
     }
 }
 
+fn capture_session(current: &mut Option<String>, message: &Value) -> Result<()> {
+    if let Some(session) = message["session_id"].as_str().filter(|id| !id.is_empty()) {
+        anyhow::ensure!(
+            session.len() <= 256 && current.as_deref().is_none_or(|id| id == session),
+            "Claude event belongs to a different session"
+        );
+        *current = Some(session.into());
+    }
+    Ok(())
+}
+
 async fn handle_control(
     tools: &ToolExecutor,
     process: &mut BackendProcess,
@@ -517,13 +561,23 @@ async fn handle_control(
     callbacks: (
         Option<&mut crate::plugins::bridge::Callbacks>,
         Option<&mut post::Callbacks>,
+        Option<&mut non_tool::Callbacks>,
     ),
     session_id: Option<&str>,
 ) -> Result<Option<super::post_correction::ExternalCorrection>> {
-    let (callbacks, mut post) = callbacks;
+    let (callbacks, mut post, ordinary) = callbacks;
     let request = &message["request"];
     let response = match request["subtype"].as_str() {
         Some("hook_callback") => {
+            if let Some(ordinary) = ordinary.filter(|c| c.owns(request)) {
+                let response = tokio::select! {
+                    result = ordinary.handle(message, session_id, events, tools) => result?,
+                    result = process.wait_for_exit() => { result?; unreachable!() },
+                };
+                process.send(json!({"type":"control_response","response":{"subtype":"success","request_id":message["request_id"],"response":response}})).await?;
+                ordinary.sent(events)?;
+                return Ok(None);
+            }
             if let Some(post) = post.as_mut().filter(|p| p.owns(request)) {
                 if request["input"]["hook_event_name"] == "PreToolUse" {
                     let response = post.metadata(message, session_id, events)?;
@@ -689,6 +743,7 @@ impl Session for Claude {
         .await;
         self.callbacks = None;
         self.post_callbacks = None;
+        self.non_tool_callbacks = None;
         observers.and(result)
     }
 }

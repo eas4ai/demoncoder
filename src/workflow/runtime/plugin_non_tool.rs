@@ -37,6 +37,99 @@ pub(super) fn active(record: &Record, id: u64, event: HookEvent) -> Result<&NonT
 }
 
 impl SharedRuntime {
+    pub(crate) fn ensure_source_continuation(&self, id: u64, backend: u64) -> Result<()> {
+        let record = self.record()?;
+        let operation = record
+            .operations
+            .iter()
+            .find(|o| o.id == id)
+            .context("source lifecycle receipt missing")?;
+        let receipt = operation
+            .non_tool_receipt()
+            .context("source lifecycle receipt missing")?;
+        owner::validate(&record, operation, receipt)?;
+        ensure!(
+            receipt.settled
+                && receipt.source_delivery == Some(SourceDelivery::Sent)
+                && receipt
+                    .facts
+                    .callback
+                    .as_ref()
+                    .is_some_and(|c| c.backend_operation == backend),
+            "source lifecycle release lacks exact settled owner"
+        );
+        let post = owner::validate_source(
+            &record,
+            &operation.phase,
+            receipt
+                .facts
+                .callback
+                .as_ref()
+                .context("source callback missing")?,
+            &receipt.facts.subject.occurrence,
+            receipt
+                .facts
+                .source
+                .as_ref()
+                .context("source callback input missing")?,
+        )?;
+        super::plugin_lifecycle::ensure_continuation_except(
+            &record,
+            &operation.phase,
+            post,
+            Some(id),
+        )
+    }
+
+    pub(crate) fn source_lifecycle_delivery(
+        &self,
+        id: u64,
+        backend: u64,
+        sent: bool,
+    ) -> Result<()> {
+        self.update(|record| {
+            let operation = record
+                .operations
+                .iter()
+                .find(|o| o.id == id)
+                .context("source lifecycle receipt missing")?;
+            let receipt = operation
+                .non_tool_receipt()
+                .context("source lifecycle receipt missing")?;
+            owner::validate(record, operation, receipt)?;
+            ensure!(
+                receipt.settled
+                    && receipt
+                        .facts
+                        .callback
+                        .as_ref()
+                        .is_some_and(|c| c.backend_operation == backend),
+                "source lifecycle owner differs or is unfinished"
+            );
+            let expected = if sent {
+                SourceDelivery::Pending
+            } else {
+                SourceDelivery::Sent
+            };
+            ensure!(
+                receipt.source_delivery.as_ref() == Some(&expected),
+                "source lifecycle delivery repeated or out of order"
+            );
+            let receipt = record
+                .operations
+                .iter_mut()
+                .find(|o| o.id == id)
+                .expect("validated")
+                .non_tool_receipt_mut()
+                .expect("validated");
+            receipt.source_delivery = Some(if sent {
+                SourceDelivery::Sent
+            } else {
+                SourceDelivery::Acknowledged
+            });
+            Ok(())
+        })
+    }
     pub(crate) fn non_tool_model_context(
         &self,
         id: u64,
@@ -153,6 +246,7 @@ impl SharedRuntime {
     ) -> Result<NonToolFacts> {
         self.begin_non_tool_as(phase, None, None, occurrence, plan, declarations)
     }
+    #[cfg(test)]
     pub(crate) fn begin_non_tool_as(
         &self,
         phase: &str,
@@ -162,7 +256,33 @@ impl SharedRuntime {
         plan: String,
         declarations: Vec<serde_json::Value>,
     ) -> Result<NonToolFacts> {
+        self.begin_non_tool_owned(
+            phase,
+            identity,
+            LifecycleOrigin {
+                native_turn,
+                source: None,
+            },
+            occurrence,
+            plan,
+            declarations,
+        )
+    }
+    pub(crate) fn begin_non_tool_owned(
+        &self,
+        phase: &str,
+        identity: Option<&super::Identity>,
+        origin: LifecycleOrigin,
+        occurrence: NonToolOccurrence,
+        plan: String,
+        declarations: Vec<serde_json::Value>,
+    ) -> Result<NonToolFacts> {
         use std::os::unix::fs::MetadataExt;
+        let native_turn = origin.native_turn;
+        ensure!(
+            native_turn.is_none() || origin.source.is_none(),
+            "lifecycle has conflicting native and source owners"
+        );
         let session = self.plugin_session()?;
         let host_transcript_path = self
             .0
@@ -191,6 +311,21 @@ impl SharedRuntime {
             let execution_identity = owner.identity.clone();
             let workspace = owner.root.to_owned();
             let child_owner = owner.child;
+            if let Some(source) = &origin.source {
+                owner::validate_backend(
+                    record,
+                    phase,
+                    &execution_identity,
+                    source.correlation.backend_operation,
+                )?;
+                owner::validate_source(
+                    record,
+                    phase,
+                    &source.correlation,
+                    &occurrence,
+                    &source.input,
+                )?;
+            }
             if let Some(turn) = native_turn {
                 let turn = turn::validate(record, turn, phase)?;
                 ensure!(
@@ -219,8 +354,13 @@ impl SharedRuntime {
                 std::fs::metadata(&workspace).context("lifecycle workspace unavailable")?;
             let id = record.operations.len() as u64 + 1;
             let facts = NonToolFacts {
+                callback: origin.source.as_ref().map(|s| s.correlation.clone()),
                 native_turn,
-                provenance: native_turn.map(|_| "native_host_translation_v1".into()),
+                provenance: if origin.source.is_some() {
+                    Some("authenticated_source_callback_v1".into())
+                } else {
+                    native_turn.map(|_| "native_host_translation_v1".into())
+                },
                 declaration_role: Some("worker".into()),
                 child_owner,
                 host_transcript_path: host_transcript_path.clone(),
@@ -231,7 +371,7 @@ impl SharedRuntime {
                     "default"
                 }
                 .into(),
-                source: None,
+                source: origin.source.as_ref().map(|s| s.input.clone()),
                 session: session.clone(),
                 operation: id,
                 task: record.task.as_ref().map(|t| t.id),
@@ -243,6 +383,7 @@ impl SharedRuntime {
                 workspace: (metadata.dev(), metadata.ino()),
             };
             let receipt = NonToolReceipt {
+                source_delivery: origin.source.as_ref().map(|_| SourceDelivery::Pending),
                 correction_required: false,
                 version: 1,
                 facts: facts.clone(),
@@ -292,7 +433,7 @@ impl SharedRuntime {
             let key = &hook.inspected;
             ensure!(
                 key.operation == id
-                    && key.source_operation == receipt.facts.native_turn.unwrap_or(id)
+                    && key.source_operation == receipt.facts.causal_operation()
                     && key.session == receipt.facts.session
                     && key.event == event.as_str()
                     && key.role == receipt.facts.role

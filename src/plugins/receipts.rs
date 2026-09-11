@@ -56,6 +56,8 @@ pub struct AdmissionKey {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct NonToolFacts {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub callback: Option<SourceCallback>,
     /// Absent on legacy records; an occurrence ID is never a substitute turn.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub native_turn: Option<u64>,
@@ -81,11 +83,66 @@ pub struct NonToolFacts {
     pub subject: LifecycleSubject,
     pub workspace: (u64, u64),
 }
+impl NonToolFacts {
+    pub(crate) fn causal_operation(&self) -> u64 {
+        self.native_turn
+            .or_else(|| self.callback.as_ref().map(|c| c.backend_operation))
+            .unwrap_or(self.operation)
+    }
+}
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "dialect", content = "input", rename_all = "snake_case")]
 pub enum ObservedLifecycle {
     Claude(Value),
     Codex(Value),
+}
+
+/// Source identity and host ownership are deliberately separate. The source's
+/// callback envelope may call an ID `tool_use_id`; it carries no tool authority.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SourceCallback {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origin: Option<SourceOrigin>,
+    pub backend_operation: u64,
+    pub sequence: u64,
+    pub request_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub command_uuid: Option<String>,
+    pub envelope_id: Option<String>,
+    pub model: Option<String>,
+}
+
+/// Host provenance stays outside the closed upstream hook schemas.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum SourceOrigin {
+    HostSubmission,
+    PluginContext,
+    PluginPostCorrection {
+        post_operation: u64,
+        content_digest: String,
+    },
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct ObservedCallback {
+    pub input: ObservedLifecycle,
+    pub correlation: SourceCallback,
+}
+
+#[derive(Clone, Debug, Default)]
+pub(crate) struct LifecycleOrigin {
+    pub native_turn: Option<u64>,
+    pub source: Option<ObservedCallback>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SourceDelivery {
+    Pending,
+    Sent,
+    Acknowledged,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -118,6 +175,8 @@ pub enum NativeTurnEnd {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct NonToolReceipt {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_delivery: Option<SourceDelivery>,
     pub correction_required: bool,
     pub version: u32,
     pub facts: NonToolFacts,

@@ -125,7 +125,13 @@ fn fixture(
         exit_code: None,
     };
     runtime.original_tool_result(id, &result).unwrap();
-    let representation = if external {
+    let representation = if variant == "claude" {
+        ToolRepresentation::ClaudeMcp {
+            tool_name: "mcp__demoncoder__write".into(),
+            tool_use_id: "source-tool".into(),
+            source_input: json!({"session_id":"child-thread"}),
+        }
+    } else if external {
         ToolRepresentation::CodexDynamic {
             tool_use_id: "source-tool".into(),
             turn_id: "old-turn".into(),
@@ -375,4 +381,107 @@ fn child_release_rechecks_status_identity_budget_and_owner_without_spending() {
                 .correction_admitted
         );
     }
+}
+
+#[test]
+fn source_submit_exception_is_only_the_exact_reserved_post_handoff() {
+    let root = tempfile::tempdir().unwrap();
+    let (runtime, id, source, phase) = fixture(root.path(), "claude", true);
+    runtime
+        .settle_post_tool(id, HookEvent::PostToolUse, correction())
+        .unwrap();
+    runtime.settle_tool(id).unwrap();
+    runtime.start_post_supersession(id).unwrap();
+    runtime.finish_model(source).unwrap();
+    runtime.finish_post_supersession(id).unwrap();
+    let identity = runtime.record().unwrap().agents[0].identity.clone();
+    let next = runtime
+        .reserve_post_correction(id, &phase, Some(&identity))
+        .unwrap();
+    let uuid = "00000000-0000-4000-8000-000000000001";
+    let digest = "a".repeat(64);
+    let callback = SourceCallback {
+        origin: Some(SourceOrigin::PluginPostCorrection {
+            post_operation: id,
+            content_digest: digest.clone(),
+        }),
+        backend_operation: next,
+        sequence: 1,
+        request_id: "callback".into(),
+        command_uuid: Some(uuid.into()),
+        envelope_id: Some("envelope".into()),
+        model: None,
+    };
+    let input = ObservedLifecycle::Claude(json!({"session_id":"child-thread"}));
+    let occurrence = NonToolOccurrence::UserPromptSubmit {
+        prompt: "plugin feedback".into(),
+        correction: true,
+    };
+    let record = runtime.record().unwrap();
+    assert_eq!(
+        source_correction_owner(&record, &phase, &callback, &occurrence, &input).unwrap(),
+        Some(id)
+    );
+    for attack in [
+        "backend",
+        "phase",
+        "source-session",
+        "source-dialect",
+        "unknown-origin",
+        "post-operation",
+        "stop-before-replay",
+    ] {
+        let mut callback = callback.clone();
+        let mut input = input.clone();
+        let mut event = occurrence.clone();
+        let mut owner = phase.clone();
+        match attack {
+            "backend" => callback.backend_operation += 1,
+            "phase" => owner = "worker".into(),
+            "source-session" => input = ObservedLifecycle::Claude(json!({"session_id":"other"})),
+            "source-dialect" => {
+                input = ObservedLifecycle::Codex(json!({"session_id":"child-thread"}))
+            }
+            "unknown-origin" => callback.origin = None,
+            "post-operation" => {
+                callback.origin = Some(SourceOrigin::PluginPostCorrection {
+                    post_operation: 999,
+                    content_digest: digest.clone(),
+                })
+            }
+            "stop-before-replay" => {
+                event = NonToolOccurrence::Stop {
+                    stop_hook_active: false,
+                    last_assistant_message: None,
+                }
+            }
+            _ => unreachable!(),
+        }
+        assert!(
+            source_correction_owner(&record, &owner, &callback, &event, &input).is_err(),
+            "{attack}"
+        );
+    }
+    runtime
+        .ack_post_correction(
+            id,
+            next,
+            CorrectionAcknowledgment::ClaudeUser {
+                session_id: "child-thread".into(),
+                uuid: uuid.into(),
+                content_digest: digest,
+            },
+        )
+        .unwrap();
+    let record = runtime.record().unwrap();
+    assert_eq!(
+        source_correction_owner(&record, &phase, &callback, &occurrence, &input).unwrap(),
+        None
+    );
+    let mut changed = callback;
+    changed.origin = Some(SourceOrigin::PluginPostCorrection {
+        post_operation: id,
+        content_digest: "b".repeat(64),
+    });
+    assert!(source_correction_owner(&record, &phase, &changed, &occurrence, &input).is_err());
 }

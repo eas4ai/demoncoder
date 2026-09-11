@@ -140,6 +140,7 @@ pub struct Envelope {
 /// One ordered publication path for both retained events and the UI.
 #[derive(Clone)]
 pub struct EventSink {
+    source_lifecycle: Option<crate::plugins::receipts::ObservedCallback>,
     native_turn: Option<u64>,
     assistant_text: Option<Arc<Mutex<AssistantText>>>,
     prompt_origin: Option<PromptOrigin>,
@@ -213,6 +214,7 @@ impl EventSink {
             })
             .transpose()?;
         Ok(Self {
+            source_lifecycle: None,
             native_turn: None,
             assistant_text: None,
             prompt_origin: None,
@@ -378,6 +380,7 @@ impl EventSink {
     pub(crate) fn child(&self, phase: &str, sender: mpsc::Sender<Envelope>) -> Self {
         Self {
             prompt_origin: None,
+            source_lifecycle: None,
             native_turn: None,
             assistant_text: None,
             connection: phase.into(),
@@ -499,6 +502,20 @@ impl EventSink {
         );
         Ok((runtime.clone(), operation))
     }
+    pub(crate) fn for_observed_lifecycle(
+        &self,
+        source: crate::plugins::receipts::ObservedCallback,
+    ) -> Result<Self> {
+        anyhow::ensure!(
+            self.invocation == Some(source.correlation.backend_operation)
+                && self.native_turn.is_none(),
+            "source callback belongs to another backend invocation"
+        );
+        Ok(Self {
+            source_lifecycle: Some(source),
+            ..self.clone()
+        })
+    }
     pub(crate) fn for_non_tool(
         &self,
         occurrence: crate::plugins::receipts::NonToolOccurrence,
@@ -513,10 +530,13 @@ impl EventSink {
             .runtime
             .as_ref()
             .context("lifecycle requires a durable runtime")?;
-        let facts = runtime.begin_non_tool_as(
+        let facts = runtime.begin_non_tool_owned(
             &self.phase,
             self.identity.as_ref(),
-            self.native_turn,
+            crate::plugins::receipts::LifecycleOrigin {
+                native_turn: self.native_turn,
+                source: self.source_lifecycle.clone(),
+            },
             occurrence,
             plan,
             declarations,

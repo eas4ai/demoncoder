@@ -243,10 +243,7 @@ fn non_tool_input(
         HookDialect::Claude => {
             let input = match &facts.source {
                 Some(ObservedLifecycle::Claude(input)) => input.clone(),
-                None => translated_non_tool_input(invocation, facts, dialect)?,
-                _ => {
-                    anyhow::bail!("Claude lifecycle input has a different observed source dialect")
-                }
+                _ => translated_non_tool_input(invocation, facts, dialect)?,
             };
             ensure!(
                 input["hook_event_name"] == event.as_str(),
@@ -258,8 +255,7 @@ fn non_tool_input(
         HookDialect::Codex => {
             let input = match &facts.source {
                 Some(ObservedLifecycle::Codex(input)) => input.clone(),
-                None => translated_non_tool_input(invocation, facts, dialect)?,
-                _ => anyhow::bail!("Codex lifecycle input has a different observed source dialect"),
+                _ => translated_non_tool_input(invocation, facts, dialect)?,
             };
             ensure!(
                 input["hook_event_name"] == event.as_str(),
@@ -299,6 +295,9 @@ fn translated_non_tool_input(
 ) -> Result<serde_json::Value> {
     use crate::plugins::receipts::NonToolOccurrence;
     use serde_json::json;
+    if let Some(source) = &facts.source {
+        return translated_source_input(facts, source, invocation.key.source_operation, dialect);
+    }
     let turn = facts
         .native_turn
         .context("source lifecycle translation requires an actual native turn")?;
@@ -334,4 +333,113 @@ fn translated_non_tool_input(
         }
     }
     Ok(input)
+}
+
+fn translated_source_input(
+    facts: &crate::plugins::receipts::NonToolFacts,
+    source: &crate::plugins::receipts::ObservedLifecycle,
+    source_operation: u64,
+    dialect: HookDialect,
+) -> Result<serde_json::Value> {
+    use crate::plugins::receipts::NonToolOccurrence;
+    use serde_json::json;
+    let callback = facts
+        .callback
+        .as_ref()
+        .context("source translation lacks callback ownership")?;
+    ensure!(
+        facts.native_turn.is_none()
+            && source_operation == callback.backend_operation
+            && facts.provenance.as_deref() == Some("authenticated_source_callback_v1"),
+        "source translation ownership differs"
+    );
+    let source = match source {
+        crate::plugins::receipts::ObservedLifecycle::Claude(v)
+        | crate::plugins::receipts::ObservedLifecycle::Codex(v) => v,
+    };
+    let mut input = json!({});
+    for key in [
+        "session_id",
+        "transcript_path",
+        "cwd",
+        "permission_mode",
+        "hook_event_name",
+    ] {
+        input[key] = source
+            .get(key)
+            .cloned()
+            .with_context(|| format!("source translation lacks {key}"))?;
+    }
+    if dialect == HookDialect::Codex {
+        // This is the host causal backend invocation, not an invented source turn.
+        input["turn_id"] = json!(callback.backend_operation.to_string());
+        input["model"] = json!(
+            callback
+                .model
+                .as_deref()
+                .or(facts.host_model.as_deref())
+                .filter(|s| !s.is_empty())
+                .context("source translation lacks an observed or configured model")?
+        );
+    }
+    match &facts.subject.occurrence {
+        NonToolOccurrence::UserPromptSubmit { prompt, .. } => input["prompt"] = json!(prompt),
+        NonToolOccurrence::Stop {
+            stop_hook_active,
+            last_assistant_message,
+        } => {
+            input["stop_hook_active"] = json!(stop_hook_active);
+            if dialect == HookDialect::Codex || last_assistant_message.is_some() {
+                input["last_assistant_message"] = json!(last_assistant_message);
+            }
+        }
+    }
+    Ok(input)
+}
+
+#[cfg(test)]
+mod source_tests {
+    use super::*;
+    use crate::plugins::receipts::*;
+    use serde_json::json;
+    fn facts() -> NonToolFacts {
+        serde_json::from_value(json!({
+            "callback":{"backend_operation":7,"sequence":1,"request_id":"request","command_uuid":"command","envelope_id":"envelope","model":"configured-model"},
+            "provenance":"authenticated_source_callback_v1","host_transcript_path":"/host/state.json","host_model":null,"host_permission_mode":"default",
+            "session":"host-session","operation":8,"task":null,"role":"worker","workspace":[1,2],
+            "subject":{"version":1,"occurrence":{"event":"UserPromptSubmit","prompt":"actual prompt","correction":false}}
+        })).unwrap()
+    }
+    #[test]
+    fn translation_retains_actual_source_facts_and_requires_known_model() -> Result<()> {
+        let mut facts = facts();
+        let source = ObservedLifecycle::Claude(
+            json!({"session_id":"source-session","transcript_path":"/source/transcript.jsonl","cwd":"/source/work","permission_mode":"default","hook_event_name":"UserPromptSubmit","prompt":"actual prompt","prompt_id":"source-prompt"}),
+        );
+        let value = translated_source_input(&facts, &source, 7, HookDialect::Codex)?;
+        assert_eq!(value["session_id"], "source-session");
+        assert_eq!(value["transcript_path"], "/source/transcript.jsonl");
+        assert_eq!(value["turn_id"], "7");
+        assert!(value.get("prompt_id").is_none() && value.get("demoncoder").is_none());
+        CompatibilityProfile::embedded()?.validate_schema(
+            &SchemaKey::Codex {
+                path:
+                    "codex-rs/hooks/schema/generated/user-prompt-submit.command.input.schema.json"
+                        .into(),
+                definition: None,
+            },
+            &value,
+        )?;
+        assert!(translated_source_input(&facts, &source, 99, HookDialect::Codex).is_err());
+        facts.callback.as_mut().unwrap().model = None;
+        assert!(translated_source_input(&facts, &source, 7, HookDialect::Codex).is_err());
+        facts.host_model = Some("explicit-model".into());
+        assert_eq!(
+            translated_source_input(&facts, &source, 7, HookDialect::Codex)?["model"],
+            "explicit-model"
+        );
+        facts.provenance = None;
+        assert!(translated_source_input(&facts, &source, 7, HookDialect::Codex).is_err());
+        Ok(())
+    }
 }

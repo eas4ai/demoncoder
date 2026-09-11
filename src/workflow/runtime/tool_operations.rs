@@ -147,9 +147,17 @@ impl Operation {
     pub(super) fn needs_reconciliation(&self) -> bool {
         !self.reconciled
             && (!self.complete
-                || self
-                    .non_tool_receipt()
-                    .is_some_and(|r| !r.settled || r.hooks.iter().any(|h| h.unresolved_effects()))
+                || self.non_tool_receipt().is_some_and(|r| {
+                    !r.settled
+                        || r.hooks.iter().any(|h| h.unresolved_effects())
+                        || matches!(
+                            r.source_delivery,
+                            Some(
+                                crate::plugins::receipts::SourceDelivery::Pending
+                                    | crate::plugins::receipts::SourceDelivery::Sent
+                            )
+                        )
+                })
                 || self.tool_receipt.as_ref().is_some_and(|receipt| {
                     !receipt.observers_complete
                         || receipt.plugin_lifecycle.as_ref().is_some_and(|plan| {

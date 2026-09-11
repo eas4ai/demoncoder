@@ -69,10 +69,15 @@ pub(super) fn active(record: &Record, id: u64, event: HookEvent) -> Result<&Life
 }
 
 pub(super) fn ensure_continuation(record: &Record, phase: &str) -> Result<()> {
-    ensure_continuation_except(record, phase, None)
+    ensure_continuation_except(record, phase, None, None)
 }
 
-fn ensure_continuation_except(record: &Record, phase: &str, correction: Option<u64>) -> Result<()> {
+pub(super) fn ensure_continuation_except(
+    record: &Record,
+    phase: &str,
+    correction: Option<u64>,
+    source: Option<u64>,
+) -> Result<()> {
     if let Some(receipt) = record
         .operations
         .iter()
@@ -94,6 +99,20 @@ fn ensure_continuation_except(record: &Record, phase: &str, correction: Option<u
         .iter()
         .filter(|o| o.phase == phase && Some(o.id) != correction)
     {
+        if Some(operation.id) != source
+            && let Some(receipt) = operation.non_tool_receipt()
+        {
+            ensure!(
+                !matches!(
+                    receipt.source_delivery,
+                    Some(
+                        crate::plugins::receipts::SourceDelivery::Pending
+                            | crate::plugins::receipts::SourceDelivery::Sent
+                    )
+                ),
+                "source lifecycle continuation is pending or uncertain; never resend automatically"
+            );
+        }
         if let Some(lifecycle) = operation
             .tool_receipt
             .as_ref()
@@ -118,6 +137,89 @@ fn ensure_continuation_except(record: &Record, phase: &str, correction: Option<u
         }
     }
     Ok(())
+}
+
+pub(super) fn source_correction_owner(
+    record: &Record,
+    phase: &str,
+    callback: &SourceCallback,
+    occurrence: &NonToolOccurrence,
+    source: &ObservedLifecycle,
+) -> Result<Option<u64>> {
+    let origin = callback
+        .origin
+        .as_ref()
+        .context("source callback origin is unknown")?;
+    let SourceOrigin::PluginPostCorrection {
+        post_operation,
+        content_digest,
+    } = origin
+    else {
+        return Ok(None);
+    };
+    let post = record
+        .operations
+        .iter()
+        .find(|o| o.id == *post_operation && o.phase == phase)
+        .and_then(|o| o.tool_receipt.as_ref())
+        .and_then(|r| r.plugin_lifecycle.as_ref())
+        .context("source callback post-correction owner missing")?;
+    ensure!(
+        post.settled
+            && post.continuation == PostContinuation::Correction
+            && post.correction_required
+            && post.correction_admitted,
+        "source callback lacks admitted post-correction authority"
+    );
+    owner::validate(record, &post.facts)?;
+    ensure!(
+        matches!((&post.facts.representation, source),
+        (ToolRepresentation::ClaudeMcp { source_input, .. }, ObservedLifecycle::Claude(input))
+            if source_input["session_id"].is_string() && source_input["session_id"] == input["session_id"]),
+        "source callback differs from its post-correction source session"
+    );
+    ensure!(
+        callback
+            .command_uuid
+            .as_ref()
+            .is_some_and(|id| id.len() == 36)
+            && content_digest.len() == 64,
+        "source post-correction frame identity missing"
+    );
+    match &post.delivery {
+        PostDelivery::CorrectionReserved { invocation } => {
+            ensure!(
+                *invocation == callback.backend_operation
+                    && matches!(
+                        occurrence,
+                        NonToolOccurrence::UserPromptSubmit {
+                            correction: true,
+                            ..
+                        }
+                    ),
+                "source callback differs from pending post-correction submission"
+            );
+            Ok(Some(*post_operation))
+        }
+        PostDelivery::CorrectionAcknowledged {
+            invocation,
+            acknowledgment:
+                CorrectionAcknowledgment::ClaudeUser {
+                    uuid,
+                    content_digest: acknowledged,
+                    ..
+                },
+        } => {
+            ensure!(
+                *invocation == callback.backend_operation
+                    && callback.command_uuid.as_ref() == Some(uuid)
+                    && content_digest == acknowledged,
+                "source callback differs from acknowledged post-correction frame"
+            );
+            Ok(None)
+        }
+        _ => anyhow::bail!("source callback post-correction delivery is stale or unrelated"),
+    }
 }
 
 impl SharedRuntime {
@@ -687,7 +789,7 @@ impl SharedRuntime {
     ) -> Result<u64> {
         self.admission(|target| {
             let mut staged = target.clone();
-            ensure_continuation_except(&staged, phase, Some(id))?;
+            ensure_continuation_except(&staged, phase, Some(id), None)?;
             let post = staged
                 .operations
                 .iter()

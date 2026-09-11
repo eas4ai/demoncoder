@@ -336,7 +336,7 @@ pub(super) fn active_for_event(
             let receipt = super::plugin_non_tool::active(record, id, event)?;
             (
                 receipt.hooks.as_slice(),
-                receipt.facts.native_turn.unwrap_or(receipt.facts.operation),
+                receipt.facts.causal_operation(),
                 receipt.facts.role.as_str(),
                 Some(&receipt.facts.subject),
                 receipt

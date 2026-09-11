@@ -16,6 +16,13 @@
 - Pending: Exercise the complete public management and coding workflows.
 - Pending: Run full conformance, installed/live cases, adversarial review and Cairn checks.
 
+Latest lifecycle prerequisite: Claude/shared external Submit/Stop integration
+passed 800 Rust tests (17 ignored), 22 actual pinned-backend/local-peer cases,
+and fresh specification and quality reviews. Durable source delivery, correction
+provenance, uncertain delivery and combined post-tool handoff are covered. Codex
+ordinary-hook registration and complete lifecycle/package conformance remain open.
+See [the integration review](../reviews/plugin-external-non-tool-runtime.md).
+
 Only the parent records Cairn decisions, changes declarations and commits evidence. Workers own bounded files; they do not change the selected scope or evidence. A test fixture may model a provider, but its report must say controlled transport. Source/type checks, successful parsing and test registration never establish runtime delivery.
 
 The implementation worktree is on `feature/skills-plugins-hooks`. The source references remain read-only. Source copies or patches introduced into the deliverable retain their revision, hash and license. Add newly created package/backend artifact paths to the mechanism's inputs before checking them.

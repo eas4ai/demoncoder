@@ -137,6 +137,25 @@ pub(super) fn validate(
         super::turn::validate(record, turn, &operation.phase)?;
     }
     let owner = resolve(record, &operation.phase)?;
+    if let Some(callback) = &receipt.facts.callback {
+        validate_backend(
+            record,
+            &operation.phase,
+            owner.identity,
+            callback.backend_operation,
+        )?;
+        validate_source(
+            record,
+            &operation.phase,
+            callback,
+            &receipt.facts.subject.occurrence,
+            receipt
+                .facts
+                .source
+                .as_ref()
+                .context("source callback input missing")?,
+        )?;
+    }
     let metadata = std::fs::metadata(owner.root)?;
     ensure!(
         operation.identity.as_ref() == Some(owner.identity)
@@ -153,4 +172,54 @@ pub(super) fn validate(
         "lifecycle assignment, identity, workspace or allocation changed"
     );
     Ok(())
+}
+
+pub(super) fn validate_backend(
+    record: &Record,
+    phase: &str,
+    identity: &Identity,
+    id: u64,
+) -> Result<()> {
+    let operation = record
+        .operations
+        .iter()
+        .find(|o| o.id == id)
+        .context("source lifecycle backend owner missing")?;
+    ensure!(
+        matches!(
+            operation.host_invocation,
+            Some(super::HostInvocation::Backend)
+        ) && operation.phase == phase
+            && operation.identity.as_ref().unwrap_or(&record.identity) == identity
+            && (phase == "worker" || operation.identity.is_some())
+            && !operation.complete
+            && !operation.reconciled
+            && operation.call.is_none()
+            && operation.tool_receipt.is_none(),
+        "source lifecycle backend owner changed or ended"
+    );
+    Ok(())
+}
+
+pub(super) fn validate_source(
+    record: &Record,
+    phase: &str,
+    callback: &crate::plugins::receipts::SourceCallback,
+    occurrence: &crate::plugins::receipts::NonToolOccurrence,
+    source: &crate::plugins::receipts::ObservedLifecycle,
+) -> Result<Option<u64>> {
+    use crate::plugins::receipts::{NonToolOccurrence, SourceOrigin};
+    let origin = callback
+        .origin
+        .as_ref()
+        .context("source callback origin is unknown")?;
+    if let NonToolOccurrence::UserPromptSubmit { correction, .. } = occurrence {
+        ensure!(
+            *correction != matches!(origin, SourceOrigin::HostSubmission),
+            "source submission origin contradicts its occurrence"
+        );
+    }
+    super::super::plugin_lifecycle::source_correction_owner(
+        record, phase, callback, occurrence, source,
+    )
 }

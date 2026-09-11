@@ -140,6 +140,25 @@ impl ExternalCorrection {
         Ok(invocation)
     }
 
+    pub(super) fn source_origin(
+        &self,
+        events: &EventSink,
+        user: &serde_json::Value,
+    ) -> Result<crate::plugins::receipts::SourceOrigin> {
+        ensure!(
+            self.invocation.is_some()
+                && self.invocation == events.backend_invocation_id()
+                && self.request.as_ref() == Some(user),
+            "source Submit differs from the exact reserved correction frame"
+        );
+        Ok(
+            crate::plugins::receipts::SourceOrigin::PluginPostCorrection {
+                post_operation: self.operation,
+                content_digest: crate::plugins::admission::digest(&user["message"])?,
+            },
+        )
+    }
+
     pub(super) fn acknowledge(
         &self,
         acknowledgment: crate::plugins::receipts::CorrectionAcknowledgment,
@@ -344,6 +363,50 @@ impl CorrectionDeadline {
 #[cfg(test)]
 mod timing_tests {
     use super::*;
+
+    #[test]
+    fn source_submit_proof_requires_the_live_exact_frozen_frame_and_backend() {
+        let root = tempfile::tempdir().unwrap();
+        let runtime = SharedRuntime::for_test(
+            &root.path().join("record"),
+            crate::inspection::tests::record(root.path()),
+        )
+        .unwrap();
+        let (sender, _receiver) = tokio::sync::mpsc::channel(8);
+        let events = EventSink::new("test".into(), sender, None)
+            .unwrap()
+            .for_invocation(Some(7));
+        let user = prepare_claude_frame(serde_json::json!([{"type":"text","text":"plugin feedback"},{"type":"image","source":{"type":"base64","data":"retained"}}]), "source", "00000000-0000-4000-8000-000000000001").unwrap();
+        let mut handoff = ExternalCorrection {
+            events: events.clone(),
+            runtime,
+            operation: 3,
+            call_id: "completed".into(),
+            prompt: "plugin feedback".into(),
+            invocation: Some(7),
+            claude_blocks: None,
+            request: Some(user.clone()),
+        };
+        assert!(matches!(
+            handoff.source_origin(&events, &user).unwrap(),
+            crate::plugins::receipts::SourceOrigin::PluginPostCorrection {
+                post_operation: 3,
+                ..
+            }
+        ));
+        for field in ["uuid", "session_id", "message"] {
+            let mut changed = user.clone();
+            changed[field] = serde_json::json!("forged");
+            assert!(handoff.source_origin(&events, &changed).is_err(), "{field}");
+        }
+        assert!(
+            handoff
+                .source_origin(&events.for_invocation(Some(8)), &user)
+                .is_err()
+        );
+        handoff.invocation = None;
+        assert!(handoff.source_origin(&events, &user).is_err());
+    }
 
     #[test]
     fn complete_claude_replay_frame_counts_escaping_multibyte_and_newline() {
