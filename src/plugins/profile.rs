@@ -34,7 +34,7 @@ impl CompatibilityProfile {
     // Only trusted embedded inventory reaches this constructor in production.
     fn from_inventory(profile: Value) -> WireResult<Self> {
         if profile["profile"] != "demoncoder-plugin-compatibility-v1"
-            || profile["revision"] != 2
+            || profile["revision"] != 3
             || profile["status"] != "Agreed"
         {
             return Err(WireError::new("/profile", "unsupported profile identity"));
@@ -419,6 +419,51 @@ mod tests {
     use serde_json::json;
     fn inventory() -> Value {
         serde_json::from_str(EMBEDDED).unwrap()
+    }
+    #[test]
+    fn codex_session_end_mcp_requires_native_conversion() {
+        let profile = CompatibilityProfile::embedded().unwrap();
+        assert_eq!(
+            profile.applicability(
+                HookDialect::Codex,
+                HookEvent::SessionEnd,
+                HandlerKind::McpTool
+            ),
+            Applicability::SourceNonexecuting
+        );
+        assert!(
+            profile
+                .require_runner(
+                    HookDialect::Codex,
+                    HookEvent::SessionEnd,
+                    HandlerKind::McpTool
+                )
+                .is_err()
+        );
+        for (dialect, event, handler) in [
+            (
+                HookDialect::Codex,
+                HookEvent::SessionEnd,
+                HandlerKind::Command,
+            ),
+            (
+                HookDialect::Codex,
+                HookEvent::SessionStart,
+                HandlerKind::McpTool,
+            ),
+            (
+                HookDialect::Native,
+                HookEvent::SessionEnd,
+                HandlerKind::McpTool,
+            ),
+            (
+                HookDialect::Claude,
+                HookEvent::SessionEnd,
+                HandlerKind::McpTool,
+            ),
+        ] {
+            profile.require_runner(dialect, event, handler).unwrap();
+        }
     }
     #[test]
     fn absent_cell_duplicate_identity_and_external_references_fail_closed() {

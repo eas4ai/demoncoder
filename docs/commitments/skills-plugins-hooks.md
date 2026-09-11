@@ -33,3 +33,7 @@ all 510 dialect/event/handler applicability cells and explicit model outcomes.
 Source-reconstruction and deletion probes must pass alongside runtime conformance.
 Policy repair must exercise the linked replacement-task transaction, preserving
 completed effects, generation coherence and the original cumulative allowance.
+
+Profile v1 revision 3 corrects Codex SessionEnd MCP source applicability with
+developer approval on 2026-09-11. Explicit native MCP shutdown execution remains
+required; the complete feature and fixture inventory is unchanged.

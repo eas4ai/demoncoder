@@ -35,6 +35,10 @@ assert.equal(status('claude', 'SessionStart', 'http'), 'no-source-handler');
 assert.equal(status('claude', 'Setup', 'mcp_tool'), 'run');
 assert.equal(status('claude', 'PreCompact', 'agent'), 'no-source-handler');
 assert.equal(status('codex', 'Stop', 'prompt'), 'source-nonexecuting');
+assert.equal(status('codex', 'SessionEnd', 'mcp_tool'), 'source-nonexecuting');
+assert.equal(status('codex', 'SessionEnd', 'command'), 'run');
+assert.equal(status('codex', 'SessionStart', 'mcp_tool'), 'run');
+assert.equal(status('native', 'SessionEnd', 'mcp_tool'), 'run');
 assert.equal(status('native', 'SessionStart', 'http'), 'run');
 const rules = profile.model_result_rules;
 function decision(node, conditions = {}) {

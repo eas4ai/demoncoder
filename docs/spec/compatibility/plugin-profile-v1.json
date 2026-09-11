@@ -9827,7 +9827,7 @@
     ],
     "mutations_allowed": false
   },
-  "revision": 2,
+  "revision": 3,
   "hook_applicability": {
     "lookup": "dialects[dialect][event] selects a group; groups[group][handler] is the exact applicability. No default or inference from another event.",
     "statuses": {
@@ -9878,6 +9878,13 @@
         "mcp_tool": "no-source-event",
         "prompt": "no-source-event",
         "agent": "no-source-event"
+      },
+      "codex-end": {
+        "command": "run",
+        "http": "no-source-handler",
+        "mcp_tool": "source-nonexecuting",
+        "prompt": "source-nonexecuting",
+        "agent": "source-nonexecuting"
       }
     },
     "dialects": {
@@ -9962,7 +9969,7 @@
         "UserPromptSubmit": "codex",
         "UserPromptExpansion": "no-source-event",
         "SessionStart": "codex",
-        "SessionEnd": "codex",
+        "SessionEnd": "codex-end",
         "Stop": "codex",
         "StopFailure": "no-source-event",
         "SubagentStart": "codex",

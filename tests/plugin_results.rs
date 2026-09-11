@@ -503,7 +503,9 @@ fn supported(dialect: HookDialect, event: HookEvent, handler: HandlerKind) -> bo
                     && matches!(event, HookEvent::SessionStart | HookEvent::Setup))
         }
         HookDialect::Codex => {
-            matches!(handler, HandlerKind::Command | HandlerKind::McpTool)
+            // Pinned discovery.rs accepts but skips SessionEnd MCP declarations.
+            !(event == HookEvent::SessionEnd && handler == HandlerKind::McpTool)
+                && matches!(handler, HandlerKind::Command | HandlerKind::McpTool)
                 && matches!(
                     event,
                     HookEvent::PreToolUse

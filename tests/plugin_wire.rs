@@ -115,6 +115,8 @@ fn all_510_source_cells_have_independent_expected_status() {
                     Codex if !codex_events.contains(&event) => NoSourceEvent,
                     Codex if matches!(handler, Prompt | Agent) => SourceNonexecuting,
                     Codex if handler == Http => NoSourceHandler,
+                    // Pinned discovery.rs skips MCP handlers during SessionEnd.
+                    Codex if event == SessionEnd && handler == McpTool => SourceNonexecuting,
                     Codex => Run,
                 };
                 assert_eq!(

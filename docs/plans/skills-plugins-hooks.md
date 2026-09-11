@@ -294,6 +294,10 @@ partial change cannot leak into a later persisted record.
 
 ## 10. Real host lifecycle transitions
 
+The developer-approved [profile revision 3 correction](../reviews/plugin-profile-revision-3.md)
+marks only Codex SessionEnd MCP declarations as source-nonexecuting. Command
+shutdown and explicit native MCP execution remain required.
+
 The synchronous tool completion prerequisite is implemented and independently
 reviewed. It extends the existing runners and result ledger before the other
 lifecycle families below.
