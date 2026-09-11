@@ -436,7 +436,7 @@ async fn observed_source_callback_keeps_exact_child_backend_owner() {
     let backend = events.backend_invocation_id().unwrap();
     let source = ObservedCallback {
         input: ObservedLifecycle::Claude(json!({"hook_event_name":"UserPromptSubmit","session_id":"actual-source-session","cwd":fixture.identity.root,"transcript_path":"/source/transcript.jsonl","prompt_id":"source-prompt","prompt":"child prompt","permission_mode":"default"})),
-        correlation: SourceCallback { origin: Some(SourceOrigin::HostSubmission), backend_operation: backend, sequence: 1, request_id: "request".into(), command_uuid: Some("command".into()), envelope_id: Some("envelope".into()), model: Some("configured-model".into()) },
+        correlation: SourceCallback { origin: Some(SourceOrigin::HostSubmission), backend_operation: backend, sequence: 1, request_id: "request".into(), command_uuid: Some("command".into()), command_request_id: None, envelope_id: Some("envelope".into()), model: Some("configured-model".into()) },
     };
     for phase in ["worker", "agent:2:worker"] {
         let (sender, _receiver) = mpsc::channel(128);

@@ -22,7 +22,7 @@ from installed_backends import fake_codex_auth
 
 PINNED = {
     "claude": "0399c793ff571d5946ef923d80b4f330d05ac4b6842a6b0775468f5d389403c0",
-    "codex": "80315a32acf1b625129a46b0bd75537cf76ef09701ae986154159076cc0b6aff",
+    "codex": "c4d77a245a7fcda26f606bb4f726b59ede5fcf0eb322fb7d625a759fc150592a",
 }
 EXPECTED_REQUESTS = {
     "pass": 1,
@@ -40,6 +40,12 @@ EXPECTED_REQUESTS = {
     "mixed-post-correct": 2,
     "mixed-submit-deny": 1,
     "mixed-cancel-submit": 1,
+    "submit-context": 1,
+    "submit-context-overflow": 0,
+    "submit-context-lifecycle-overflow": 0,
+    "empty-stop": 1,
+    "mixed-stop-only": 2,
+    "mixed-submit-only": 2,
 }
 TEST = "actual_external_submit_and_stop_use_the_original_owner"
 MAX_BODY = 2 * 1024 * 1024
@@ -204,11 +210,37 @@ def model_response(adapter, sequence, text_case, case):
         "role": "assistant",
         "content": [{"type": "output_text", "text": "done"}],
     }
+    if case.startswith("mixed-") and sequence == 1:
+        item = {
+            "type": "function_call",
+            "id": "fc_external_mixed_write_1",
+            "call_id": "external_mixed_write_1",
+            "name": "write",
+            "arguments": json.dumps(
+                {"path": "proof.txt", "content": "external mixed effect\n"}
+            ),
+        }
     response = {
         "id": f"resp_external_{sequence}",
         "status": "in_progress",
         "output": [],
     }
+    if case == "empty-stop":
+        return [
+            {"type": "response.created", "response": response},
+            {
+                "type": "response.completed",
+                "response": {
+                    **response,
+                    "status": "completed",
+                    "usage": {
+                        "input_tokens": 10,
+                        "output_tokens": 5,
+                        "total_tokens": 15,
+                    },
+                },
+            },
+        ]
     return [
         {"type": "response.created", "response": response},
         {"type": "response.output_item.added", "output_index": 0, "item": item},
@@ -300,7 +332,7 @@ def run(args):
     pid_capture = ""
     if args.case == "backend-exit-submit":
         pid_capture = (
-            "if '--input-format' in sys.argv:\n"
+            "if '--input-format' in sys.argv or 'app-server' in sys.argv:\n"
             + "    with open("
             + repr(str(root / "backend.pid"))
             + ", 'x') as capture:\n"
@@ -413,16 +445,29 @@ def run(args):
         raise AssertionError(
             f"actual model requests {len(requests)} != expected {EXPECTED_REQUESTS[args.case]}"
         )
-    if args.case in {"stop-correct", "always-block", "mixed-post-correct"}:
+    if args.case in {
+        "stop-correct",
+        "always-block",
+        "mixed-post-correct",
+        "mixed-stop-only",
+        "mixed-submit-only",
+    }:
         marker = (
             "EXTERNAL_POST_CORRECTION"
-            if args.case == "mixed-post-correct"
+            if args.case.startswith("mixed-")
             else "EXTERNAL_STOP_CORRECTION"
         )
         if marker in json.dumps(requests[0]["body"]):
             raise AssertionError("Stop feedback appeared before the first response")
         if marker not in json.dumps(requests[1]["body"]):
             raise AssertionError("source continuation omitted the actual Stop feedback")
+    if args.case == "submit-context":
+        marker = "EXTERNAL_SUBMIT_CONTEXT:"
+        expected = marker + "x" * (60 * 1024 - len(marker))
+        if expected not in json.dumps(requests[0]["body"].get("input", [])):
+            raise AssertionError(
+                "source model input omitted or truncated Submit context"
+            )
     if (
         not (root / "receipt.json").is_file()
         or not (root / "host-result.json").is_file()
@@ -485,17 +530,28 @@ def main():
         help="Diagnostic only: adds a bounded byte tee and child wrapper",
     )
     args = parser.parse_args()
+    if (
+        args.case
+        in {
+            "submit-context",
+            "submit-context-overflow",
+            "submit-context-lifecycle-overflow",
+            "empty-stop",
+            "mixed-stop-only",
+            "mixed-submit-only",
+        }
+        and args.adapter != "codex"
+    ):
+        parser.error(
+            "These source context and empty-response cases require --adapter codex"
+        )
     if args.claude_text_case != "plain" and (
         args.adapter != "claude" or args.case != "pass"
     ):
         parser.error("non-plain text cases require --adapter claude --case pass")
-    if args.case.startswith("mixed-") and args.adapter != "claude":
-        parser.error("mixed cases currently require --adapter claude")
-    if args.case == "backend-exit-submit" and (
-        args.adapter != "claude" or args.trace_wire
-    ):
+    if args.case == "backend-exit-submit" and args.trace_wire:
         parser.error(
-            "backend-exit-submit requires direct Claude execution without --trace-wire"
+            "backend-exit-submit requires direct backend execution without --trace-wire"
         )
     run(args)
 

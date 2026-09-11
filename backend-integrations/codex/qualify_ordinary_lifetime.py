@@ -210,9 +210,13 @@ def session(binary, root, target):
             ("callbacks", owner.requests),
             ("model-requests", requests),
             ("owner-errors", owner.errors),
-            ("peer-errors", errors),
+            ("peer-errors", errors + server.errors),
         ]:
             (root / f"{name}.json").write_text(json.dumps(value, indent=2) + "\n")
+        require(
+            not errors and not server.errors and not owner.errors,
+            "lifetime peer or owner failed; inspect retained error files",
+        )
 
 
 def start_turn(backend, thread):

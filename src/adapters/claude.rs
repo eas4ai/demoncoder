@@ -574,6 +574,9 @@ async fn handle_control(
                     result = ordinary.handle(message, session_id, events, tools) => result?,
                     result = process.wait_for_exit() => { result?; unreachable!() },
                 };
+                if response["continue"] != false {
+                    ordinary.prepare(events)?;
+                }
                 process.send(json!({"type":"control_response","response":{"subtype":"success","request_id":message["request_id"],"response":response}})).await?;
                 ordinary.sent(events)?;
                 return Ok(None);

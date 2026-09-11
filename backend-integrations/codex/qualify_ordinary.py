@@ -385,9 +385,10 @@ def ambient_configuration(home, work, root):
 
 def case(binary, root, target, mode):
     snapshot = mode == "snapshot"
+    empty = mode == "empty-stop"
     ambient = mode in {"ambient-control", "isolation"}
     private = mode != "ambient-control"
-    response_mode = "allow" if snapshot or ambient else mode
+    response_mode = "allow" if snapshot or ambient or empty else mode
     root.mkdir(parents=True, exist_ok=False)
     home, work = root / "home", root / "work"
     home.mkdir()
@@ -403,7 +404,14 @@ def case(binary, root, target, mode):
     requests, peer_errors, lock = [], [], threading.Lock()
     server = create_server(
         root / "tls",
-        peer_handler("codex", requests, peer_errors, lock, "plain", "pass"),
+        peer_handler(
+            "codex",
+            requests,
+            peer_errors,
+            lock,
+            "plain",
+            "empty-stop" if empty else "pass",
+        ),
     )
     server.daemon_threads = True
     peer = threading.Thread(target=server.serve_forever, daemon=True)
@@ -632,9 +640,22 @@ def case(binary, root, target, mode):
             "actual correction did not reach the next model request",
         )
     if mode == "context-limit":
+        response = (
+            root
+            / "private"
+            / ("response-" + seen[0]["demonCoderOrdinary"]["delivery_id"] + ".json")
+        )
+        sent = json.loads(json.loads(response.read_text())["stdout"])
+        context = sent["hookSpecificOutput"]["additionalContext"]
         require(
-            CONTEXT_MARKER in json.dumps(requests[0]["body"]),
-            "accepted source context did not reach model",
+            context in json.dumps(requests[0]["body"].get("input", [])),
+            "accepted source context was omitted or truncated before model delivery",
+        )
+    if empty:
+        require(
+            "last_assistant_message" in seen[-1]
+            and seen[-1]["last_assistant_message"] is None,
+            "empty terminal response did not retain native null Stop text",
         )
     result = {
         "target": target,
@@ -656,13 +677,15 @@ def main():
         "--mode",
         choices=MODES
         + BOUNDARY_MODES
-        + ["correction", "snapshot", "ambient-control", "isolation"],
+        + ["correction", "snapshot", "ambient-control", "isolation", "empty-stop"],
     )
     parser.add_argument("--event", choices=EVENTS)
     parser.add_argument("--startup-only", action="store_true")
     args = parser.parse_args()
     if args.mode == "correction" and args.event == "UserPromptSubmit":
         parser.error("correction requires ordinary Stop")
+    if args.mode == "empty-stop" and args.event == "UserPromptSubmit":
+        parser.error("empty response cases require ordinary Stop")
     if args.mode in BOUNDARY_MODES and args.event == "Stop":
         parser.error("context boundary cases require UserPromptSubmit")
     binary = args.binary.resolve(strict=True)
@@ -695,6 +718,7 @@ def main():
         for event in (EVENTS if args.event is None else [args.event])
         for mode in (MODES if args.mode is None else [args.mode])
         if mode != "correction" or event == "Stop"
+        if mode != "empty-stop" or event == "Stop"
         if mode not in BOUNDARY_MODES or event == "UserPromptSubmit"
     ]
     if args.mode is None:
@@ -705,6 +729,7 @@ def main():
             ("UserPromptSubmit", "isolation"),
             ("UserPromptSubmit", "context-limit"),
             ("UserPromptSubmit", "output-limit"),
+            ("Stop", "empty-stop"),
         ]
     results = []
     for event, mode in cases:

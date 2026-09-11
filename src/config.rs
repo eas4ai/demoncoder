@@ -23,6 +23,8 @@ pub struct Args {
     /// Internal authenticated managed-backend lifecycle transport.
     #[arg(long, hide = true)]
     pub codex_compaction_relay: Option<PathBuf>,
+    #[arg(long, hide = true)]
+    pub codex_ordinary_relay: Option<PathBuf>,
     /// Print the application version.
     #[arg(short = 'v', long = "version", visible_short_alias = 'V', action = clap::ArgAction::Version)]
     pub version: Option<bool>,

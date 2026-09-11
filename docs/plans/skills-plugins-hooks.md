@@ -16,15 +16,15 @@
 - Pending: Exercise the complete public management and coding workflows.
 - Pending: Run full conformance, installed/live cases, adversarial review and Cairn checks.
 
-Latest lifecycle prerequisite: Claude/shared external Submit/Stop integration
-passed 800 Rust tests (17 ignored), 22 actual pinned-backend/local-peer cases,
-and fresh specification and quality reviews. Durable source delivery, correction
-provenance, uncertain delivery and combined post-tool handoff are covered. Codex
-ordinary-hook registration is now source-built and qualified (191 hook tests,
-25 startup and 45 runtime/lifetime cases), with specification and quality
-reviews passed. Host ordinary integration and complete lifecycle/package
-conformance remain open.
-See [the integration review](../reviews/plugin-external-non-tool-runtime.md).
+Latest lifecycle prerequisite: native and external Submit/Stop framing and
+ownership are verified. The final shared/Codex integration passes 815 Rust tests
+(17 ignored), 43 actual backend/local-peer cases (21 Codex, 22 Claude), 30 host
+compaction cases, and fresh specification and quality reviews. Source qualification
+passes 191 hook tests, 25 startup and 43 ordinary runtime cases, three lifetime
+cases, 53 compaction cases and four model-isolation cases. The full-context and
+controlled-peer fixes retain their negative controls and earlier failed runs.
+Complete lifecycle/package conformance remains open. See
+[the integration review](../reviews/plugin-codex-external-non-tool-runtime.md).
 
 Only the parent records Cairn decisions, changes declarations and commits evidence. Workers own bounded files; they do not change the selected scope or evidence. A test fixture may model a provider, but its report must say controlled transport. Source/type checks, successful parsing and test registration never establish runtime delivery.
 
@@ -336,10 +336,10 @@ tasks stay unchecked until implementation and required reviews are complete.
   stopped/phase completion, within the original correction and spending limits.
   Cancellation and shutdown must not enter or wait for a Stop correction.
 - [x] Add the [durable native turn identity](../decisions/give-each-native-turn-a-durable-identity-before-hook-selection.md) before optional hook selection. Preserve it through Stop corrections and Stop-only configurations. Plugin-origin work records a real turn without fabricating a developer submission. Use this identity and real host transcript/model/policy for source-format translation.
-- [ ] Frame native events from host facts. Obtain actual source facts before
+- [x] Frame native events from host facts. Obtain actual source facts before
   claiming Claude or Codex framing; never fabricate a tool call, backend turn,
   transcript path or source session. Test command-shaped context as data.
-- [ ] Demonstrate rejection before model work, corrected-pass and always-block
+- [x] Demonstrate rejection before model work, corrected-pass and always-block
   termination, cancellation, stale ownership and interrupted reservation recovery.
   Run affected regressions and independent specification then quality review.
 

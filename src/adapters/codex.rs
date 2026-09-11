@@ -1,3 +1,5 @@
+#[path = "codex_non_tool.rs"]
+mod non_tool;
 use super::process::{BackendProcess, executable};
 use crate::{
     config::Connection,
@@ -56,6 +58,8 @@ struct Codex {
     lifecycle: Option<std::sync::Arc<crate::plugins::bridge::Lifecycle>>,
     relay: Option<crate::plugins::codex_relay::Owner>,
     relay_binary: PathBuf,
+    ordinary_relay: Option<crate::plugins::codex_relay::Owner>,
+    ordinary_callbacks: Option<non_tool::Callbacks>,
 }
 
 pub fn open(config: &Connection, workspace: &Path) -> Result<Box<dyn Session>> {
@@ -78,6 +82,8 @@ pub fn open(config: &Connection, workspace: &Path) -> Result<Box<dyn Session>> {
         access: config.access.clone(),
         lifecycle: config.access.lifecycle.clone(),
         relay: None,
+        ordinary_relay: None,
+        ordinary_callbacks: None,
         relay_binary: config
             .access
             .supervisor
@@ -157,6 +163,30 @@ impl Codex {
             self.tools = ToolExecutor::with_policy(&self.workspace, &access)?;
             self.relay = Some(relay);
         }
+        if !self.access.non_tools.is_empty() {
+            anyhow::ensure!(
+                self.access.snapshot.is_none(),
+                "model-hook executor cannot own ordinary hooks"
+            );
+            let mut probe = BackendProcess::spawn(
+                &self.binary,
+                &["--demoncoder-ordinary-capability".into()],
+                &self.workspace,
+                &[],
+            )?;
+            let capability =
+                tokio::time::timeout(Duration::from_secs(5), probe.finite_json(4096)).await;
+            probe.stop().await?;
+            let capability = capability.context("managed ordinary capability timed out")??;
+            anyhow::ensure!(
+                capability
+                    == json!({"protocol":"demoncoder-ordinary-v1","source_version":"0.153.4","patch_version":1}),
+                "Codex lacks qualified ordinary integration"
+            );
+            self.ordinary_relay = Some(crate::plugins::codex_relay::Owner::ordinary(
+                &self.relay_binary,
+            )?);
+        }
         let mut args = vec!["app-server".into(), "--stdio".into()];
         for feature in [
             "shell_tool",
@@ -193,27 +223,32 @@ impl Codex {
             .as_ref()
             .map(|relay| vec![("CODEX_DEMONCODER_COMPACTION_RELAY", relay.requirement())])
             .unwrap_or_default();
+        if let Some(relay) = &self.ordinary_relay {
+            environment.push(("CODEX_DEMONCODER_ORDINARY_RELAY", relay.requirement()));
+        }
         if self.access.snapshot.is_some() {
             environment.push(("CODEX_DEMONCODER_MODEL_HOOK", "v1"));
         }
-        self.process = Some(if self.access.snapshot.is_some() {
-            BackendProcess::spawn_supervised_with_environment(
-                &self.binary,
-                &args,
-                &self.workspace,
-                &["CODEX_HOME"],
-                &environment,
-                &self.relay_binary,
-            )?
-        } else {
-            BackendProcess::spawn_with_environment(
-                &self.binary,
-                &args,
-                &self.workspace,
-                &["CODEX_HOME"],
-                &environment,
-            )?
-        });
+        self.process = Some(
+            if self.access.snapshot.is_some() || self.ordinary_relay.is_some() {
+                BackendProcess::spawn_supervised_with_environment(
+                    &self.binary,
+                    &args,
+                    &self.workspace,
+                    &["CODEX_HOME"],
+                    &environment,
+                    &self.relay_binary,
+                )?
+            } else {
+                BackendProcess::spawn_with_environment(
+                    &self.binary,
+                    &args,
+                    &self.workspace,
+                    &["CODEX_HOME"],
+                    &environment,
+                )?
+            },
+        );
         self.rpc(
             "initialize",
             json!({"clientInfo":{"name":"demoncoder","version":env!("CARGO_PKG_VERSION")},"capabilities":{"experimentalApi":true}}),
@@ -287,6 +322,17 @@ impl Codex {
             .as_str()
             .map(str::to_owned)
             .or_else(|| self.model.clone());
+        if let Some(relay) = &self.ordinary_relay {
+            self.ordinary_callbacks = Some(non_tool::Callbacks::new(
+                self.workspace.clone(),
+                relay.source_path(),
+                self.thread.clone().context("ordinary thread missing")?,
+                self.transcript_path
+                    .clone()
+                    .context("ordinary transcript missing")?,
+                self.effective_model.clone(),
+            )?);
+        }
         Ok(())
     }
 
@@ -342,6 +388,19 @@ impl Codex {
                     "environments":[],"effort":self.effort,
                 }})
             };
+            if let Some(callbacks) = &mut self.ordinary_callbacks
+                && request["method"] == "turn/start"
+            {
+                let origin = if let Some(correction) = &handoff {
+                    correction.source_origin(events, &request)?
+                } else if observer_delivery.is_some() {
+                    crate::plugins::receipts::SourceOrigin::PluginContext
+                } else {
+                    crate::plugins::receipts::SourceOrigin::HostSubmission
+                };
+                callbacks.begin(&request, origin, events)?;
+            }
+            let ordinary_turn = request["method"] == "turn/start";
             deadline.during(process.send(request)).await?;
             if let Some(delivery) = &observer_delivery {
                 events.complete_observer_context(delivery)?;
@@ -354,6 +413,7 @@ impl Codex {
             let mut correction_started = false;
             let mut pending_frames = std::collections::VecDeque::new();
             let mut pending_bytes = 0usize;
+            let mut replaying_observed = false;
             let mut completed = false;
             loop {
                 deadline.check()?;
@@ -410,9 +470,13 @@ impl Codex {
                 enum Incoming {
                     Backend(Value),
                     Relay(tokio::net::UnixStream),
+                    Ordinary(tokio::net::UnixStream),
                 }
                 let incoming = if handoff.is_none() && !pending_frames.is_empty() {
-                    Incoming::Backend(pending_frames.pop_front().expect("queued frame"))
+                    {
+                        replaying_observed = true;
+                        Incoming::Backend(pending_frames.pop_front().expect("queued frame"))
+                    }
                 } else {
                     tokio::select! {
                         biased;
@@ -425,6 +489,12 @@ impl Codex {
                                 _ => std::future::pending().await,
                             }
                         } => Incoming::Relay(stream?),
+                        stream = async {
+                            match (&self.ordinary_relay, &self.ordinary_callbacks) {
+                                (Some(relay), Some(callbacks)) if callbacks.ready() => relay.accept().await,
+                                _ => std::future::pending().await,
+                            }
+                        } => Incoming::Ordinary(stream?),
                     }
                 };
                 deadline.check()?;
@@ -432,6 +502,17 @@ impl Codex {
                 let end = dispatch_deadline.during(async {
                 let message = match incoming {
                     Incoming::Backend(message) => message,
+                    Incoming::Ordinary(mut stream) => {
+                        let relay = self.ordinary_relay.as_ref().context("ordinary relay missing")?;
+                        let input = relay.read(&mut stream).await?;
+                        let callbacks = self.ordinary_callbacks.as_mut().context("ordinary owner missing")?;
+                        let response = callbacks.handle(input, events, &self.tools).await?;
+                        let bytes = non_tool::response_bytes(&response)?;
+                        if response["continue"] == true { callbacks.prepare(events)?; }
+                        tokio::time::timeout(Duration::from_secs(5), tokio::io::AsyncWriteExt::write_all(&mut stream, &bytes)).await.context("ordinary delivery timed out")??;
+                        callbacks.sent(events)?;
+                        return Ok(None);
+                    },
                     Incoming::Relay(stream) => {
                         self.relay
                             .as_mut()
@@ -448,6 +529,10 @@ impl Codex {
                         return Ok(None);
                     }
                 };
+                if ordinary_turn && !replaying_observed && let Some(callbacks) = &mut self.ordinary_callbacks {
+                    callbacks.observe(&message, events)?;
+                }
+                replaying_observed = false;
                 let is_reply = message.get("method").is_none();
                 if handoff.is_some() && !is_reply {
                     let message = pre_acknowledgment_frame(message)?;
@@ -758,6 +843,8 @@ impl Session for Codex {
         )
         .await;
         self.relay = None;
+        self.ordinary_relay = None;
+        self.ordinary_callbacks = None;
         // Keep backend-owned context for the next prompt after cancellation.
         observers.and(result)
     }

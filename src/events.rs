@@ -502,6 +502,10 @@ impl EventSink {
         );
         Ok((runtime.clone(), operation))
     }
+    pub(crate) fn has_source_lifecycle(&self) -> bool {
+        self.source_lifecycle.is_some()
+    }
+
     pub(crate) fn for_observed_lifecycle(
         &self,
         source: crate::plugins::receipts::ObservedCallback,

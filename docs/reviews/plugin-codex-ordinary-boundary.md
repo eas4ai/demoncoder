@@ -1,7 +1,9 @@
 # Managed Codex ordinary hook boundary
 
-Status: the bounded source prerequisite passed specification and quality review.
-Host ordinary integration and the complete commitment remain open.
+Status: repaired source boundary verified; final review reconciliation recorded below.
+The private-only repair is built; refreshed qualification and reviews are pending.
+The approvals and artifact hashes below describe the original prerequisite unless
+explicitly identified as the context repair.
 
 This prerequisite follows the separate immutable ordinary-hook boundary and exact
 acknowledgment decisions. It preserves the existing compaction patch as an earlier
@@ -60,7 +62,7 @@ two threads. It proves startup retention, not refresh of an existing thread.
 Registry unit tests separately exercise configuration refresh. Actual host
 cancellation, durable ownership and recovery remain later integration work.
 
-## Final development qualification
+## Original prerequisite qualification
 
 The final artifact is identified in `ordinary-build-receipt.json`; actual results
 and their source-file digests are retained in `ordinary-qualification.json`.
@@ -104,7 +106,7 @@ Host ordinary admission, durable source ownership, cancellation/recovery through
 the production adapter, model-hook environment isolation from the new ordinary
 relay, complete package compatibility and the full commitment gates remain open.
 
-## Independent quality review and self-audit
+## Original independent quality review and self-audit
 
 QUALITY passed with no blocking finding. The reviewer verified the complete
 prepared tree, all ten changed source file hashes, both artifact identities,
@@ -126,3 +128,61 @@ item in progress, and no full-commitment item was marked complete for this
 prerequisite. I am satisfied with the reviewed source boundary. Existing static
 failures are disclosed, and production host integration and committed-tree Cairn
 evidence remain required before the complete feature can be delivered.
+
+## Full-context finding and repair
+
+The host's full 60 KiB input assertion exposed a gap in the original source
+qualification: its marker-only assertion passed even though the native spiller
+replaced the middle of the contribution with a preview and spill-file path.
+The original private handler inherited a 2,500-token preview limit.
+
+The recorded repair sets only private ordinary handlers to the existing zero
+preview-limit setting. The complete 64 KiB serialized-response bound remains in
+force; normal upstream and compaction behavior is unchanged. The real-command
+boundary test now compares the complete returned context and failed before the
+fix. All 191 hook tests passed afterward. The actual source qualifier now checks
+complete model input against the exact response sent; its targeted context case
+passed. An actual empty terminal response also delivered Stop with native null
+last-assistant text.
+
+Current repair patch: `4b91ab77c9b65d51fef82b1dc6a4bf47aedc949dff07ce45fdda40fe86eca456`.
+Current repair binary: `c4d77a245a7fcda26f606bb4f726b59ede5fcf0eb322fb7d625a759fc150592a`.
+Prepared tree: `d63af8d37bcf57d0c67c929ce9bcebfa2d595443d410c4dfb18f232d4aaaad4d`.
+The strict builder reproduced it; a fresh two-patch replay matched the tree.
+Full source, lifetime, compaction and model-isolation regressions are running.
+The retained qualification summary will be replaced only after those and the
+current host regression complete. The existing strict Clippy limitation remains.
+
+## Final repaired source and controlled peer
+
+The candidate binary is `c4d77a245a7fcda26f606bb4f726b59ede5fcf0eb322fb7d625a759fc150592a`.
+Its cumulative patch is `4b91ab77c9b65d51fef82b1dc6a4bf47aedc949dff07ce45fdda40fe86eca456`,
+and its prepared tree is `d63af8d37bcf57d0c67c929ce9bcebfa2d595443d410c4dfb18f232d4aaaad4d`.
+The strict builder, fresh two-stage preparation and 191 hook tests passed.
+The original reference and compaction patch remain unchanged.
+
+Final source checks pass 25 startup and 43 ordinary runtime cases, three lifetime
+cases, 17 compaction startup and 36 compaction runtime cases, and four model
+isolation cases. Final production-host checks pass all 43 Submit/Stop cases
+(21 Codex, 22 Claude) and all 30 compaction cases. These use controlled local
+model peers, not live provider access. The final paths, results and hashes are
+retained in `ordinary-qualification.json`; exact helper snapshots accompany
+the ordinary, lifetime and host matrix runs.
+
+The shared peer repair distinguishes a wholly unused connection from a truncated
+request. Only exact EOF/reset during the TLS handshake after valid CONNECT is
+a persisted abandoned-before-HTTP observation. Other protocol and model errors
+remain failures. Bounded handler cleanup settles diagnostics before checks inspect
+them; a late-error injection demonstrated the old lifetime false pass and the
+corrected rejection with preserved output. Sixteen fixture tests and independent
+concurrency/persistence controls pass. Earlier failed runs remain retained.
+
+The renewed source specification report is
+`/home/shawn/demoncoder-check-tmp/managed-codex-ordinary-context-spec-review.md`.
+The helper specification report is `codex-https-fixture-spec-review.md` in the
+same root; final combined quality review is `managed-codex-final-quality-review.md`.
+Upstream strict Clippy still reports the four unchanged managed-compaction
+`expect_used` diagnostics; it is not claimed as passing. Host Clippy passes.
+
+Final source SPEC and combined QUALITY both pass for the repaired candidate.
+The host/fixture review above retains the complete final self-audit.

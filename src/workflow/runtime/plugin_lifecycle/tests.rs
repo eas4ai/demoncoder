@@ -409,6 +409,7 @@ fn source_submit_exception_is_only_the_exact_reserved_post_handoff() {
         sequence: 1,
         request_id: "callback".into(),
         command_uuid: Some(uuid.into()),
+        command_request_id: None,
         envelope_id: Some("envelope".into()),
         model: None,
     };
@@ -484,4 +485,117 @@ fn source_submit_exception_is_only_the_exact_reserved_post_handoff() {
         content_digest: "b".repeat(64),
     });
     assert!(source_correction_owner(&record, &phase, &changed, &occurrence, &input).is_err());
+}
+
+#[test]
+fn codex_source_handoff_retains_exact_command_request_and_acknowledged_turn() {
+    let root = tempfile::tempdir().unwrap();
+    let (runtime, id, source, phase) = fixture(root.path(), "codex", true);
+    runtime
+        .settle_post_tool(id, HookEvent::PostToolUse, correction())
+        .unwrap();
+    runtime.settle_tool(id).unwrap();
+    runtime.start_post_supersession(id).unwrap();
+    runtime.finish_model(source).unwrap();
+    runtime.finish_post_supersession(id).unwrap();
+    let identity = runtime.record().unwrap().agents[0].identity.clone();
+    let next = runtime
+        .reserve_post_correction(id, &phase, Some(&identity))
+        .unwrap();
+    let callback = SourceCallback {
+        origin: Some(SourceOrigin::PluginPostCorrection {
+            post_operation: id,
+            content_digest: "a".repeat(64),
+        }),
+        backend_operation: next,
+        sequence: 1,
+        request_id: "native-hook-run".into(),
+        command_uuid: None,
+        command_request_id: Some(42),
+        envelope_id: Some("private-delivery".into()),
+        model: None,
+    };
+    let input = ObservedLifecycle::Codex(json!({"session_id":"child-thread","turn_id":"new-turn"}));
+    let occurrence = NonToolOccurrence::UserPromptSubmit {
+        prompt: "plugin feedback".into(),
+        correction: true,
+    };
+    let record = runtime.record().unwrap();
+    assert_eq!(
+        source_correction_owner(&record, &phase, &callback, &occurrence, &input).unwrap(),
+        Some(id)
+    );
+    for variant in [
+        "missing-request",
+        "wrong-backend",
+        "claude-uuid",
+        "wrong-session",
+        "stop",
+    ] {
+        let mut callback = callback.clone();
+        let mut input = input.clone();
+        let mut occurrence = occurrence.clone();
+        match variant {
+            "missing-request" => callback.command_request_id = None,
+            "wrong-backend" => callback.backend_operation += 1,
+            "claude-uuid" => {
+                callback.command_uuid = Some("00000000-0000-4000-8000-000000000001".into())
+            }
+            "wrong-session" => {
+                input = ObservedLifecycle::Codex(json!({"session_id":"other","turn_id":"new-turn"}))
+            }
+            "stop" => {
+                occurrence = NonToolOccurrence::Stop {
+                    stop_hook_active: false,
+                    last_assistant_message: None,
+                }
+            }
+            _ => unreachable!(),
+        }
+        assert!(
+            source_correction_owner(&record, &phase, &callback, &occurrence, &input).is_err(),
+            "{variant}"
+        );
+    }
+    runtime
+        .ack_post_correction(
+            id,
+            next,
+            CorrectionAcknowledgment::CodexTurn {
+                thread_id: "child-thread".into(),
+                turn_id: "new-turn".into(),
+                request_id: 42,
+            },
+        )
+        .unwrap();
+    let record = runtime.record().unwrap();
+    assert_eq!(
+        source_correction_owner(&record, &phase, &callback, &occurrence, &input).unwrap(),
+        None
+    );
+    for variant in ["request", "turn", "thread"] {
+        let mut callback = callback.clone();
+        let mut input = input.clone();
+        if variant == "request" {
+            callback.command_request_id = Some(43);
+        } else {
+            let ObservedLifecycle::Codex(value) = &mut input else {
+                panic!()
+            };
+            value[if variant == "turn" {
+                "turn_id"
+            } else {
+                "session_id"
+            }] = "other".into();
+        }
+        assert!(
+            source_correction_owner(&record, &phase, &callback, &occurrence, &input).is_err(),
+            "{variant}"
+        );
+    }
+    let mut old = serde_json::to_value(&callback).unwrap();
+    old.as_object_mut().unwrap().remove("command_request_id");
+    let old: SourceCallback = serde_json::from_value(old).unwrap();
+    assert!(old.command_request_id.is_none());
+    assert!(source_correction_owner(&record, &phase, &old, &occurrence, &input).is_err());
 }

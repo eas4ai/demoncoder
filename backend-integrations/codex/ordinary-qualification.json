@@ -1,12 +1,12 @@
 {
-  "status": "development qualification; not Cairn evidence or complete host ordinary integration",
-  "build_receipt_sha256": "69d3c2eeb3ce586fa3726575fae97f496d90572dd67790162d28f117be08d0b4",
+  "status": "development qualification and independent reviews passed; not Cairn evidence or complete lifecycle/package delivery",
+  "build_receipt_sha256": "f9b19a6a9a48189dfeb877f11c1a6729df40eaaf2904712915c93fb790261b77",
   "checks": {
     "ordinary": {
-      "path": "/home/shawn/demoncoder-check-tmp/managed-ordinary-qualification-2/qualification.json",
-      "sha256": "0d596be3e85b44c16ee43151cad728bd7254c7c8b8013b754ec62abac8ad9cff",
+      "path": "/home/shawn/demoncoder-check-tmp/managed-ordinary-peer-final-ordinary-1/qualification.json",
+      "sha256": "944a24419585bd6e329d9076a357606f58a4b966a8bc53c45026c348146ae7f9",
       "result": {
-        "binary_sha256": "13a918d8881f6afe34956c9c42a09512f1e24bd5aa3089216ca31252b0c16cc1",
+        "binary_sha256": "c4d77a245a7fcda26f606bb4f726b59ede5fcf0eb322fb7d625a759fc150592a",
         "capability": {
           "protocol": "demoncoder-ordinary-v1",
           "source_version": "0.153.4",
@@ -500,25 +500,33 @@
             "model_requests": 0,
             "callbacks": 1,
             "passed": true
+          },
+          {
+            "target": "Stop",
+            "mode": "empty-stop",
+            "snapshot": false,
+            "model_requests": 1,
+            "callbacks": 2,
+            "passed": true
           }
         ],
         "kind": "actual-source-controlled-model-peer"
       }
     },
     "lifetime": {
-      "path": "/home/shawn/demoncoder-check-tmp/managed-ordinary-lifetime-2/qualification.json",
-      "sha256": "1b6c65bbb4c5c08a7d66443cf42f636f49234f4846964ffc789f925abeb386f8",
+      "path": "/home/shawn/demoncoder-check-tmp/managed-ordinary-peer-final-lifetime-1/qualification.json",
+      "sha256": "bf2124adc7d10694b80db63e4811c19c6a1e87972ea26d1b8967c79cc0553f14",
       "result": {
         "inputs": {
-          "binary_sha256": "13a918d8881f6afe34956c9c42a09512f1e24bd5aa3089216ca31252b0c16cc1",
+          "binary_sha256": "c4d77a245a7fcda26f606bb4f726b59ede5fcf0eb322fb7d625a759fc150592a",
           "helpers": {
             "backend-integrations/codex/qualify.py": "309096eb4b56e58230c98ec67dd27c78e1832f12f60ce75bb923500a96a50b69",
-            "backend-integrations/codex/qualify_ordinary.py": "59db582d688cbb2464393dfe21e055f9b0ed13115e2b9beedeeb1cf07a30464e",
-            "backend-integrations/codex/qualify_ordinary_lifetime.py": "baf1ad421dff65a13cb002161d003f7bd51d3a8948af6e7cced67fb8a9e9f09c",
+            "backend-integrations/codex/qualify_ordinary.py": "b071dee6ee2980a670fa225fb8976dcce6a73ae24c67664ddf74a11f93332548",
+            "backend-integrations/codex/qualify_ordinary_lifetime.py": "7b59bc15e3eca471676d0e04ce7b53797d24451eab82df75ec9ede04d73f67cb",
             "tests/boundary_fixture.py": "eacd12bcb7f6e1b6f4d0375a1216aaa143719eee516ef1cc34f46884d22fa2a6",
-            "tests/codex_https_fixture.py": "03ca33089efcd5f118e3f353c399255c37009485cdaaeab5bdd39f13e090ba42",
+            "tests/codex_https_fixture.py": "243e3725d8fcbc56b2064311062b3c7df22437902c3a5466315b479a3f00de37",
             "tests/installed_backends.py": "81c2eec4c5cfdfc5d52926ae5237b31d74110a7a974767c235a8c5ec33134f2a",
-            "tests/plugin_external_non_tool.py": "21fcf295839a55d8906249585274ecba0c913c4661b22b332966965afa46bf7a",
+            "tests/plugin_external_non_tool.py": "c3bfa05bf0c0c1710b93de6510f6bac57668fbd4a583979f4030285db792da98",
             "tests/provider_metadata.py": "8847888fa91e57d6c38197cf93bcdae6f9ab2222e2c61470ca384c3a4f1956af",
             "tests/result_fixture.py": "8b90b2f6b8b6c1f6e33414465d6b093e5aaa32fff00e0df0f4bb7ae3790ceb47",
             "tests/terminal_screen.py": "4b4715caa08198068905467081d70a1d59ec2d3fc6842466bf58e93940087c34",
@@ -531,7 +539,7 @@
           {
             "case": "submit-cancel",
             "event": "UserPromptSubmit",
-            "interrupt_seconds": 0.10842080181464553,
+            "interrupt_seconds": 0.10951924789696932,
             "model_requests": 1,
             "callbacks": 3,
             "passed": true
@@ -539,14 +547,14 @@
           {
             "case": "stop-cancel",
             "event": "Stop",
-            "interrupt_seconds": 0.11141360108740628,
+            "interrupt_seconds": 0.11203760094940662,
             "model_requests": 2,
             "callbacks": 4,
             "passed": true
           },
           {
             "case": "refresh",
-            "same_thread": "01a09242-c1d5-7db3-bd30-54198ac25dfa",
+            "same_thread": "01a0927f-4401-7b31-81a5-122abd7e1b6d",
             "model_requests": 2,
             "callbacks": 4,
             "passed": true
@@ -555,10 +563,10 @@
       }
     },
     "compaction": {
-      "path": "/home/shawn/demoncoder-check-tmp/managed-ordinary-compaction-regression-1/qualification.json",
-      "sha256": "6f4781b1ac72a96c9fb584da04f760ca03e0d7c70c374b84388357f157d56ff9",
+      "path": "/home/shawn/demoncoder-check-tmp/managed-ordinary-peer-final-compaction-1/qualification.json",
+      "sha256": "f72cc8bcef37c61856bb7364a52537cd628b698535cfcaa55a2e776215315730",
       "result": {
-        "binary_sha256": "13a918d8881f6afe34956c9c42a09512f1e24bd5aa3089216ca31252b0c16cc1",
+        "binary_sha256": "c4d77a245a7fcda26f606bb4f726b59ede5fcf0eb322fb7d625a759fc150592a",
         "capability": {
           "protocol": "demoncoder-compaction-v1",
           "source_version": "0.153.4",
@@ -999,11 +1007,11 @@
       }
     },
     "model_isolation": {
-      "path": "/home/shawn/demoncoder-check-tmp/managed-ordinary-model-isolation-regression-1.json",
-      "sha256": "985856992daa6f02d4293f5433f85aab74ad0bc7ec93a7ac38d63f0adc47c9ee",
+      "path": "/home/shawn/demoncoder-check-tmp/managed-ordinary-peer-final-model-isolation-1.json",
+      "sha256": "86b953fcd2779a83207332cd2ab46a8bcf82c6d01e6c8127081831bc5dec41b9",
       "result": {
         "transport": "actual managed Codex with synthetic local TLS model and login",
-        "binary_sha256": "13a918d8881f6afe34956c9c42a09512f1e24bd5aa3089216ca31252b0c16cc1",
+        "binary_sha256": "c4d77a245a7fcda26f606bb4f726b59ede5fcf0eb322fb7d625a759fc150592a",
         "cases": [
           {
             "managed": false,
@@ -1078,23 +1086,947 @@
       }
     },
     "host_compaction": {
-      "path": "/home/shawn/demoncoder-check-tmp/managed-ordinary-host-compaction-regression-1.json",
-      "sha256": "e75d57fd11b68534a52f8f9ed676fb985ec44dfb641c5d4ff0eae7225123d29a",
+      "path": "/home/shawn/demoncoder-check-tmp/managed-ordinary-peer-final-host-compaction-1.json",
+      "sha256": "d969ca155ad484630103fbd45e66fe7edd7207a1c1c26a3a0b83c6ff3a6ced64",
       "result": {
         "command": [
-          "cargo",
-          "test",
-          "--locked",
-          "--test",
-          "plugin_codex_installed",
-          "--",
+          "target/debug/deps/plugin_codex_installed-7e47113e03c46a52",
           "--ignored",
           "--nocapture",
           "--test-threads=1"
         ],
         "exit": 0,
-        "binary_sha256": "13a918d8881f6afe34956c9c42a09512f1e24bd5aa3089216ca31252b0c16cc1"
+        "inputs": {
+          "/home/shawn/.cache/demoncoder/managed-ordinary-codex-v0.153.4/codex-rs/target/debug/codex": "c4d77a245a7fcda26f606bb4f726b59ede5fcf0eb322fb7d625a759fc150592a",
+          "target/debug/deps/plugin_codex_installed-7e47113e03c46a52": "5aeeb7bdf7581d85fef2e0f8c70ece55a844c5c190d33c97497489623a13bfd6",
+          "target/debug/demoncoder": "38daf05b6a0f24f43ab593b73591e20173be01e24684da674b6858a1b2a94075",
+          "tests/codex_https_fixture.py": "243e3725d8fcbc56b2064311062b3c7df22437902c3a5466315b479a3f00de37"
+        },
+        "binary_sha256": "c4d77a245a7fcda26f606bb4f726b59ede5fcf0eb322fb7d625a759fc150592a"
       }
+    },
+    "host_ordinary": {
+      "path": "/home/shawn/demoncoder-check-tmp/managed-ordinary-final-host-matrix-2/results.json",
+      "sha256": "a416b33de2919e10b4cb502f20fd744eec43f80d650a5c6260a296755e61dac1",
+      "result": {
+        "inputs": {
+          "target/debug/deps/plugin_external_non_tool-7b19eb0239a921f6": "f521b570ccfa3d7ab937a32d469a889e1e8157573461063db0fc78d735bea3ac",
+          "target/debug/demoncoder": "38daf05b6a0f24f43ab593b73591e20173be01e24684da674b6858a1b2a94075",
+          "/home/shawn/.cache/demoncoder/managed-ordinary-codex-v0.153.4/codex-rs/target/debug/codex": "c4d77a245a7fcda26f606bb4f726b59ede5fcf0eb322fb7d625a759fc150592a",
+          "/home/shawn/.local/share/claude/versions/2.1.267": "0399c793ff571d5946ef923d80b4f330d05ac4b6842a6b0775468f5d389403c0",
+          "tests/plugin_external_non_tool.py": "c3bfa05bf0c0c1710b93de6510f6bac57668fbd4a583979f4030285db792da98",
+          "tests/plugin_external_non_tool.rs": "41d12f58fa133ea47d216ef54574159679ea64c8ae8ad3356a4f1b13a144abd4",
+          "tests/codex_https_fixture.py": "243e3725d8fcbc56b2064311062b3c7df22437902c3a5466315b479a3f00de37"
+        },
+        "cases": [
+          {
+            "name": "codex-pass",
+            "command": [
+              "python3",
+              "-B",
+              "tests/plugin_external_non_tool.py",
+              "--adapter",
+              "codex",
+              "--case",
+              "pass",
+              "--binary",
+              "/home/shawn/.cache/demoncoder/managed-ordinary-codex-v0.153.4/codex-rs/target/debug/codex",
+              "--test-executable",
+              "target/debug/deps/plugin_external_non_tool-7b19eb0239a921f6",
+              "--output",
+              "/home/shawn/demoncoder-check-tmp/managed-ordinary-final-host-matrix-2/codex-pass"
+            ],
+            "exit": 0,
+            "passed": true
+          },
+          {
+            "name": "codex-pass-twice",
+            "command": [
+              "python3",
+              "-B",
+              "tests/plugin_external_non_tool.py",
+              "--adapter",
+              "codex",
+              "--case",
+              "pass-twice",
+              "--binary",
+              "/home/shawn/.cache/demoncoder/managed-ordinary-codex-v0.153.4/codex-rs/target/debug/codex",
+              "--test-executable",
+              "target/debug/deps/plugin_external_non_tool-7b19eb0239a921f6",
+              "--output",
+              "/home/shawn/demoncoder-check-tmp/managed-ordinary-final-host-matrix-2/codex-pass-twice"
+            ],
+            "exit": 0,
+            "passed": true
+          },
+          {
+            "name": "codex-submit-deny",
+            "command": [
+              "python3",
+              "-B",
+              "tests/plugin_external_non_tool.py",
+              "--adapter",
+              "codex",
+              "--case",
+              "submit-deny",
+              "--binary",
+              "/home/shawn/.cache/demoncoder/managed-ordinary-codex-v0.153.4/codex-rs/target/debug/codex",
+              "--test-executable",
+              "target/debug/deps/plugin_external_non_tool-7b19eb0239a921f6",
+              "--output",
+              "/home/shawn/demoncoder-check-tmp/managed-ordinary-final-host-matrix-2/codex-submit-deny"
+            ],
+            "exit": 0,
+            "passed": true
+          },
+          {
+            "name": "codex-stop-correct",
+            "command": [
+              "python3",
+              "-B",
+              "tests/plugin_external_non_tool.py",
+              "--adapter",
+              "codex",
+              "--case",
+              "stop-correct",
+              "--binary",
+              "/home/shawn/.cache/demoncoder/managed-ordinary-codex-v0.153.4/codex-rs/target/debug/codex",
+              "--test-executable",
+              "target/debug/deps/plugin_external_non_tool-7b19eb0239a921f6",
+              "--output",
+              "/home/shawn/demoncoder-check-tmp/managed-ordinary-final-host-matrix-2/codex-stop-correct"
+            ],
+            "exit": 0,
+            "passed": true
+          },
+          {
+            "name": "codex-always-block",
+            "command": [
+              "python3",
+              "-B",
+              "tests/plugin_external_non_tool.py",
+              "--adapter",
+              "codex",
+              "--case",
+              "always-block",
+              "--binary",
+              "/home/shawn/.cache/demoncoder/managed-ordinary-codex-v0.153.4/codex-rs/target/debug/codex",
+              "--test-executable",
+              "target/debug/deps/plugin_external_non_tool-7b19eb0239a921f6",
+              "--output",
+              "/home/shawn/demoncoder-check-tmp/managed-ordinary-final-host-matrix-2/codex-always-block"
+            ],
+            "exit": 0,
+            "passed": true
+          },
+          {
+            "name": "codex-cancel-submit",
+            "command": [
+              "python3",
+              "-B",
+              "tests/plugin_external_non_tool.py",
+              "--adapter",
+              "codex",
+              "--case",
+              "cancel-submit",
+              "--binary",
+              "/home/shawn/.cache/demoncoder/managed-ordinary-codex-v0.153.4/codex-rs/target/debug/codex",
+              "--test-executable",
+              "target/debug/deps/plugin_external_non_tool-7b19eb0239a921f6",
+              "--output",
+              "/home/shawn/demoncoder-check-tmp/managed-ordinary-final-host-matrix-2/codex-cancel-submit"
+            ],
+            "exit": 0,
+            "passed": true
+          },
+          {
+            "name": "codex-shutdown-submit",
+            "command": [
+              "python3",
+              "-B",
+              "tests/plugin_external_non_tool.py",
+              "--adapter",
+              "codex",
+              "--case",
+              "shutdown-submit",
+              "--binary",
+              "/home/shawn/.cache/demoncoder/managed-ordinary-codex-v0.153.4/codex-rs/target/debug/codex",
+              "--test-executable",
+              "target/debug/deps/plugin_external_non_tool-7b19eb0239a921f6",
+              "--output",
+              "/home/shawn/demoncoder-check-tmp/managed-ordinary-final-host-matrix-2/codex-shutdown-submit"
+            ],
+            "exit": 0,
+            "passed": true
+          },
+          {
+            "name": "codex-cancel-stop",
+            "command": [
+              "python3",
+              "-B",
+              "tests/plugin_external_non_tool.py",
+              "--adapter",
+              "codex",
+              "--case",
+              "cancel-stop",
+              "--binary",
+              "/home/shawn/.cache/demoncoder/managed-ordinary-codex-v0.153.4/codex-rs/target/debug/codex",
+              "--test-executable",
+              "target/debug/deps/plugin_external_non_tool-7b19eb0239a921f6",
+              "--output",
+              "/home/shawn/demoncoder-check-tmp/managed-ordinary-final-host-matrix-2/codex-cancel-stop"
+            ],
+            "exit": 0,
+            "passed": true
+          },
+          {
+            "name": "codex-malformed-submit",
+            "command": [
+              "python3",
+              "-B",
+              "tests/plugin_external_non_tool.py",
+              "--adapter",
+              "codex",
+              "--case",
+              "malformed-submit",
+              "--binary",
+              "/home/shawn/.cache/demoncoder/managed-ordinary-codex-v0.153.4/codex-rs/target/debug/codex",
+              "--test-executable",
+              "target/debug/deps/plugin_external_non_tool-7b19eb0239a921f6",
+              "--output",
+              "/home/shawn/demoncoder-check-tmp/managed-ordinary-final-host-matrix-2/codex-malformed-submit"
+            ],
+            "exit": 0,
+            "passed": true
+          },
+          {
+            "name": "codex-malformed-stop",
+            "command": [
+              "python3",
+              "-B",
+              "tests/plugin_external_non_tool.py",
+              "--adapter",
+              "codex",
+              "--case",
+              "malformed-stop",
+              "--binary",
+              "/home/shawn/.cache/demoncoder/managed-ordinary-codex-v0.153.4/codex-rs/target/debug/codex",
+              "--test-executable",
+              "target/debug/deps/plugin_external_non_tool-7b19eb0239a921f6",
+              "--output",
+              "/home/shawn/demoncoder-check-tmp/managed-ordinary-final-host-matrix-2/codex-malformed-stop"
+            ],
+            "exit": 0,
+            "passed": true
+          },
+          {
+            "name": "codex-timeout-submit",
+            "command": [
+              "python3",
+              "-B",
+              "tests/plugin_external_non_tool.py",
+              "--adapter",
+              "codex",
+              "--case",
+              "timeout-submit",
+              "--binary",
+              "/home/shawn/.cache/demoncoder/managed-ordinary-codex-v0.153.4/codex-rs/target/debug/codex",
+              "--test-executable",
+              "target/debug/deps/plugin_external_non_tool-7b19eb0239a921f6",
+              "--output",
+              "/home/shawn/demoncoder-check-tmp/managed-ordinary-final-host-matrix-2/codex-timeout-submit"
+            ],
+            "exit": 0,
+            "passed": true
+          },
+          {
+            "name": "codex-backend-exit-submit",
+            "command": [
+              "python3",
+              "-B",
+              "tests/plugin_external_non_tool.py",
+              "--adapter",
+              "codex",
+              "--case",
+              "backend-exit-submit",
+              "--binary",
+              "/home/shawn/.cache/demoncoder/managed-ordinary-codex-v0.153.4/codex-rs/target/debug/codex",
+              "--test-executable",
+              "target/debug/deps/plugin_external_non_tool-7b19eb0239a921f6",
+              "--output",
+              "/home/shawn/demoncoder-check-tmp/managed-ordinary-final-host-matrix-2/codex-backend-exit-submit"
+            ],
+            "exit": 0,
+            "passed": true
+          },
+          {
+            "name": "codex-mixed-post-correct",
+            "command": [
+              "python3",
+              "-B",
+              "tests/plugin_external_non_tool.py",
+              "--adapter",
+              "codex",
+              "--case",
+              "mixed-post-correct",
+              "--binary",
+              "/home/shawn/.cache/demoncoder/managed-ordinary-codex-v0.153.4/codex-rs/target/debug/codex",
+              "--test-executable",
+              "target/debug/deps/plugin_external_non_tool-7b19eb0239a921f6",
+              "--output",
+              "/home/shawn/demoncoder-check-tmp/managed-ordinary-final-host-matrix-2/codex-mixed-post-correct"
+            ],
+            "exit": 0,
+            "passed": true
+          },
+          {
+            "name": "codex-mixed-submit-deny",
+            "command": [
+              "python3",
+              "-B",
+              "tests/plugin_external_non_tool.py",
+              "--adapter",
+              "codex",
+              "--case",
+              "mixed-submit-deny",
+              "--binary",
+              "/home/shawn/.cache/demoncoder/managed-ordinary-codex-v0.153.4/codex-rs/target/debug/codex",
+              "--test-executable",
+              "target/debug/deps/plugin_external_non_tool-7b19eb0239a921f6",
+              "--output",
+              "/home/shawn/demoncoder-check-tmp/managed-ordinary-final-host-matrix-2/codex-mixed-submit-deny"
+            ],
+            "exit": 0,
+            "passed": true
+          },
+          {
+            "name": "codex-mixed-cancel-submit",
+            "command": [
+              "python3",
+              "-B",
+              "tests/plugin_external_non_tool.py",
+              "--adapter",
+              "codex",
+              "--case",
+              "mixed-cancel-submit",
+              "--binary",
+              "/home/shawn/.cache/demoncoder/managed-ordinary-codex-v0.153.4/codex-rs/target/debug/codex",
+              "--test-executable",
+              "target/debug/deps/plugin_external_non_tool-7b19eb0239a921f6",
+              "--output",
+              "/home/shawn/demoncoder-check-tmp/managed-ordinary-final-host-matrix-2/codex-mixed-cancel-submit"
+            ],
+            "exit": 0,
+            "passed": true
+          },
+          {
+            "name": "codex-submit-context",
+            "command": [
+              "python3",
+              "-B",
+              "tests/plugin_external_non_tool.py",
+              "--adapter",
+              "codex",
+              "--case",
+              "submit-context",
+              "--binary",
+              "/home/shawn/.cache/demoncoder/managed-ordinary-codex-v0.153.4/codex-rs/target/debug/codex",
+              "--test-executable",
+              "target/debug/deps/plugin_external_non_tool-7b19eb0239a921f6",
+              "--output",
+              "/home/shawn/demoncoder-check-tmp/managed-ordinary-final-host-matrix-2/codex-submit-context"
+            ],
+            "exit": 0,
+            "passed": true
+          },
+          {
+            "name": "codex-submit-context-overflow",
+            "command": [
+              "python3",
+              "-B",
+              "tests/plugin_external_non_tool.py",
+              "--adapter",
+              "codex",
+              "--case",
+              "submit-context-overflow",
+              "--binary",
+              "/home/shawn/.cache/demoncoder/managed-ordinary-codex-v0.153.4/codex-rs/target/debug/codex",
+              "--test-executable",
+              "target/debug/deps/plugin_external_non_tool-7b19eb0239a921f6",
+              "--output",
+              "/home/shawn/demoncoder-check-tmp/managed-ordinary-final-host-matrix-2/codex-submit-context-overflow"
+            ],
+            "exit": 0,
+            "passed": true
+          },
+          {
+            "name": "codex-submit-context-lifecycle-overflow",
+            "command": [
+              "python3",
+              "-B",
+              "tests/plugin_external_non_tool.py",
+              "--adapter",
+              "codex",
+              "--case",
+              "submit-context-lifecycle-overflow",
+              "--binary",
+              "/home/shawn/.cache/demoncoder/managed-ordinary-codex-v0.153.4/codex-rs/target/debug/codex",
+              "--test-executable",
+              "target/debug/deps/plugin_external_non_tool-7b19eb0239a921f6",
+              "--output",
+              "/home/shawn/demoncoder-check-tmp/managed-ordinary-final-host-matrix-2/codex-submit-context-lifecycle-overflow"
+            ],
+            "exit": 0,
+            "passed": true
+          },
+          {
+            "name": "codex-empty-stop",
+            "command": [
+              "python3",
+              "-B",
+              "tests/plugin_external_non_tool.py",
+              "--adapter",
+              "codex",
+              "--case",
+              "empty-stop",
+              "--binary",
+              "/home/shawn/.cache/demoncoder/managed-ordinary-codex-v0.153.4/codex-rs/target/debug/codex",
+              "--test-executable",
+              "target/debug/deps/plugin_external_non_tool-7b19eb0239a921f6",
+              "--output",
+              "/home/shawn/demoncoder-check-tmp/managed-ordinary-final-host-matrix-2/codex-empty-stop"
+            ],
+            "exit": 0,
+            "passed": true
+          },
+          {
+            "name": "codex-mixed-stop-only",
+            "command": [
+              "python3",
+              "-B",
+              "tests/plugin_external_non_tool.py",
+              "--adapter",
+              "codex",
+              "--case",
+              "mixed-stop-only",
+              "--binary",
+              "/home/shawn/.cache/demoncoder/managed-ordinary-codex-v0.153.4/codex-rs/target/debug/codex",
+              "--test-executable",
+              "target/debug/deps/plugin_external_non_tool-7b19eb0239a921f6",
+              "--output",
+              "/home/shawn/demoncoder-check-tmp/managed-ordinary-final-host-matrix-2/codex-mixed-stop-only"
+            ],
+            "exit": 0,
+            "passed": true
+          },
+          {
+            "name": "codex-mixed-submit-only",
+            "command": [
+              "python3",
+              "-B",
+              "tests/plugin_external_non_tool.py",
+              "--adapter",
+              "codex",
+              "--case",
+              "mixed-submit-only",
+              "--binary",
+              "/home/shawn/.cache/demoncoder/managed-ordinary-codex-v0.153.4/codex-rs/target/debug/codex",
+              "--test-executable",
+              "target/debug/deps/plugin_external_non_tool-7b19eb0239a921f6",
+              "--output",
+              "/home/shawn/demoncoder-check-tmp/managed-ordinary-final-host-matrix-2/codex-mixed-submit-only"
+            ],
+            "exit": 0,
+            "passed": true
+          },
+          {
+            "name": "claude-pass",
+            "command": [
+              "python3",
+              "-B",
+              "tests/plugin_external_non_tool.py",
+              "--adapter",
+              "claude",
+              "--case",
+              "pass",
+              "--binary",
+              "/home/shawn/.local/share/claude/versions/2.1.267",
+              "--test-executable",
+              "target/debug/deps/plugin_external_non_tool-7b19eb0239a921f6",
+              "--output",
+              "/home/shawn/demoncoder-check-tmp/managed-ordinary-final-host-matrix-2/claude-pass"
+            ],
+            "exit": 0,
+            "passed": true
+          },
+          {
+            "name": "claude-pass-twice",
+            "command": [
+              "python3",
+              "-B",
+              "tests/plugin_external_non_tool.py",
+              "--adapter",
+              "claude",
+              "--case",
+              "pass-twice",
+              "--binary",
+              "/home/shawn/.local/share/claude/versions/2.1.267",
+              "--test-executable",
+              "target/debug/deps/plugin_external_non_tool-7b19eb0239a921f6",
+              "--output",
+              "/home/shawn/demoncoder-check-tmp/managed-ordinary-final-host-matrix-2/claude-pass-twice"
+            ],
+            "exit": 0,
+            "passed": true
+          },
+          {
+            "name": "claude-submit-deny",
+            "command": [
+              "python3",
+              "-B",
+              "tests/plugin_external_non_tool.py",
+              "--adapter",
+              "claude",
+              "--case",
+              "submit-deny",
+              "--binary",
+              "/home/shawn/.local/share/claude/versions/2.1.267",
+              "--test-executable",
+              "target/debug/deps/plugin_external_non_tool-7b19eb0239a921f6",
+              "--output",
+              "/home/shawn/demoncoder-check-tmp/managed-ordinary-final-host-matrix-2/claude-submit-deny"
+            ],
+            "exit": 0,
+            "passed": true
+          },
+          {
+            "name": "claude-stop-correct",
+            "command": [
+              "python3",
+              "-B",
+              "tests/plugin_external_non_tool.py",
+              "--adapter",
+              "claude",
+              "--case",
+              "stop-correct",
+              "--binary",
+              "/home/shawn/.local/share/claude/versions/2.1.267",
+              "--test-executable",
+              "target/debug/deps/plugin_external_non_tool-7b19eb0239a921f6",
+              "--output",
+              "/home/shawn/demoncoder-check-tmp/managed-ordinary-final-host-matrix-2/claude-stop-correct"
+            ],
+            "exit": 0,
+            "passed": true
+          },
+          {
+            "name": "claude-always-block",
+            "command": [
+              "python3",
+              "-B",
+              "tests/plugin_external_non_tool.py",
+              "--adapter",
+              "claude",
+              "--case",
+              "always-block",
+              "--binary",
+              "/home/shawn/.local/share/claude/versions/2.1.267",
+              "--test-executable",
+              "target/debug/deps/plugin_external_non_tool-7b19eb0239a921f6",
+              "--output",
+              "/home/shawn/demoncoder-check-tmp/managed-ordinary-final-host-matrix-2/claude-always-block"
+            ],
+            "exit": 0,
+            "passed": true
+          },
+          {
+            "name": "claude-cancel-submit",
+            "command": [
+              "python3",
+              "-B",
+              "tests/plugin_external_non_tool.py",
+              "--adapter",
+              "claude",
+              "--case",
+              "cancel-submit",
+              "--binary",
+              "/home/shawn/.local/share/claude/versions/2.1.267",
+              "--test-executable",
+              "target/debug/deps/plugin_external_non_tool-7b19eb0239a921f6",
+              "--output",
+              "/home/shawn/demoncoder-check-tmp/managed-ordinary-final-host-matrix-2/claude-cancel-submit"
+            ],
+            "exit": 0,
+            "passed": true
+          },
+          {
+            "name": "claude-shutdown-submit",
+            "command": [
+              "python3",
+              "-B",
+              "tests/plugin_external_non_tool.py",
+              "--adapter",
+              "claude",
+              "--case",
+              "shutdown-submit",
+              "--binary",
+              "/home/shawn/.local/share/claude/versions/2.1.267",
+              "--test-executable",
+              "target/debug/deps/plugin_external_non_tool-7b19eb0239a921f6",
+              "--output",
+              "/home/shawn/demoncoder-check-tmp/managed-ordinary-final-host-matrix-2/claude-shutdown-submit"
+            ],
+            "exit": 0,
+            "passed": true
+          },
+          {
+            "name": "claude-cancel-stop",
+            "command": [
+              "python3",
+              "-B",
+              "tests/plugin_external_non_tool.py",
+              "--adapter",
+              "claude",
+              "--case",
+              "cancel-stop",
+              "--binary",
+              "/home/shawn/.local/share/claude/versions/2.1.267",
+              "--test-executable",
+              "target/debug/deps/plugin_external_non_tool-7b19eb0239a921f6",
+              "--output",
+              "/home/shawn/demoncoder-check-tmp/managed-ordinary-final-host-matrix-2/claude-cancel-stop"
+            ],
+            "exit": 0,
+            "passed": true
+          },
+          {
+            "name": "claude-malformed-submit",
+            "command": [
+              "python3",
+              "-B",
+              "tests/plugin_external_non_tool.py",
+              "--adapter",
+              "claude",
+              "--case",
+              "malformed-submit",
+              "--binary",
+              "/home/shawn/.local/share/claude/versions/2.1.267",
+              "--test-executable",
+              "target/debug/deps/plugin_external_non_tool-7b19eb0239a921f6",
+              "--output",
+              "/home/shawn/demoncoder-check-tmp/managed-ordinary-final-host-matrix-2/claude-malformed-submit"
+            ],
+            "exit": 0,
+            "passed": true
+          },
+          {
+            "name": "claude-malformed-stop",
+            "command": [
+              "python3",
+              "-B",
+              "tests/plugin_external_non_tool.py",
+              "--adapter",
+              "claude",
+              "--case",
+              "malformed-stop",
+              "--binary",
+              "/home/shawn/.local/share/claude/versions/2.1.267",
+              "--test-executable",
+              "target/debug/deps/plugin_external_non_tool-7b19eb0239a921f6",
+              "--output",
+              "/home/shawn/demoncoder-check-tmp/managed-ordinary-final-host-matrix-2/claude-malformed-stop"
+            ],
+            "exit": 0,
+            "passed": true
+          },
+          {
+            "name": "claude-timeout-submit",
+            "command": [
+              "python3",
+              "-B",
+              "tests/plugin_external_non_tool.py",
+              "--adapter",
+              "claude",
+              "--case",
+              "timeout-submit",
+              "--binary",
+              "/home/shawn/.local/share/claude/versions/2.1.267",
+              "--test-executable",
+              "target/debug/deps/plugin_external_non_tool-7b19eb0239a921f6",
+              "--output",
+              "/home/shawn/demoncoder-check-tmp/managed-ordinary-final-host-matrix-2/claude-timeout-submit"
+            ],
+            "exit": 0,
+            "passed": true
+          },
+          {
+            "name": "claude-backend-exit-submit",
+            "command": [
+              "python3",
+              "-B",
+              "tests/plugin_external_non_tool.py",
+              "--adapter",
+              "claude",
+              "--case",
+              "backend-exit-submit",
+              "--binary",
+              "/home/shawn/.local/share/claude/versions/2.1.267",
+              "--test-executable",
+              "target/debug/deps/plugin_external_non_tool-7b19eb0239a921f6",
+              "--output",
+              "/home/shawn/demoncoder-check-tmp/managed-ordinary-final-host-matrix-2/claude-backend-exit-submit"
+            ],
+            "exit": 0,
+            "passed": true
+          },
+          {
+            "name": "claude-mixed-post-correct",
+            "command": [
+              "python3",
+              "-B",
+              "tests/plugin_external_non_tool.py",
+              "--adapter",
+              "claude",
+              "--case",
+              "mixed-post-correct",
+              "--binary",
+              "/home/shawn/.local/share/claude/versions/2.1.267",
+              "--test-executable",
+              "target/debug/deps/plugin_external_non_tool-7b19eb0239a921f6",
+              "--output",
+              "/home/shawn/demoncoder-check-tmp/managed-ordinary-final-host-matrix-2/claude-mixed-post-correct"
+            ],
+            "exit": 0,
+            "passed": true
+          },
+          {
+            "name": "claude-mixed-submit-deny",
+            "command": [
+              "python3",
+              "-B",
+              "tests/plugin_external_non_tool.py",
+              "--adapter",
+              "claude",
+              "--case",
+              "mixed-submit-deny",
+              "--binary",
+              "/home/shawn/.local/share/claude/versions/2.1.267",
+              "--test-executable",
+              "target/debug/deps/plugin_external_non_tool-7b19eb0239a921f6",
+              "--output",
+              "/home/shawn/demoncoder-check-tmp/managed-ordinary-final-host-matrix-2/claude-mixed-submit-deny"
+            ],
+            "exit": 0,
+            "passed": true
+          },
+          {
+            "name": "claude-mixed-cancel-submit",
+            "command": [
+              "python3",
+              "-B",
+              "tests/plugin_external_non_tool.py",
+              "--adapter",
+              "claude",
+              "--case",
+              "mixed-cancel-submit",
+              "--binary",
+              "/home/shawn/.local/share/claude/versions/2.1.267",
+              "--test-executable",
+              "target/debug/deps/plugin_external_non_tool-7b19eb0239a921f6",
+              "--output",
+              "/home/shawn/demoncoder-check-tmp/managed-ordinary-final-host-matrix-2/claude-mixed-cancel-submit"
+            ],
+            "exit": 0,
+            "passed": true
+          },
+          {
+            "name": "claude-pass-multiple",
+            "command": [
+              "python3",
+              "-B",
+              "tests/plugin_external_non_tool.py",
+              "--adapter",
+              "claude",
+              "--case",
+              "pass",
+              "--binary",
+              "/home/shawn/.local/share/claude/versions/2.1.267",
+              "--test-executable",
+              "target/debug/deps/plugin_external_non_tool-7b19eb0239a921f6",
+              "--output",
+              "/home/shawn/demoncoder-check-tmp/managed-ordinary-final-host-matrix-2/claude-pass-multiple",
+              "--claude-text-case",
+              "multiple"
+            ],
+            "exit": 0,
+            "passed": true
+          },
+          {
+            "name": "claude-pass-trimmed",
+            "command": [
+              "python3",
+              "-B",
+              "tests/plugin_external_non_tool.py",
+              "--adapter",
+              "claude",
+              "--case",
+              "pass",
+              "--binary",
+              "/home/shawn/.local/share/claude/versions/2.1.267",
+              "--test-executable",
+              "target/debug/deps/plugin_external_non_tool-7b19eb0239a921f6",
+              "--output",
+              "/home/shawn/demoncoder-check-tmp/managed-ordinary-final-host-matrix-2/claude-pass-trimmed",
+              "--claude-text-case",
+              "trimmed"
+            ],
+            "exit": 0,
+            "passed": true
+          },
+          {
+            "name": "claude-pass-blank-final",
+            "command": [
+              "python3",
+              "-B",
+              "tests/plugin_external_non_tool.py",
+              "--adapter",
+              "claude",
+              "--case",
+              "pass",
+              "--binary",
+              "/home/shawn/.local/share/claude/versions/2.1.267",
+              "--test-executable",
+              "target/debug/deps/plugin_external_non_tool-7b19eb0239a921f6",
+              "--output",
+              "/home/shawn/demoncoder-check-tmp/managed-ordinary-final-host-matrix-2/claude-pass-blank-final",
+              "--claude-text-case",
+              "blank-final"
+            ],
+            "exit": 0,
+            "passed": true
+          },
+          {
+            "name": "claude-pass-empty-middle",
+            "command": [
+              "python3",
+              "-B",
+              "tests/plugin_external_non_tool.py",
+              "--adapter",
+              "claude",
+              "--case",
+              "pass",
+              "--binary",
+              "/home/shawn/.local/share/claude/versions/2.1.267",
+              "--test-executable",
+              "target/debug/deps/plugin_external_non_tool-7b19eb0239a921f6",
+              "--output",
+              "/home/shawn/demoncoder-check-tmp/managed-ordinary-final-host-matrix-2/claude-pass-empty-middle",
+              "--claude-text-case",
+              "empty-middle"
+            ],
+            "exit": 0,
+            "passed": true
+          },
+          {
+            "name": "claude-pass-zero-width",
+            "command": [
+              "python3",
+              "-B",
+              "tests/plugin_external_non_tool.py",
+              "--adapter",
+              "claude",
+              "--case",
+              "pass",
+              "--binary",
+              "/home/shawn/.local/share/claude/versions/2.1.267",
+              "--test-executable",
+              "target/debug/deps/plugin_external_non_tool-7b19eb0239a921f6",
+              "--output",
+              "/home/shawn/demoncoder-check-tmp/managed-ordinary-final-host-matrix-2/claude-pass-zero-width",
+              "--claude-text-case",
+              "zero-width"
+            ],
+            "exit": 0,
+            "passed": true
+          },
+          {
+            "name": "claude-pass-bom",
+            "command": [
+              "python3",
+              "-B",
+              "tests/plugin_external_non_tool.py",
+              "--adapter",
+              "claude",
+              "--case",
+              "pass",
+              "--binary",
+              "/home/shawn/.local/share/claude/versions/2.1.267",
+              "--test-executable",
+              "target/debug/deps/plugin_external_non_tool-7b19eb0239a921f6",
+              "--output",
+              "/home/shawn/demoncoder-check-tmp/managed-ordinary-final-host-matrix-2/claude-pass-bom",
+              "--claude-text-case",
+              "bom"
+            ],
+            "exit": 0,
+            "passed": true
+          },
+          {
+            "name": "claude-pass-next-line",
+            "command": [
+              "python3",
+              "-B",
+              "tests/plugin_external_non_tool.py",
+              "--adapter",
+              "claude",
+              "--case",
+              "pass",
+              "--binary",
+              "/home/shawn/.local/share/claude/versions/2.1.267",
+              "--test-executable",
+              "target/debug/deps/plugin_external_non_tool-7b19eb0239a921f6",
+              "--output",
+              "/home/shawn/demoncoder-check-tmp/managed-ordinary-final-host-matrix-2/claude-pass-next-line",
+              "--claude-text-case",
+              "next-line"
+            ],
+            "exit": 0,
+            "passed": true
+          }
+        ]
+      }
+    }
+  },
+  "failed_runs": [
+    {
+      "path": "/home/shawn/demoncoder-check-tmp/managed-ordinary-context-repair-qualification-1",
+      "reason": "Fixture TLS unexpected EOF during unknown-field; source held invalid acknowledgment with zero model requests. Unchanged targeted and full retries passed; no error assertions suppressed."
+    },
+    {
+      "path": "/home/shawn/demoncoder-check-tmp/managed-ordinary-final-host-matrix-1",
+      "reason": "Three peer connection diagnostics failed despite passing host assertions. Empty connection and truncated-header controls exposed fixture defects; exact TLS-handshake EOF is now a persisted pre-HTTP observation. Final matrix2 passes all43 with one retained handshake observation."
+    },
+    {
+      "path": "/home/shawn/demoncoder-check-tmp/managed-ordinary-host-phase-probes-1",
+      "reason": "One of nine strict-phase probes failed on TLS-handshake SSLEOFError before HTTP; retained to ground the narrow transport distinction."
+    }
+  ],
+  "reviews": {
+    "source_spec": {
+      "path": "/home/shawn/demoncoder-check-tmp/managed-codex-ordinary-context-spec-review.md",
+      "sha256": "5e8b814a5cb9d5c7d9de1c007ffb1c06ac8addf619b35c0a00ad433f56e3fd2a"
+    },
+    "host_spec": {
+      "path": "/home/shawn/demoncoder-check-tmp/managed-codex-host-spec-review.md",
+      "sha256": "dbcf98f408aecc0da457742fe5093b3c3531f6fac20e46bc69b330e71e154c43"
+    },
+    "fixture_spec": {
+      "path": "/home/shawn/demoncoder-check-tmp/codex-https-fixture-spec-review.md",
+      "sha256": "9a5b1ac46d98edc7c6f4e8307ce929d0e04ba5c9474244d24dbd0e4bb784afea"
+    },
+    "quality": {
+      "path": "/home/shawn/demoncoder-check-tmp/managed-codex-final-quality-review.md",
+      "sha256": "24a162cd108785ad87c952eabaeda412094b0b885f34bb9493af8c847b74f9a8"
     }
   }
 }

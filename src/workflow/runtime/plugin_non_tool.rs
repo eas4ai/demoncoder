@@ -38,6 +38,17 @@ pub(super) fn active(record: &Record, id: u64, event: HookEvent) -> Result<&NonT
 
 impl SharedRuntime {
     pub(crate) fn ensure_source_continuation(&self, id: u64, backend: u64) -> Result<()> {
+        self.validate_source_continuation(id, backend, SourceDelivery::Sent)
+    }
+    pub(crate) fn prepare_source_continuation(&self, id: u64, backend: u64) -> Result<()> {
+        self.validate_source_continuation(id, backend, SourceDelivery::Pending)
+    }
+    fn validate_source_continuation(
+        &self,
+        id: u64,
+        backend: u64,
+        expected: SourceDelivery,
+    ) -> Result<()> {
         let record = self.record()?;
         let operation = record
             .operations
@@ -50,7 +61,7 @@ impl SharedRuntime {
         owner::validate(&record, operation, receipt)?;
         ensure!(
             receipt.settled
-                && receipt.source_delivery == Some(SourceDelivery::Sent)
+                && receipt.source_delivery == Some(expected)
                 && receipt
                     .facts
                     .callback

@@ -109,6 +109,9 @@ pub struct SourceCallback {
     pub request_id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub command_uuid: Option<String>,
+    /// Exact adapter-owned outbound JSON-RPC request; absent on legacy records.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub command_request_id: Option<u64>,
     pub envelope_id: Option<String>,
     pub model: Option<String>,
 }

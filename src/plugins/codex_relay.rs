@@ -33,7 +33,7 @@ pub(crate) struct Owner {
     protected_root: PathBuf,
     listener: UnixListener,
     token: String,
-    callbacks: Callbacks,
+    callbacks: Option<Callbacks>,
     requirement: String,
 }
 
@@ -43,6 +43,18 @@ fn shell_word(value: &str) -> String {
 
 impl Owner {
     pub(crate) fn new(lifecycle: &Arc<Lifecycle>, executable: &Path) -> Result<Self> {
+        Self::channel(Some(lifecycle), executable, false)
+    }
+
+    pub(crate) fn ordinary(executable: &Path) -> Result<Self> {
+        Self::channel(None, executable, true)
+    }
+
+    fn channel(
+        lifecycle: Option<&Arc<Lifecycle>>,
+        executable: &Path,
+        ordinary: bool,
+    ) -> Result<Self> {
         // The shared developer tool boundary protects this parent in every
         // session, including sessions opened before this relay exists.
         let parent_path = PathBuf::from(std::env::var_os("HOME").context("relay requires HOME")?)
@@ -81,12 +93,17 @@ impl Owner {
         std::fs::write(&address_path, serde_json::to_vec(&address)?)?;
         std::fs::set_permissions(&address_path, std::fs::Permissions::from_mode(0o600))?;
         let command = format!(
-            "{} --codex-compaction-relay {}",
+            "{} {} {}",
             shell_word(
                 executable
                     .to_str()
                     .context("relay executable path is not UTF-8")?
             ),
+            if ordinary {
+                "--codex-ordinary-relay"
+            } else {
+                "--codex-compaction-relay"
+            },
             shell_word(
                 protected_root
                     .join("address.json")
@@ -96,24 +113,34 @@ impl Owner {
         );
         let source = root.path().join("hooks.json");
         let mut hooks = serde_json::Map::new();
-        for event in ["PreCompact", "PostCompact"] {
+        for event in if ordinary {
+            ["UserPromptSubmit", "Stop"]
+        } else {
+            ["PreCompact", "PostCompact"]
+        } {
             hooks.insert(
                 event.into(),
-                json!([{"hooks":[{"type":"command","command":command,"timeout":65}]}]),
+                if ordinary { json!([{"hooks":[{"type":"command","command":command,"timeout":65,"async":false}]}]) } else { json!([{"hooks":[{"type":"command","command":command,"timeout":65}]}]) },
             );
         }
         let bytes = serde_json::to_vec(&json!({"hooks":hooks}))?;
         std::fs::write(&source, &bytes)?;
-        let requirement = serde_json::to_string(
-            &json!({"protocol":PROTOCOL,"source_path":protected_root.join("hooks.json"),"source_sha256":format!("{:x}", Sha256::digest(&bytes)),"command":command}),
-        )?;
+        let requirement = if ordinary {
+            serde_json::to_string(
+                &json!({"protocol":"demoncoder-ordinary-v1","source_path":protected_root.join("hooks.json"),"source_sha256":format!("{:x}", Sha256::digest(&bytes)),"submit_command":command,"stop_command":command}),
+            )?
+        } else {
+            serde_json::to_string(
+                &json!({"protocol":PROTOCOL,"source_path":protected_root.join("hooks.json"),"source_sha256":format!("{:x}", Sha256::digest(&bytes)),"command":command}),
+            )?
+        };
         Ok(Self {
             _root: root,
             _parent: parent,
             protected_root,
             listener,
             token,
-            callbacks: lifecycle.callbacks()?,
+            callbacks: lifecycle.map(|l| l.callbacks()).transpose()?,
             requirement,
         })
     }
@@ -124,6 +151,26 @@ impl Owner {
 
     pub(crate) fn requirement(&self) -> &str {
         &self.requirement
+    }
+
+    pub(crate) fn source_path(&self) -> PathBuf {
+        self.protected_root.join("hooks.json")
+    }
+
+    pub(crate) async fn read(&self, stream: &mut UnixStream) -> Result<Value> {
+        let peer = stream.peer_cred()?;
+        ensure!(
+            peer.uid() == rustix::process::getuid().as_raw(),
+            "lifecycle relay owner mismatch"
+        );
+        let request = tokio::time::timeout(Duration::from_secs(5), read_frame(stream))
+            .await
+            .context("lifecycle relay input timed out")??;
+        ensure!(
+            request["token"].as_str() == Some(self.token.as_str()),
+            "lifecycle relay authentication failed"
+        );
+        Ok(request["input"].clone())
     }
 
     /// No success is written before host admission. EOF/error remains denial in
@@ -139,21 +186,11 @@ impl Owner {
         turn: &str,
         events: &EventSink,
     ) -> Result<()> {
-        let peer = stream.peer_cred()?;
-        ensure!(
-            peer.uid() == rustix::process::getuid().as_raw(),
-            "lifecycle relay owner mismatch"
-        );
-        let request = tokio::time::timeout(Duration::from_secs(5), read_frame(&mut stream))
-            .await
-            .context("lifecycle relay input timed out")??;
-        ensure!(
-            request["token"].as_str() == Some(self.token.as_str()),
-            "lifecycle relay authentication failed"
-        );
-        let input = request["input"].clone();
+        let input = self.read(&mut stream).await?;
         let decision = self
             .callbacks
+            .as_mut()
+            .context("compaction callback owner missing")?
             .handle_codex(input.clone(), session, turn, events)
             .await;
         let response = match &decision {
@@ -186,6 +223,47 @@ async fn read_frame(reader: &mut (impl AsyncRead + Unpin)) -> Result<Value> {
     serde_json::from_slice(&bytes).context("invalid lifecycle relay frame")
 }
 
+// Pin both the protected parent and socket inode. The advertised path may
+// exceed sockaddr_un, and neither directory nor final socket may redirect.
+struct PinnedSocket {
+    _parent: rustix::fd::OwnedFd,
+    socket: rustix::fd::OwnedFd,
+}
+impl PinnedSocket {
+    fn open(path: &Path) -> Result<Self> {
+        use rustix::fs::{Mode, OFlags, ResolveFlags, openat2};
+        let parent = openat2(
+            rustix::fs::CWD,
+            path.parent().context("relay socket parent missing")?,
+            OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC,
+            Mode::empty(),
+            ResolveFlags::NO_SYMLINKS,
+        )?;
+        let socket = openat2(
+            &parent,
+            path.file_name().context("relay socket name missing")?,
+            OFlags::PATH | OFlags::CLOEXEC,
+            Mode::empty(),
+            ResolveFlags::NO_SYMLINKS,
+        )?;
+        ensure!(
+            rustix::fs::FileType::from_raw_mode(rustix::fs::fstat(&socket)?.st_mode)
+                == rustix::fs::FileType::Socket,
+            "private relay address is not a socket"
+        );
+        Ok(Self {
+            _parent: parent,
+            socket,
+        })
+    }
+    async fn connect(&self) -> Result<UnixStream> {
+        Ok(UnixStream::connect(format!("/proc/self/fd/{}", self.socket.as_raw_fd())).await?)
+    }
+}
+async fn connect_private(path: &Path) -> Result<UnixStream> {
+    PinnedSocket::open(path)?.connect().await
+}
+
 /// Internal executable entry point. The command is only a transport; it cannot
 /// grant permission itself and never invents an acknowledgment on failure.
 pub async fn run(address_path: &Path) -> Result<()> {
@@ -201,7 +279,7 @@ pub async fn run(address_path: &Path) -> Result<()> {
     let address: Address = serde_json::from_slice(&address_bytes)?;
     let exchange = async {
         let input = read_frame(&mut tokio::io::stdin()).await?;
-        let mut stream = UnixStream::connect(&address.socket).await?;
+        let mut stream = connect_private(&address.socket).await?;
         ensure!(
             stream.peer_cred()?.uid() == rustix::process::getuid().as_raw(),
             "lifecycle relay owner mismatch"
@@ -279,5 +357,45 @@ mod tests {
         assert!(read_frame(&mut oversized.as_slice()).await.is_err());
         assert!(read_frame(&mut b"{}{}".as_slice()).await.is_err());
         assert!(read_frame(&mut b"{invalid".as_slice()).await.is_err());
+    }
+    #[tokio::test]
+    async fn private_socket_supports_long_paths_without_following_links() -> Result<()> {
+        let base = tempfile::tempdir()?;
+        let root = base.path().join("x".repeat(150));
+        std::fs::create_dir(&root)?;
+        let parent = std::fs::File::open(&root)?;
+        let socket = root.join("relay.sock");
+        let listener =
+            UnixListener::bind(format!("/proc/self/fd/{}/relay.sock", parent.as_raw_fd()))?;
+        assert!(socket.as_os_str().len() > 107);
+        let client = connect_private(&socket).await?;
+        let (server, _) = listener.accept().await?;
+        assert_eq!(client.peer_cred()?.uid(), server.peer_cred()?.uid());
+        let alias = base.path().join("alias");
+        std::os::unix::fs::symlink(&root, &alias)?;
+        assert!(connect_private(&alias.join("relay.sock")).await.is_err());
+        std::os::unix::fs::symlink(&socket, root.join("link.sock"))?;
+        assert!(connect_private(&root.join("link.sock")).await.is_err());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn pinned_socket_cannot_be_replaced_between_validation_and_connect() -> Result<()> {
+        let root = tempfile::tempdir()?;
+        let path = root.path().join("socket");
+        let original = UnixListener::bind(&path)?;
+        let pinned = PinnedSocket::open(&path)?;
+        std::fs::rename(&path, root.path().join("original"))?;
+        let replacement = UnixListener::bind(&path)?;
+        let _client = pinned.connect().await?;
+        tokio::time::timeout(Duration::from_secs(1), original.accept()).await??;
+        assert!(
+            tokio::time::timeout(Duration::from_millis(20), replacement.accept())
+                .await
+                .is_err()
+        );
+        std::fs::write(root.path().join("regular"), b"not a socket")?;
+        assert!(PinnedSocket::open(&root.path().join("regular")).is_err());
+        Ok(())
     }
 }

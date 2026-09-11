@@ -256,6 +256,7 @@ impl Callbacks {
                 sequence: self.sequence,
                 request_id: id.into(),
                 command_uuid: Some(self.command_uuid.clone()),
+                command_request_id: None,
                 envelope_id: Some(envelope.into()),
                 model: self.model.clone(),
             },
@@ -289,6 +290,14 @@ impl Callbacks {
             self.accepted = true;
         }
         Ok(response)
+    }
+    pub(super) fn prepare(&self, events: &EventSink) -> Result<()> {
+        if let Some(operation) = self.pending {
+            let (runtime, _) = events.for_non_tool_context(operation)?;
+            runtime.prepare_source_continuation(operation, self.backend(events)?)
+        } else {
+            events.ensure_continuation()
+        }
     }
     pub(super) fn sent(&self, events: &EventSink) -> Result<()> {
         if let Some(operation) = self.pending {

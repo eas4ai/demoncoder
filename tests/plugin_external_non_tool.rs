@@ -55,6 +55,22 @@ impl HookRunner for Gate {
             seen.push(serde_json::to_value(facts)?);
             first
         };
+        if event == "UserPromptSubmit"
+            && matches!(
+                self.case.as_str(),
+                "submit-context" | "submit-context-overflow" | "submit-context-lifecycle-overflow"
+            )
+        {
+            let size = if self.case == "submit-context-lifecycle-overflow" {
+                70 * 1024
+            } else {
+                60 * 1024
+            };
+            let marker = "EXTERNAL_SUBMIT_CONTEXT:";
+            return Ok(RawOutcome::Callback {
+                value: json!({"hookSpecificOutput":{"hookEventName":event,"additionalContext":format!("{marker}{}", if self.case == "submit-context-overflow" { "\"" } else { "x" }.repeat(size - marker.len()))}}),
+            });
+        }
         let selected = event == "UserPromptSubmit" && self.case.ends_with("submit")
             || event == "Stop" && self.case.ends_with("stop");
         if selected
@@ -172,10 +188,19 @@ async fn actual_external_submit_and_stop_use_the_original_owner() -> Result<()> 
         seen: seen.clone(),
         entered: entered.clone(),
     });
-    connection.access.non_tools = vec![
-        plan(HookEvent::UserPromptSubmit, runner.clone())?,
-        plan(HookEvent::Stop, runner)?,
-    ];
+    connection.access.non_tools = vec![];
+    if case != "mixed-stop-only" {
+        connection
+            .access
+            .non_tools
+            .push(plan(HookEvent::UserPromptSubmit, runner.clone())?);
+    }
+    if case != "mixed-submit-only" {
+        connection
+            .access
+            .non_tools
+            .push(plan(HookEvent::Stop, runner)?);
+    }
     let mixed = case.starts_with("mixed-");
     if mixed {
         let mut post = registration(HookEvent::PostToolUse, Arc::new(PostGate));
@@ -288,7 +313,8 @@ async fn actual_external_submit_and_stop_use_the_original_owner() -> Result<()> 
         })
         .collect();
     let expected = match case.as_str() {
-        "pass" => 2,
+        "pass" | "empty-stop" | "submit-context" => 2,
+        "submit-context-overflow" | "submit-context-lifecycle-overflow" => 1,
         "pass-twice" => 4,
         "submit-deny"
         | "cancel-submit"
@@ -297,7 +323,8 @@ async fn actual_external_submit_and_stop_use_the_original_owner() -> Result<()> 
         | "malformed-submit"
         | "backend-exit-submit" => 1,
         "cancel-stop" | "malformed-stop" => 2,
-        "stop-correct" | "always-block" | "mixed-post-correct" => 3,
+        "stop-correct" | "always-block" | "mixed-post-correct" | "mixed-stop-only"
+        | "mixed-submit-only" => 3,
         "mixed-submit-deny" | "mixed-cancel-submit" => 2,
         _ => anyhow::bail!("unknown case"),
     };
@@ -306,14 +333,23 @@ async fn actual_external_submit_and_stop_use_the_original_owner() -> Result<()> 
         expected,
         "production adapter did not deliver actual lifecycle callbacks"
     );
-    assert_eq!(seen.lock().unwrap().len(), expected);
+    let expected_handlers = match case.as_str() {
+        "mixed-stop-only" => 1,
+        "mixed-submit-only" => 2,
+        _ => expected,
+    };
+    assert_eq!(seen.lock().unwrap().len(), expected_handlers);
     if case.starts_with("cancel-") || case == "mixed-cancel-submit" {
         assert!(matches!(result, Ok(TurnEnd::Cancelled)));
     } else if case.starts_with("shutdown-") {
         assert!(matches!(result, Ok(TurnEnd::Shutdown)));
     } else if matches!(
         case.as_str(),
-        "submit-deny" | "always-block" | "mixed-submit-deny"
+        "submit-deny"
+            | "always-block"
+            | "mixed-submit-deny"
+            | "submit-context-overflow"
+            | "submit-context-lifecycle-overflow"
     ) || case.starts_with("malformed-")
         || case.starts_with("timeout-")
         || case == "backend-exit-submit"
@@ -374,6 +410,10 @@ async fn actual_external_submit_and_stop_use_the_original_owner() -> Result<()> 
         "source correction must retain its original backend invocation"
     );
     for (index, receipt) in receipts.iter().enumerate() {
+        let empty_observation =
+            (case == "mixed-stop-only" && index < 2) || (case == "mixed-submit-only" && index == 2);
+        assert_eq!(receipt.hooks.is_empty(), empty_observation);
+        assert_eq!(receipt.declarations.is_empty(), empty_observation);
         let callback = receipt.facts.callback.as_ref().unwrap();
         let owner = if mixed && index > 0 || case == "pass-twice" && index >= 2 {
             backend[1].id
@@ -423,6 +463,13 @@ async fn actual_external_submit_and_stop_use_the_original_owner() -> Result<()> 
                     assert_eq!(content_digest, acknowledged);
                     assert_eq!(callback.command_uuid.as_ref(), Some(uuid));
                 }
+                PostDelivery::CorrectionAcknowledged {
+                    invocation,
+                    acknowledgment: CorrectionAcknowledgment::CodexTurn { request_id, .. },
+                } => {
+                    assert_eq!(*invocation, owner);
+                    assert_eq!(callback.command_request_id, Some(*request_id));
+                }
                 PostDelivery::CorrectionReserved { invocation } => assert_eq!(*invocation, owner),
                 other => panic!("unexpected correction delivery {other:?}"),
             }
@@ -459,7 +506,28 @@ async fn actual_external_submit_and_stop_use_the_original_owner() -> Result<()> 
                     .is_some_and(|id| !id.is_empty())
             );
         }
-        if index > 0 {
+        if adapter == "codex" {
+            assert!(callback.command_uuid.is_none());
+            assert!(callback.command_request_id.is_some());
+            assert!(
+                callback
+                    .envelope_id
+                    .as_ref()
+                    .is_some_and(|id| id.len() == 36)
+            );
+            if index > 0 {
+                assert_ne!(
+                    callback.envelope_id,
+                    receipts[index - 1]
+                        .facts
+                        .callback
+                        .as_ref()
+                        .unwrap()
+                        .envelope_id
+                );
+            }
+        }
+        if index > 0 && adapter == "claude" {
             assert_ne!(
                 callback.request_id,
                 receipts[index - 1]
@@ -487,6 +555,16 @@ async fn actual_external_submit_and_stop_use_the_original_owner() -> Result<()> 
                 .all(|h| h.inspected.source_operation == owner)
         );
     }
+    if adapter == "codex" && matches!(case.as_str(), "stop-correct" | "always-block") {
+        let first = receipts[1].facts.callback.as_ref().unwrap();
+        let second = receipts[2].facts.callback.as_ref().unwrap();
+        assert_eq!(
+            first.request_id, second.request_id,
+            "actual native Stop ID repeats across ordered occurrences"
+        );
+        assert_ne!(first.envelope_id, second.envelope_id);
+        assert_eq!(first.command_request_id, second.command_request_id);
+    }
     if case.starts_with("cancel-")
         || case.starts_with("shutdown-")
         || case.starts_with("timeout-")
@@ -510,17 +588,39 @@ async fn actual_external_submit_and_stop_use_the_original_owner() -> Result<()> 
                 .is_err()
         );
         session.close().await?;
-        assert_eq!(seen.lock().unwrap().len(), expected);
+        assert_eq!(seen.lock().unwrap().len(), expected_handlers);
     } else {
         for receipt in &receipts {
-            assert!(receipt.settled);
+            assert_eq!(receipt.settled, case != "submit-context-lifecycle-overflow");
         }
-        for receipt in receipts.iter().filter(|r| r.hold.is_none()) {
+        for receipt in receipts.iter().filter(|r| {
+            r.hold.is_none()
+                && !matches!(
+                    case.as_str(),
+                    "submit-context-overflow" | "submit-context-lifecycle-overflow"
+                )
+        }) {
             assert_eq!(
                 receipt.source_delivery,
                 Some(demoncoder::plugins::receipts::SourceDelivery::Acknowledged)
             );
         }
+    }
+    if matches!(
+        case.as_str(),
+        "submit-context-overflow" | "submit-context-lifecycle-overflow"
+    ) {
+        assert_eq!(
+            receipts[0].source_delivery,
+            Some(demoncoder::plugins::receipts::SourceDelivery::Pending)
+        );
+        assert!(
+            session
+                .turn("Never replay overflow".into(), &mut commands, &events)
+                .await
+                .is_err()
+        );
+        assert_eq!(seen.lock().unwrap().len(), 1);
     }
     drain.abort();
     Ok(())

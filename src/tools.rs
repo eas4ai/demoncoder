@@ -506,19 +506,27 @@ impl ToolExecutor {
         occurrence: crate::plugins::receipts::NonToolOccurrence,
         events: &EventSink,
     ) -> Result<Option<crate::plugins::non_tool::NonToolOutcome>> {
-        let Some(plan) = self
+        let plan = self
             .access
             .non_tools
             .iter()
-            .find(|p| p.plan.event == occurrence.event())
-        else {
+            .find(|p| p.plan.event == occurrence.event());
+        if plan.is_none() && !events.has_source_lifecycle() {
             return Ok(None);
-        };
+        }
         ensure!(
             self.access.snapshot.is_none(),
             "snapshot tools cannot dispatch lifecycle hooks"
         );
         let metadata = self.root.metadata()?;
+        let Some(plan) = plan else {
+            return crate::plugins::non_tool::NonToolPlan::observe_source(
+                occurrence,
+                events,
+                (metadata.dev(), metadata.ino()),
+            )
+            .map(Some);
+        };
         plan.dispatch(
             occurrence,
             events,

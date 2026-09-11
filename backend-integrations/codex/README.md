@@ -129,7 +129,10 @@ operation and cannot authorize a correction.
 
 The existing managed transport accepts at most 1 MiB input and 64 KiB per output
 stream. The ordinary decoder enforces the same output limit. Host integration
-must check the serialized response fits; it must not truncate accumulated context.
+checks the complete serialized response including its trailing newline. Private
+ordinary hooks bypass the upstream context preview so every admitted context
+character reaches the model; the transport limit still rejects oversized output.
+Native ambient hooks retain their upstream preview behavior.
 `--demoncoder-ordinary-capability` reports protocol `demoncoder-ordinary-v1`,
 source version `0.153.4` and patch version `1`.
 

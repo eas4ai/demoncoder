@@ -16,7 +16,11 @@ async fn main() -> Result<()> {
     if let Some(spec) = &args.supervise_backend {
         return adapters::backend_supervisor::run(spec).await;
     }
-    if let Some(address) = &args.codex_compaction_relay {
+    if let Some(address) = args
+        .codex_compaction_relay
+        .as_ref()
+        .or(args.codex_ordinary_relay.as_ref())
+    {
         return demoncoder::plugins::codex_relay::run(address).await;
     }
     if let Some(script) = &args.supervise_bash {

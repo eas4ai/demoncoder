@@ -154,7 +154,13 @@ impl ExternalCorrection {
         Ok(
             crate::plugins::receipts::SourceOrigin::PluginPostCorrection {
                 post_operation: self.operation,
-                content_digest: crate::plugins::admission::digest(&user["message"])?,
+                content_digest: crate::plugins::admission::digest(
+                    if user["method"] == "turn/start" {
+                        &user["params"]["input"]
+                    } else {
+                        &user["message"]
+                    },
+                )?,
             },
         )
     }

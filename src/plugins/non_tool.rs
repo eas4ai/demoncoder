@@ -138,6 +138,35 @@ pub(crate) struct NonToolOutcome {
     pub(crate) context: String,
 }
 impl NonToolPlan {
+    /// Record an authenticated boundary with no user handler. This is an
+    /// observation receipt, not an executable plan with synthetic declarations.
+    pub(crate) fn observe_source(
+        occurrence: NonToolOccurrence,
+        events: &EventSink,
+        expected_workspace: (u64, u64),
+    ) -> Result<NonToolOutcome> {
+        ensure!(
+            events.has_source_lifecycle(),
+            "empty lifecycle observation requires an authenticated source"
+        );
+        let event = occurrence.event();
+        let plan = digest(&("authenticated_source_observation_v1", event.as_str()))?;
+        let (events, facts) = events.for_non_tool(occurrence, plan, vec![])?;
+        let (runtime, operation) = events.plugin_context()?;
+        let _owner = runtime.own_post_lifecycle(operation, event)?;
+        ensure!(
+            facts.workspace == expected_workspace,
+            "source observation workspace differs"
+        );
+        runtime.settle_non_tool(operation, event, NonToolEffects::default())?;
+        Ok(NonToolOutcome {
+            operation,
+            hold: None,
+            correction: false,
+            context: String::new(),
+        })
+    }
+
     pub(crate) async fn dispatch(
         &self,
         occurrence: NonToolOccurrence,

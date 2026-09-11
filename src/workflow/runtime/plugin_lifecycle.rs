@@ -172,19 +172,35 @@ pub(super) fn source_correction_owner(
         "source callback lacks admitted post-correction authority"
     );
     owner::validate(record, &post.facts)?;
+    let codex = match (&post.facts.representation, source) {
+        (ToolRepresentation::ClaudeMcp { source_input, .. }, ObservedLifecycle::Claude(input)) => {
+            ensure!(
+                source_input["session_id"].is_string()
+                    && source_input["session_id"] == input["session_id"]
+                    && callback
+                        .command_uuid
+                        .as_ref()
+                        .is_some_and(|id| id.len() == 36)
+                    && callback.command_request_id.is_none(),
+                "source callback differs from Claude correction frame"
+            );
+            false
+        }
+        (ToolRepresentation::CodexDynamic { session_id, .. }, ObservedLifecycle::Codex(input)) => {
+            ensure!(
+                input["session_id"] == *session_id
+                    && input["turn_id"].is_string()
+                    && callback.command_uuid.is_none()
+                    && callback.command_request_id.is_some(),
+                "source callback differs from Codex correction frame"
+            );
+            true
+        }
+        _ => anyhow::bail!("source callback differs from its post-correction source session"),
+    };
     ensure!(
-        matches!((&post.facts.representation, source),
-        (ToolRepresentation::ClaudeMcp { source_input, .. }, ObservedLifecycle::Claude(input))
-            if source_input["session_id"].is_string() && source_input["session_id"] == input["session_id"]),
-        "source callback differs from its post-correction source session"
-    );
-    ensure!(
-        callback
-            .command_uuid
-            .as_ref()
-            .is_some_and(|id| id.len() == 36)
-            && content_digest.len() == 64,
-        "source post-correction frame identity missing"
+        content_digest.len() == 64,
+        "source post-correction frame digest missing"
     );
     match &post.delivery {
         PostDelivery::CorrectionReserved { invocation } => {
@@ -211,10 +227,33 @@ pub(super) fn source_correction_owner(
                 },
         } => {
             ensure!(
-                *invocation == callback.backend_operation
+                !codex
+                    && *invocation == callback.backend_operation
                     && callback.command_uuid.as_ref() == Some(uuid)
                     && content_digest == acknowledged,
                 "source callback differs from acknowledged post-correction frame"
+            );
+            Ok(None)
+        }
+        PostDelivery::CorrectionAcknowledged {
+            invocation,
+            acknowledgment:
+                CorrectionAcknowledgment::CodexTurn {
+                    thread_id,
+                    turn_id,
+                    request_id,
+                },
+        } => {
+            let ObservedLifecycle::Codex(input) = source else {
+                anyhow::bail!("Codex acknowledgment has another source")
+            };
+            ensure!(
+                codex
+                    && *invocation == callback.backend_operation
+                    && callback.command_request_id == Some(*request_id)
+                    && input["session_id"] == *thread_id
+                    && input["turn_id"] == *turn_id,
+                "source callback differs from acknowledged Codex correction frame"
             );
             Ok(None)
         }

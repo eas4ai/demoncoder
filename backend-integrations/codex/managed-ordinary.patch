@@ -274,9 +274,10 @@
  pub use registry::HookListOutcome;
 --- /dev/null
 +++ b/codex-rs/hooks/src/managed_ordinary.rs
-@@ -0,0 +1,393 @@
+@@ -0,0 +1,396 @@
 +use crate::engine::ConfiguredHandler;
 +use crate::engine::ConfiguredHandlerKind;
++use crate::output_spill::AdditionalContextLimit;
 +use anyhow::Context;
 +use codex_protocol::protocol::HookEventName;
 +use codex_protocol::protocol::HookSource;
@@ -643,7 +644,9 @@
 +                matcher: None,
 +                timeout_sec: handler.timeout,
 +                status_message: None,
-+                additional_context_limit: Default::default(),
++                // The strict 64 KiB response bound already admits this private context.
++                // Preserve it in full instead of applying the native token preview.
++                additional_context_limit: AdditionalContextLimit::from_config(Some(0)),
 +                source_path: source_path.clone().into(),
 +                source: HookSource::SessionFlags,
 +                display_order,
@@ -670,7 +673,7 @@
 +mod tests;
 --- /dev/null
 +++ b/codex-rs/hooks/src/managed_ordinary_registry_tests.rs
-@@ -0,0 +1,321 @@
+@@ -0,0 +1,331 @@
 +use super::*;
 +use crate::managed_ordinary::ManagedOrdinary;
 +use codex_protocol::protocol::HookRunStatus;
@@ -964,10 +967,17 @@
 +base=json.dumps(response,separators=(',',':'))
 +response['hookSpecificOutput']['additionalContext']='x'*(size-len(base))
 +wire=json.dumps(response,separators=(',',':'))
++with open(sys.argv[2], 'w') as expected:
++    expected.write(response['hookSpecificOutput']['additionalContext'])
 +assert len(wire.encode())==size
 +sys.stdout.write(wire)
 +"#).unwrap();
-+        let command = format!("python3 '{}' {size}", script.display());
++        let expected_context = temp.path().join("expected-context.txt");
++        let command = format!(
++            "python3 '{}' {size} '{}'",
++            script.display(),
++            expected_context.display()
++        );
 +        let thread_id = ThreadId::new();
 +        let hooks = hooks(snapshot(&temp, &command), thread_id);
 +        let outcome = hooks
@@ -985,7 +995,10 @@
 +        assert_eq!(outcome.should_stop, size > 65_536, "size={size}");
 +        if size == 65_536 {
 +            assert_eq!(outcome.hook_events[0].run.status, HookRunStatus::Completed);
-+            assert!(!outcome.additional_contexts.is_empty());
++            assert_eq!(
++                outcome.additional_contexts,
++                vec![std::fs::read_to_string(expected_context).unwrap()]
++            );
 +        } else {
 +            assert_eq!(outcome.hook_events[0].run.status, HookRunStatus::Failed);
 +            assert!(outcome.additional_contexts.is_empty());
