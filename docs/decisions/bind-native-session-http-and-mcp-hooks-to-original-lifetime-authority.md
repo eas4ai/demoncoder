@@ -20,4 +20,4 @@ Use compiled failing and corrected controls for actual no-prompt native startup/
 
 ## Realized by
 
-(none yet: recorded, not built)
+- 800e427c55bde89d5b878510841f31f43f048fdb Bind native session transports to original lifetime authority
