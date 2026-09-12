@@ -37,9 +37,9 @@ async fn parent_extension_uses_shared_receipts_and_rejects_unknown_tools() {
     let executor = ToolExecutor::with_policy(root.path(), &policy).unwrap();
     assert_eq!(
         ToolExecutor::new(root.path()).unwrap().definitions().len(),
-        4
+        5
     );
-    assert_eq!(executor.definitions().len(), 5);
+    assert_eq!(executor.definitions().len(), 6);
     let (tx, mut rx) = tokio::sync::mpsc::channel(16);
     let events = EventSink::new("parent".into(), tx, None).unwrap();
     let call = ToolCall {

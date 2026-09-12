@@ -1563,6 +1563,7 @@ fn declaration(name: &str, dialect: HookDialect, class: HandlerClass) -> Declara
         priority: 0,
         matcher: Matcher {
             error_category: None,
+            trigger: None,
             tool: Some("write".into()),
             path: None,
         },
@@ -3740,6 +3741,11 @@ print(json.dumps({'systemMessage':json.dumps(x)}))
             let event = receipt.facts.subject.occurrence.clone();
             let mut expected = json!({"session_id":receipt.facts.session,"cwd":fixture.root.path(),"transcript_path":receipt.facts.host_transcript_path,"permission_mode":"default"});
             match event {
+                demoncoder::plugins::receipts::NonToolOccurrence::PreCompact { .. }
+                | demoncoder::plugins::receipts::NonToolOccurrence::PostCompact { .. }
+                | demoncoder::plugins::receipts::NonToolOccurrence::PostToolBatch { .. } => {
+                    panic!("unexpected compaction/batch in existing ordinary fixture")
+                }
                 demoncoder::plugins::receipts::NonToolOccurrence::SessionStart { .. }
                 | demoncoder::plugins::receipts::NonToolOccurrence::SessionEnd { .. } => {
                     unreachable!("turn fixture")

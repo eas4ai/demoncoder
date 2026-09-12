@@ -22,7 +22,10 @@ impl NonToolPlan {
         ensure!(
             matches!(
                 event,
-                HookEvent::UserPromptSubmit
+                HookEvent::PreCompact
+                    | HookEvent::PostCompact
+                    | HookEvent::PostToolBatch
+                    | HookEvent::UserPromptSubmit
                     | HookEvent::Stop
                     | HookEvent::StopFailure
                     | HookEvent::SessionStart
@@ -78,10 +81,21 @@ impl NonToolEffects {
                 "Plugin-origin {}: invalid or failed lifecycle response",
                 receipt.declaration.package
             ));
-            if receipt.required_gate {
+            if receipt.required_gate
+                || (matches!(event, HookEvent::PreCompact | HookEvent::PostCompact)
+                    && matches!(
+                        receipt.declaration.runner,
+                        super::hook_types::HandlerKind::Prompt
+                            | super::hook_types::HandlerKind::Agent
+                    ))
+            {
                 self.hold("required lifecycle handler failed");
             }
         }
+        let enforce = receipt.required_gate
+            || matches!(event, HookEvent::PreCompact | HookEvent::PostCompact)
+            || (event == HookEvent::PostToolBatch
+                && receipt.declaration.dialect == HookDialect::Claude);
         for (index, effect) in decoded.effects.into_iter().enumerate() {
             let proposal = PendingProposal {
                 index,
@@ -111,7 +125,7 @@ impl NonToolEffects {
                 } => {}
                 ProposedEffect::Decision { reason, .. } => {
                     disposition = ProposalDisposition::Held;
-                    if receipt.required_gate {
+                    if enforce {
                         self.hold(
                             reason
                                 .map(|r| r.get().clone())
@@ -120,17 +134,17 @@ impl NonToolEffects {
                     }
                 }
                 ProposedEffect::Control(ControlRequest::Followup(_))
-                    if event == HookEvent::Stop && receipt.required_gate =>
+                    if matches!(event, HookEvent::Stop | HookEvent::PostCompact) && enforce =>
                 {
                     self.correction = true
                 }
-                ProposedEffect::Control(_) if receipt.required_gate => {
+                ProposedEffect::Control(_) if enforce => {
                     disposition = ProposalDisposition::Held;
                     self.hold("lifecycle continuation unmet or correction allowance exhausted");
                 }
                 _ => {
                     disposition = ProposalDisposition::Pending;
-                    if receipt.required_gate {
+                    if enforce {
                         self.hold("lifecycle proposal owner is unavailable");
                     }
                 }
@@ -154,6 +168,32 @@ pub(crate) struct NonToolOutcome {
     pub(crate) hold: Option<String>,
     pub(crate) correction: bool,
     pub(crate) context: String,
+    pub(crate) validation: Option<NonToolValidation>,
+}
+pub(crate) struct NonToolValidation {
+    plan: Arc<NonToolPlan>,
+    workspace: Arc<GateWorkspace>,
+    snapshots: Vec<(
+        super::gate_snapshot::GateReadSet,
+        Arc<super::gate_snapshot::GateSnapshot>,
+    )>,
+    boundary: Arc<tokio::sync::Mutex<()>>,
+}
+impl NonToolValidation {
+    pub(crate) async fn validate(&self) -> Result<tokio::sync::OwnedMutexGuard<()>> {
+        let guard = self.boundary.clone().lock_owned().await;
+        for (reads, previous) in &self.snapshots {
+            let current =
+                super::lifecycle::capture(&self.plan.plan, self.workspace.clone(), reads.clone())
+                    .await?;
+            ensure!(
+                current.root_identity() == previous.root_identity()
+                    && current.revision() == previous.revision(),
+                "PreCompact inspected inputs changed before replacement"
+            );
+        }
+        Ok(guard)
+    }
 }
 impl NonToolPlan {
     /// Record an authenticated boundary with no user handler. This is an
@@ -182,11 +222,12 @@ impl NonToolPlan {
             hold: None,
             correction: false,
             context: String::new(),
+            validation: None,
         })
     }
 
     pub(crate) async fn dispatch(
-        &self,
+        self: &Arc<Self>,
         occurrence: NonToolOccurrence,
         events: &EventSink,
         workspace: Arc<GateWorkspace>,
@@ -248,6 +289,18 @@ impl NonToolPlan {
             if !handler.matches_non_tool(&facts.subject.occurrence) {
                 continue;
             }
+            if matches!(event, HookEvent::PreCompact | HookEvent::PostCompact)
+                && matches!(
+                    handler.registration.declaration.identity.runner,
+                    super::hook_types::HandlerKind::Prompt | super::hook_types::HandlerKind::Agent
+                )
+                && runtime.plugin_funded_remaining(operation, event).is_err()
+            {
+                effects.hold(
+                    "compaction model hook lacks an applicable original task or session allowance",
+                );
+                continue;
+            }
             let d = &handler.registration.declaration;
             if let Some(group) = &d.concurrent_group {
                 let position = *named
@@ -284,7 +337,7 @@ impl NonToolPlan {
             let guard = Arc::new(
                 tokio::time::timeout(
                     runtime.plugin_remaining(operation, event)?,
-                    boundary.lock_owned(),
+                    boundary.clone().lock_owned(),
                 )
                 .await?,
             );
@@ -299,6 +352,7 @@ impl NonToolPlan {
                 if d.identity.dialect != HookDialect::Native
                     && facts.source.is_none()
                     && facts.native_turn.is_none()
+                    && facts.subject.occurrence.host_operation().is_none()
                 {
                     effects.hold(
                         "source lifecycle handler requires an actual observed backend callback",
@@ -498,13 +552,14 @@ impl NonToolPlan {
             Some(
                 tokio::time::timeout(
                     runtime.plugin_remaining(operation, event)?,
-                    boundary.lock_owned(),
+                    boundary.clone().lock_owned(),
                 )
                 .await?,
             )
         };
-        for (reads, previous) in validation {
-            let current = super::lifecycle::capture(&self.plan, workspace.clone(), reads).await?;
+        for (reads, previous) in &validation {
+            let current =
+                super::lifecycle::capture(&self.plan, workspace.clone(), reads.clone()).await?;
             if current.root_identity() != previous.root_identity()
                 || current.revision() != previous.revision()
             {
@@ -540,6 +595,12 @@ impl NonToolPlan {
             hold: effects.hold.clone(),
             correction: effects.correction,
             context,
+            validation: (event == HookEvent::PreCompact).then(|| NonToolValidation {
+                plan: self.clone(),
+                workspace: workspace.clone(),
+                snapshots: validation,
+                boundary,
+            }),
         };
         runtime.settle_non_tool(operation, event, effects)?;
         Ok(result)

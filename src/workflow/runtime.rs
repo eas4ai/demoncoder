@@ -4,6 +4,7 @@ pub use budget_accounting::{BudgetRef, RetiredTaskAllocation, UsageReceipt};
 mod delegation;
 mod oracle_source;
 pub(crate) use oracle_source::OracleSource;
+pub(crate) mod compaction;
 pub(crate) mod plugin_admission;
 pub(crate) mod plugin_lifecycle;
 pub(crate) mod plugin_non_tool;
@@ -11,6 +12,7 @@ pub(crate) mod plugin_observer;
 mod plugin_once;
 pub mod plugin_session;
 pub mod session_budget;
+pub(crate) mod tool_batches;
 mod tool_operations;
 pub(crate) use tool_operations::ToolAdmission;
 pub use tool_operations::ToolReceipt;
@@ -818,7 +820,10 @@ impl SharedRuntime {
                         owner.phase == phase
                             && !owner.complete
                             && !owner.reconciled
-                            && matches!(owner.host_invocation, Some(HostInvocation::NativeTurn(_))),
+                            && matches!(
+                                owner.host_invocation,
+                                Some(HostInvocation::NativeTurn(_) | HostInvocation::Compaction(_))
+                            ),
                         "model native turn changed or ended"
                     );
                     budget_accounting::inherited(r, source)?

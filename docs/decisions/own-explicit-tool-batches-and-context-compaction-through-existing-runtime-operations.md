@@ -1,0 +1,22 @@
+# Own explicit tool batches and context compaction through existing runtime operations
+
+Level: Judged
+Decided by: agent
+Rests on: HOOK-001,HOOK-002,HOOK-004,HOOK-007,HOOK-008,HOOK-010,HOOK-011,PRUN-001,PRUN-002,PCOMP-002,PCOMP-003
+Would be wrong if: A batch completes before an admitted member settles, compaction releases a stale gate or loses original evidence or policy, summary work borrows another allowance, or recovery repeats an uncertain effect.
+
+## Decision
+
+Add one explicit tool_batch operation to the shared ToolExecutor on all four connections. Admit 1 to 32 ordered members within 1 MiB aggregate input, reject nested batches and caller-supplied operation IDs, and assign each member a stable identity from its admitted batch and index. Identical member payloads remain distinct intended operations. Freeze membership before effects, run each member through ordinary tool admission and its original allocation, and retain original individual receipts. Do not automatically group ordinary native response vectors. PostToolBatch follows known settlement of all admitted members; denial, skipped members, cancellation and uncertain effects remain distinct. Repeated delivery cannot rerun a settled effect or observation. Applicable imported Claude declarations run on real host batches with their declaration-dialect outcomes and truthful host provenance. Actual Claude backend batches have separate causal identities; Codex has no invented implicit batch.
+
+Implement native compaction as an owned transaction using the current model and connection. Manual compact is a distinct session control that does not start ordinary work, accept a task or reset corrections. Preserve the actual manual compaction route of both external backends and connect their real pre/post callbacks to managed handlers through the existing qualified transports. Automatic native compaction triggers at 512 KiB of serialized active history at an empty-pending boundary, before deferred Creator context is reserved. This is a host byte threshold, not a provider token limit. Bound native summary input to 1 MiB, output to 16 KiB, and the single tool-free request to 30 seconds or the shorter original deadline. An explicit output ceiling may only be lowered. No fallback model or automatic retry grants more work.
+
+Use the original live task or child identity, epoch and remaining allowance whenever applicable. Manual compaction may use an unaccepted stopped task only while that same allowance remains valid, without resuming the task. Taskless compaction reuses the existing Unallocated ordinary-model owner, durable operation and usage receipt with session attribution and cancellation. The summary request never debits the separate SessionHooks grant. Prompt and Agent hooks around taskless compaction still require their own existing explicit session grant under HOOK-007; ordinary Unallocated ownership cannot authorize them. Preserve explicit missing usage. The summary request cannot consume a contribution reserved for the next Creator request.
+
+Prepare a staged, strictly smaller provider checkpoint that preserves complete tool-call/result units, the actual current developer prompt and bounded recent context with their provenance. Record host prompt pins rather than inferring authority from user-role text. Preserve uncertain legacy entries conservatively. Reject absent eligible context, malformed or nonshrinking output, tool requests and exceeded bounds without a false success event. A failed automatic attempt visibly holds continuation instead of looping.
+
+Persist compaction identity before model work. Revalidate its source context, inspected inputs, policy and exact owner at publication, then atomically retain the applied checkpoint and compaction receipt in the existing Store. Original tool, verification, review, activation, once and allocation records remain authoritative outside shortened context. PostCompact describes an actual applied change; a continuation hold cannot undo it. Persistence uncertainty holds work and never overwrites a possibly installed checkpoint with stale state or automatically repeats summary work or effectful handlers. Reuse the existing lifecycle dispatcher, runners, snapshots, cancellation and source acknowledgments. Prove member barriers, actual shorter requests, unchanged denied context, retained evidence and policy, exact usage ownership, deferred-context ordering, and crash/replay behavior through production paths and safe violating controls.
+
+## Realized by
+
+(none yet: recorded, not built)

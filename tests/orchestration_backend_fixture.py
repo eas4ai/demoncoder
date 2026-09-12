@@ -123,7 +123,7 @@ def main():
                 response = json.dumps({"verdict": "clear", "findings": [], "explanation": "A denied role tool cannot authorize work."})
         else:
             if codex:
-                assert exposed_tools == {"read", "write", "edit", "bash"}, exposed_tools
+                assert exposed_tools == {"read", "write", "edit", "bash", "tool_batch"}, exposed_tools
             request, round_number = work_request(prompt)
             pending = work_calls(request, round_number)
             response = f"ORCHESTRATION-WORK-DONE round {round_number}"

@@ -2,7 +2,7 @@
 use super::{HostInvocation, Operation, Record, SharedRuntime, delegation};
 use crate::plugins::{hook_types::HookEvent, receipts::*};
 use anyhow::{Context, Result, ensure};
-mod owner;
+pub(super) mod owner;
 mod turn;
 
 pub(super) fn active(record: &Record, id: u64, event: HookEvent) -> Result<&NonToolReceipt> {
@@ -234,7 +234,10 @@ impl SharedRuntime {
             ensure!(
                 !record.recovery_pending
                     && !operation.reconciled
-                    && receipt.facts.subject.occurrence.event() == HookEvent::Stop
+                    && matches!(
+                        receipt.facts.subject.occurrence.event(),
+                        HookEvent::Stop | HookEvent::PostCompact
+                    )
                     && receipt.settled
                     && receipt.hold.is_none()
                     && receipt.correction_required
@@ -309,6 +312,7 @@ impl SharedRuntime {
         declarations: Vec<serde_json::Value>,
     ) -> Result<NonToolFacts> {
         use std::os::unix::fs::MetadataExt;
+        let host_operation = occurrence.host_operation();
         let native_turn = origin.native_turn;
         let native_session = origin.native_session;
         ensure!(
@@ -379,6 +383,17 @@ impl SharedRuntime {
                     root: &record.workspace,
                     child: None,
                 }
+            } else if matches!(
+                occurrence,
+                NonToolOccurrence::PreCompact {
+                    compaction: Some(_),
+                    ..
+                } | NonToolOccurrence::PostCompact {
+                    compaction: Some(_),
+                    ..
+                }
+            ) {
+                super::compaction::owner(record, phase)?
             } else {
                 owner::resolve(record, phase)?
             };
@@ -390,6 +405,61 @@ impl SharedRuntime {
             let execution_identity = owner.identity.clone();
             let workspace = owner.root.to_owned();
             let child_owner = owner.child;
+            if matches!(
+                occurrence,
+                NonToolOccurrence::PreCompact {
+                    compaction: Some(_),
+                    ..
+                } | NonToolOccurrence::PostCompact {
+                    compaction: Some(_),
+                    ..
+                }
+            ) {
+                ensure!(
+                    native_turn.is_none(),
+                    "compaction must use its exact transaction owner"
+                );
+                let c = super::compaction::validate(record, host_operation.expect("typed"), phase)?;
+                ensure!(
+                    c.external_backend
+                        == origin
+                            .source
+                            .as_ref()
+                            .map(|s| s.correlation.backend_operation),
+                    "compaction source backend differs"
+                );
+                super::compaction::validate_occurrence(record, phase, &occurrence)?;
+                ensure!(
+                    !record
+                        .operations
+                        .iter()
+                        .filter_map(Operation::non_tool_receipt)
+                        .any(
+                            |r| r.facts.subject.occurrence.host_operation() == host_operation
+                                && r.facts.subject.occurrence.event() == occurrence.event()
+                        ),
+                    "compaction event already recorded; never replay"
+                );
+            }
+            if let NonToolOccurrence::PostToolBatch {
+                batch: Some(id),
+                tool_calls,
+            } = &occurrence
+            {
+                ensure!(
+                    origin.source.is_none(),
+                    "host batch cannot borrow source callback authority"
+                );
+                super::tool_batches::validate_observation(record, phase, *id, tool_calls)?;
+                ensure!(
+                    !record
+                        .operations
+                        .iter()
+                        .filter_map(Operation::non_tool_receipt)
+                        .any(|r| r.facts.subject.occurrence.host_operation() == Some(*id)),
+                    "batch observation already recorded; never replay"
+                );
+            }
             if let Some(source) = &origin.source {
                 owner::validate_backend(
                     record,
@@ -438,6 +508,8 @@ impl SharedRuntime {
                 native_turn,
                 provenance: if origin.source.is_some() {
                     Some("authenticated_source_callback_v1".into())
+                } else if host_operation.is_some() {
+                    Some("explicit_host_operation_v1".into())
                 } else {
                     native_turn
                         .or(native_session)
@@ -480,12 +552,34 @@ impl SharedRuntime {
                 settled: false,
                 correction_admitted: false,
             };
-            let source = native_session.or(native_turn).or_else(|| {
-                origin
-                    .source
-                    .as_ref()
-                    .map(|s| s.correlation.backend_operation)
-            });
+            let compact_lifetime = if matches!(
+                occurrence,
+                NonToolOccurrence::PreCompact {
+                    compaction: Some(_),
+                    ..
+                } | NonToolOccurrence::PostCompact {
+                    compaction: Some(_),
+                    ..
+                }
+            ) {
+                super::compaction::hook_lifetime(
+                    record,
+                    host_operation.context("compaction missing")?,
+                    phase,
+                )?
+            } else {
+                None
+            };
+            let source = compact_lifetime
+                .or(host_operation)
+                .or(native_session)
+                .or(native_turn)
+                .or_else(|| {
+                    origin
+                        .source
+                        .as_ref()
+                        .map(|s| s.correlation.backend_operation)
+                });
             let budget = match source {
                 Some(source) => super::budget_accounting::inherited(record, source)?,
                 None => super::budget_accounting::capture(record, &session),

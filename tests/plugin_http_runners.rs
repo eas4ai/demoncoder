@@ -166,6 +166,7 @@ fn declaration(name: &str, dialect: HookDialect, class: HandlerClass) -> Declara
         priority: 0,
         matcher: Matcher {
             error_category: None,
+            trigger: None,
             tool: Some("write".into()),
             path: None,
         },

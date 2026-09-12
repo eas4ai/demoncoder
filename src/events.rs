@@ -727,6 +727,161 @@ impl EventSink {
         Ok(child)
     }
 
+    pub(crate) fn begin_external_compaction(&self, input: &serde_json::Value) -> Result<u64> {
+        self.runtime
+            .as_ref()
+            .context("compaction runtime missing")?
+            .begin_external_compaction(
+                &self.phase,
+                self.invocation.context("compaction backend missing")?,
+                input,
+            )
+    }
+    pub(crate) fn observe_external_compaction(
+        &self,
+        id: u64,
+        input: &serde_json::Value,
+    ) -> Result<()> {
+        self.runtime
+            .as_ref()
+            .context("compaction runtime missing")?
+            .observe_external_compaction(
+                id,
+                &self.phase,
+                self.invocation.context("compaction backend missing")?,
+                input,
+            )
+    }
+    pub(crate) fn begin_compaction(
+        &self,
+        trigger: &str,
+        source: &serde_json::Value,
+    ) -> Result<(Self, u64)> {
+        anyhow::ensure!(
+            self.hook_model.is_none(),
+            "hook models cannot compact worker context"
+        );
+        let runtime = self
+            .runtime
+            .as_ref()
+            .context("compaction requires durable session ownership")?;
+        let lifetime = {
+            let retained = self
+                .host_lifetime
+                .lock()
+                .map_err(|_| anyhow::anyhow!("native lifetime lock failed"))?;
+            if let Some(owner) = retained.as_ref() {
+                anyhow::ensure!(
+                    owner.runtime.upgrade()?.plugin_session()? == runtime.plugin_session()?,
+                    "compaction lifetime belongs to another session"
+                );
+                Some(owner.operation)
+            } else {
+                None
+            }
+        };
+        let id = runtime.begin_compaction(
+            &self.phase,
+            self.identity.as_ref(),
+            trigger,
+            source,
+            lifetime,
+        )?;
+        Ok((
+            Self {
+                invocation: Some(id),
+                tool_operation: None,
+                native_turn: None,
+                source_lifecycle: None,
+                ..self.clone()
+            },
+            id,
+        ))
+    }
+    pub(crate) fn begin_compaction_model(&self, id: u64) -> Result<u64> {
+        self.runtime
+            .as_ref()
+            .context("compaction runtime missing")?
+            .compaction_model(id, &self.phase, self.identity.as_ref())
+    }
+    pub(crate) fn compaction_remaining(&self, id: u64) -> Result<std::time::Duration> {
+        let runtime = self
+            .runtime
+            .as_ref()
+            .context("compaction runtime missing")?;
+        runtime.compaction_remaining(id)
+    }
+    pub(crate) fn apply_compaction(
+        &self,
+        id: u64,
+        state: serde_json::Value,
+        summary: String,
+    ) -> Result<()> {
+        self.runtime
+            .as_ref()
+            .context("compaction runtime missing")?
+            .apply_compaction(id, &self.phase, state, summary)
+    }
+    pub(crate) fn installed_compaction_checkpoint(&self) -> Result<serde_json::Value> {
+        self.runtime
+            .as_ref()
+            .context("compaction runtime missing")?
+            .installed_compaction_checkpoint(&self.phase)
+    }
+    pub(crate) fn compaction_objective(&self) -> Result<Option<String>> {
+        let record = self
+            .runtime
+            .as_ref()
+            .context("compaction runtime missing")?
+            .record()?;
+        if let Some(id) = self
+            .phase
+            .strip_prefix("agent:")
+            .and_then(|p| p.strip_suffix(":worker"))
+            .and_then(|p| p.parse::<u64>().ok())
+        {
+            let child = record
+                .agents
+                .iter()
+                .find(|a| a.id == id)
+                .context("compaction child assignment missing")?;
+            return Ok(Some(format!(
+                "{}\nOriginal assignment context:\n{}\nOwned paths: {}",
+                child.request.objective,
+                child.request.context,
+                child.request.owned_paths.join(", ")
+            )));
+        }
+        Ok(record.task.map(|t| t.objective))
+    }
+    pub(crate) fn begin_tool_batch(
+        &self,
+        members: Vec<crate::tools::ToolCall>,
+    ) -> Result<(Self, u64, Vec<crate::tools::ToolCall>)> {
+        let runtime = self
+            .runtime
+            .as_ref()
+            .context("explicit batches require durable session ownership")?;
+        let (id, members) = runtime.begin_tool_batch(
+            self.tool_operation
+                .context("batch wrapper lacks admission")?,
+            members,
+        )?;
+        Ok((
+            Self {
+                invocation: Some(id),
+                tool_operation: None,
+                tool_representation: crate::plugins::receipts::ToolRepresentation::Native,
+                ..self.clone()
+            },
+            id,
+            members,
+        ))
+    }
+    pub(crate) fn batch_runtime(&self) -> Result<crate::workflow::runtime::SharedRuntime> {
+        self.runtime.clone().context("batch runtime missing")
+    }
+
     pub(crate) fn begin_model(&self) -> Result<Option<u64>> {
         self.validate_hook_delivery()?;
         self.runtime

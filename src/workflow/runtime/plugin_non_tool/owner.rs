@@ -7,12 +7,15 @@ use crate::{
 use anyhow::{Context, Result, ensure};
 use std::{os::unix::fs::MetadataExt, path::Path};
 
-pub(super) struct Owner<'a> {
+pub(in crate::workflow::runtime) struct Owner<'a> {
     pub identity: &'a Identity,
     pub root: &'a Path,
     pub child: Option<String>,
 }
-pub(super) fn resolve<'a>(record: &'a Record, phase: &str) -> Result<Owner<'a>> {
+pub(in crate::workflow::runtime) fn resolve<'a>(
+    record: &'a Record,
+    phase: &str,
+) -> Result<Owner<'a>> {
     ensure!(
         !record.recovery_pending,
         "lifecycle owner requires reconciliation"
@@ -101,7 +104,7 @@ pub(super) fn resolve<'a>(record: &'a Record, phase: &str) -> Result<Owner<'a>> 
         child: Some(fingerprint),
     })
 }
-pub(super) fn child_fingerprint(
+pub(in crate::workflow::runtime) fn child_fingerprint(
     record: &Record,
     child: &crate::subagents::state::AgentRecord,
 ) -> Result<String> {
@@ -140,7 +143,7 @@ pub(super) fn child_fingerprint(
             .map(|d| (&d.orchestration, d.backend_limit)),
     ))
 }
-pub(super) fn validate(
+pub(in crate::workflow::runtime) fn validate(
     record: &Record,
     operation: &super::Operation,
     receipt: &super::NonToolReceipt,
@@ -163,10 +166,40 @@ pub(super) fn validate(
         );
         return Ok(());
     }
+    if let crate::plugins::receipts::NonToolOccurrence::PostToolBatch {
+        batch: Some(id),
+        tool_calls,
+    } = &receipt.facts.subject.occurrence
+    {
+        super::super::tool_batches::validate_observation(
+            record,
+            &operation.phase,
+            *id,
+            tool_calls,
+        )?;
+    }
     if let Some(turn) = receipt.facts.native_turn {
         super::turn::validate(record, turn, &operation.phase)?;
     }
-    let owner = resolve(record, &operation.phase)?;
+    let owner = if matches!(
+        receipt.facts.subject.occurrence,
+        crate::plugins::receipts::NonToolOccurrence::PreCompact {
+            compaction: Some(_),
+            ..
+        } | crate::plugins::receipts::NonToolOccurrence::PostCompact {
+            compaction: Some(_),
+            ..
+        }
+    ) {
+        super::super::compaction::validate_occurrence(
+            record,
+            &operation.phase,
+            &receipt.facts.subject.occurrence,
+        )?;
+        super::super::compaction::owner(record, &operation.phase)?
+    } else {
+        resolve(record, &operation.phase)?
+    };
     if let Some(callback) = &receipt.facts.callback {
         validate_backend(
             record,
@@ -204,7 +237,7 @@ pub(super) fn validate(
     Ok(())
 }
 
-pub(super) fn validate_backend(
+pub(in crate::workflow::runtime) fn validate_backend(
     record: &Record,
     phase: &str,
     identity: &Identity,
@@ -231,7 +264,7 @@ pub(super) fn validate_backend(
     Ok(())
 }
 
-pub(super) fn validate_source(
+pub(in crate::workflow::runtime) fn validate_source(
     record: &Record,
     phase: &str,
     callback: &crate::plugins::receipts::SourceCallback,

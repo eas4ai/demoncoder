@@ -32,7 +32,7 @@ session-hook allowance persistence with atomic session directory creation, exact
 operation budget/usage attribution including ordinary Oracle ownership, native
 session Prompt/Agent execution from the original explicit grant, and native
 session HTTP/MCP execution with owned lifetime cleanup, and original-owner native
-async session commands with bounded context delivery. The current Rust
+async session commands with bounded context delivery. That prerequisite's Rust
 candidate passes 991 tests (17 ignored), the separate terminal output-limit suite
 passes three cases, and fresh specification and quality reviews pass. Earlier
 installed/live-source evidence retains its original candidate; these Rust checks
@@ -689,10 +689,28 @@ This synchronous prerequisite cannot discharge their conformance obligations.
 
 **Files:** `src/plugins/lifecycle.rs`, `src/native.rs`, `src/session.rs`, `src/workflow/mod.rs`, `src/subagents/`, `src/adapters/`, `tests/plugin_lifecycle.rs`.
 
-- [ ] Add explicit host batch membership/settle barriers and native compaction transactions that retain durable evidence and pinned policy outside model context.
+- [x] Add explicit host batch membership/settle barriers and native compaction transactions that retain durable evidence and pinned policy outside model context.
+
+  Verified bounded implementation: explicit shared tool batches and owned context
+  compaction, under [the recorded decision](../decisions/own-explicit-tool-batches-and-context-compaction-through-existing-runtime-operations.md).
+  [Taskless compaction hooks](../decisions/bind-taskless-compaction-hooks-to-the-original-explicit-session-grant.md)
+  retain the original explicit session grant and service limits. Specification
+  and quality reviews passed. The final locked full Rust regression passed 1,025
+  tests with zero failures and 21 ignored across 48 suites; all-target Clippy,
+  formatting, four native compaction terminal cases, three output-limit cases,
+  and six installed/local-peer cases passed. The [review](../reviews/plugin-batches-and-compaction.md)
+  binds the source and raw evidence, retains earlier failures and static nonpasses,
+  and names the combined cases still required by the full lifecycle matrix below.
 - [ ] Implement admitted workspace changes, dynamic watches, settings/model transitions, setup, notifications, task/worktree/child events and real teammate-idle transitions.
 - [ ] Correlate host and backend events once by operation identity; never synthesize an unobserved implicit backend batch.
 - [ ] Exercise the complete lifecycle matrix for success, denial, failure, cancellation and resume. Stop corrections consume existing limits and cannot delay cancellation or imply developer acceptance.
+
+  Remaining combined cases include reopening an interrupted batch without replaying
+  completed effects or observers; cancelling after compaction applies but before
+  deferred Creator delivery, then reopening and delivering once; and an installed
+  Codex PostCompact refusal followed by attempted continuation. The full once/async
+  matrix and stale-child permutations also remain here. Earlier bounded checks
+  do not establish these exact combinations.
 
 ## 11. Public management, distribution and presentation
 

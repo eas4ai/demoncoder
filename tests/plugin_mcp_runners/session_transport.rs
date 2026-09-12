@@ -739,3 +739,127 @@ async fn native_session_cancelled_later_startup_handler_drains_earlier_idle_serv
         assert_eq!(end_service.state(), ServiceState::Stopped);
     }
 }
+
+struct Compactable {
+    history: Vec<serde_json::Value>,
+}
+#[async_trait::async_trait]
+impl Model for Compactable {
+    fn checkpoint(&self) -> Option<serde_json::Value> {
+        Some(json!(self.history))
+    }
+    fn restore(&mut self, value: &serde_json::Value) -> anyhow::Result<()> {
+        self.history = value.as_array().unwrap().clone();
+        Ok(())
+    }
+    fn prompt(&mut self, text: String) {
+        self.history.push(json!({"role":"user","content":text}));
+    }
+    fn results(&mut self, _: Vec<ToolResult>) {}
+    async fn response(&mut self, _: &EventSink) -> anyhow::Result<Vec<ToolCall>> {
+        self.history
+            .push(json!({"role":"assistant","content":"seed answer"}));
+        Ok(vec![])
+    }
+    async fn summarize(&mut self, _: String, _: &EventSink) -> anyhow::Result<String> {
+        Ok("Retained original conversation decisions.".into())
+    }
+}
+#[tokio::test]
+async fn repeated_compaction_mcp_retains_original_connection_and_service_call_limit() {
+    use demoncoder::{plugins::non_tool::NonToolPlan, session::SessionStart};
+    let _lock = FIXTURES.lock().await;
+    for max_calls in [1, 2] {
+        let host = host::Host::new(true);
+        let peer = peer();
+        let package = package(HookDialect::Native);
+        let service = managed(
+            &host,
+            package.clone(),
+            ServiceTransport::Http(HttpConfig::new(peer.endpoint.clone())),
+            max_calls,
+        );
+        let mut d = declaration(
+            "compaction-mcp",
+            HookDialect::Native,
+            HandlerClass::Combined,
+        );
+        d.matcher = Matcher::default();
+        d.required_gate = true;
+        let registration = McpRunner::registration_for_event(
+            package,
+            d,
+            HookEvent::PreCompact,
+            McpBinding {
+                service: service.clone(),
+                tool: "gate".into(),
+                input: json!({"event":"${hook_event_name}"}),
+            },
+            None,
+            McpConfig::default(),
+        )
+        .unwrap();
+        let mut tools = ToolExecutor::with_policy(
+            host.root.path(),
+            &AccessPolicy {
+                supervisor: Some(env!("CARGO_BIN_EXE_demoncoder").into()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        tools
+            .register_non_tool_plan(Arc::new(
+                NonToolPlan::new(HookEvent::PreCompact, vec![registration]).unwrap(),
+            ))
+            .unwrap();
+        let mut session =
+            NativeSession::with_tools(Box::new(Compactable { history: vec![] }), tools);
+        session
+            .open_lifetime(SessionStart::Startup, &host.events)
+            .unwrap();
+        let (_tx, mut commands) = mpsc::channel(4);
+        let deadline = host
+            .runtime
+            .record()
+            .unwrap()
+            .session_hook_allowance
+            .unwrap()
+            .allocation
+            .deadline_ms;
+        for compact in 0..2 {
+            for i in 0..5 {
+                session
+                    .turn(
+                        format!("round {compact} seed {i}: {}", "context ".repeat(600)),
+                        &mut commands,
+                        &host.events,
+                    )
+                    .await
+                    .unwrap();
+            }
+            let result = session.compact(&mut commands, &host.events).await;
+            assert_eq!(result.is_ok(), compact < max_calls, "{:?}", result.err());
+        }
+        assert_eq!(
+            peer.methods().iter().filter(|m| *m == "initialize").count(),
+            1
+        );
+        assert_eq!(
+            peer.methods().iter().filter(|m| *m == "tools/call").count(),
+            max_calls as usize
+        );
+        assert_eq!(
+            host.runtime
+                .record()
+                .unwrap()
+                .session_hook_allowance
+                .unwrap()
+                .allocation
+                .deadline_ms,
+            deadline
+        );
+        service.stop().await.unwrap();
+        session.close().await.unwrap();
+        host.assert_unspent();
+    }
+}

@@ -171,6 +171,32 @@ pub(super) fn validate_model_budget(
     validate_funded_budget(record, session, owner, event, budget)
 }
 
+/// Map each exact invoking occurrence to its existing reusable session owner.
+fn hook_lifetime(record: &Record, owner: u64, event: HookEvent) -> Result<Option<u64>> {
+    if matches!(event, HookEvent::SessionStart | HookEvent::SessionEnd) {
+        return Ok(Some(
+            super::plugin_non_tool::active(record, owner, event)?
+                .facts
+                .native_session
+                .context("session model lifetime missing")?,
+        ));
+    }
+    if matches!(event, HookEvent::PreCompact | HookEvent::PostCompact) {
+        let receipt = super::plugin_non_tool::active(record, owner, event)?;
+        return super::compaction::hook_lifetime(
+            record,
+            receipt
+                .facts
+                .subject
+                .occurrence
+                .host_operation()
+                .context("compaction hook owner missing")?,
+            &receipt.facts.role,
+        );
+    }
+    Ok(None)
+}
+
 pub(super) fn validate_funded_budget(
     record: &Record,
     session: &str,
@@ -178,12 +204,7 @@ pub(super) fn validate_funded_budget(
     event: HookEvent,
     budget: &super::BudgetRef,
 ) -> Result<()> {
-    if matches!(event, HookEvent::SessionStart | HookEvent::SessionEnd) {
-        let receipt = super::plugin_non_tool::active(record, owner, event)?;
-        let lifetime = receipt
-            .facts
-            .native_session
-            .context("session model lifetime missing")?;
+    if let Some(lifetime) = hook_lifetime(record, owner, event)? {
         ensure!(
             matches!(budget, super::BudgetRef::SessionHooks { .. })
                 && super::budget_accounting::inherited(record, lifetime)? == *budget,
@@ -378,7 +399,7 @@ impl SharedRuntime {
         validate_funded_budget(&runtime.record, &session, operation, event, &budget)?;
         let allocation = super::budget_accounting::active(&runtime.record, &session, &budget)?
             .context("MCP service requires its original owning allowance")?;
-        let role = runtime
+        let mut role = runtime
             .record
             .operations
             .iter()
@@ -386,16 +407,10 @@ impl SharedRuntime {
             .context("MCP operation missing")?
             .phase
             .clone();
-        let lifetime = if matches!(event, HookEvent::SessionStart | HookEvent::SessionEnd) {
-            Some(
-                super::plugin_non_tool::active(&runtime.record, operation, event)?
-                    .facts
-                    .native_session
-                    .context("MCP session lifetime missing")?,
-            )
-        } else {
-            None
-        };
+        let lifetime = hook_lifetime(&runtime.record, operation, event)?;
+        if lifetime.is_some() {
+            role = "native-session".into();
+        }
         let fingerprint = service_fingerprint(
             &runtime.record,
             runtime.store.directory(),
@@ -486,20 +501,18 @@ impl SharedRuntime {
             super::budget_accounting::inherited(&record, operation)? == owner.budget,
             "MCP invoking budget differs from its connection"
         );
-        let lifetime = if matches!(event, HookEvent::SessionStart | HookEvent::SessionEnd) {
-            super::plugin_non_tool::active(&record, operation, event)?
-                .facts
-                .native_session
-        } else {
-            None
-        };
+        let lifetime = hook_lifetime(&record, operation, event)?;
         ensure!(
             lifetime == owner.lifetime
-                && record
-                    .operations
-                    .iter()
-                    .find(|o| o.id == operation)
-                    .is_some_and(|o| o.phase == owner.role),
+                && (if lifetime.is_some() {
+                    owner.role == "native-session"
+                } else {
+                    record
+                        .operations
+                        .iter()
+                        .find(|o| o.id == operation)
+                        .is_some_and(|o| o.phase == owner.role)
+                }),
             "MCP invoking owner differs from its connection"
         );
         Ok(remaining.min(self.validate_plugin_service(owner)?))
@@ -578,7 +591,10 @@ pub(super) fn active_for_event(
             )
         } else if matches!(
             event,
-            HookEvent::UserPromptSubmit
+            HookEvent::PostToolBatch
+                | HookEvent::PreCompact
+                | HookEvent::PostCompact
+                | HookEvent::UserPromptSubmit
                 | HookEvent::Stop
                 | HookEvent::StopFailure
                 | HookEvent::SessionStart
@@ -1051,7 +1067,10 @@ impl SharedRuntime {
             self.finish_plugin_hook(owner, hook)
         } else if matches!(
             event,
-            HookEvent::UserPromptSubmit
+            HookEvent::PostToolBatch
+                | HookEvent::PreCompact
+                | HookEvent::PostCompact
+                | HookEvent::UserPromptSubmit
                 | HookEvent::Stop
                 | HookEvent::StopFailure
                 | HookEvent::SessionStart

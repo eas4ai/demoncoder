@@ -145,7 +145,7 @@ def main():
                 assert message["params"]["approvalPolicy"] == "never"
                 if method == "thread/start":
                     assert message["params"]["environments"] == []
-                    expected_tools = {"read", "write", "edit", "bash"}
+                    expected_tools = {"read", "write", "edit", "bash", "tool_batch"}
                     if Path("lsp-cycle").exists(): expected_tools.add("lsp")
                     assert {tool["name"] for tool in message["params"]["dynamicTools"]} == expected_tools
                 else:

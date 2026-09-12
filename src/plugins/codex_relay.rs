@@ -179,20 +179,58 @@ impl Owner {
         Ok(self.listener.accept().await?.0)
     }
 
+    pub(crate) async fn handle_managed(
+        &mut self,
+        stream: UnixStream,
+        session: &str,
+        turn: &str,
+        events: &EventSink,
+        tools: &crate::tools::ToolExecutor,
+    ) -> Result<()> {
+        self.handle_inner(stream, session, turn, events, Some(tools))
+            .await
+    }
+    #[cfg(test)]
     pub(crate) async fn handle(
+        &mut self,
+        stream: UnixStream,
+        session: &str,
+        turn: &str,
+        events: &EventSink,
+    ) -> Result<()> {
+        self.handle_inner(stream, session, turn, events, None).await
+    }
+    pub(crate) fn observe_managed(&mut self, message: &Value, events: &EventSink) -> Result<()> {
+        if let Some(callbacks) = &mut self.callbacks {
+            callbacks.observe_managed(message, events)?;
+        }
+        Ok(())
+    }
+    async fn handle_inner(
         &mut self,
         mut stream: UnixStream,
         session: &str,
         turn: &str,
         events: &EventSink,
+        tools: Option<&crate::tools::ToolExecutor>,
     ) -> Result<()> {
         let input = self.read(&mut stream).await?;
-        let decision = self
+        let callbacks = self
             .callbacks
             .as_mut()
-            .context("compaction callback owner missing")?
-            .handle_codex(input.clone(), session, turn, events)
-            .await;
+            .context("compaction callback owner missing")?;
+        let decision = match tools {
+            Some(tools) => {
+                callbacks
+                    .handle_codex_managed(input.clone(), session, turn, events, tools)
+                    .await
+            }
+            None => {
+                callbacks
+                    .handle_codex(input.clone(), session, turn, events)
+                    .await
+            }
+        };
         let response = match &decision {
             Ok(response) => response.clone(),
             Err(_) => {
@@ -206,6 +244,9 @@ impl Owner {
         tokio::time::timeout(Duration::from_secs(5), stream.write_all(&bytes))
             .await
             .context("lifecycle relay acknowledgment timed out")??;
+        if tools.is_some() && decision.is_ok() {
+            callbacks.managed_sent(events)?;
+        }
         decision.map(|_| ())
     }
 }

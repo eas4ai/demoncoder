@@ -5,7 +5,7 @@ connection, and work through a continuing conversation. Watch assistant text and
 tool output as they arrive, submit a correction while work is running, or cancel
 one turn and continue in the same session.
 
-The implemented first release provides four connections, four coding tools,
+The application provides four connections, four coding tools with a batch wrapper,
 guided setup, named model assignments, typed hooks, and an optional Oracle guard
 for explicit host execution. It runs on Linux.
 
@@ -190,6 +190,7 @@ state, so explicit tasks and `--resume` require a native API connection.
 | `/accept` | Explicitly accept only when all selected checks pass and review is clear for the current workspace. |
 | `/task-status` | Display a readable first page of task evidence, actions and recorded status; F2 opens retained history. |
 | `/abandon` | Archive the task and its evidence, preserving all workspace files. |
+| `/compact` | Summarize the active conversation while idle, preserving task evidence and allocation. This does not start or accept task work. |
 | `/reconcile <inspection explanation>` | Record your inspection of uncertain or changed work so execution can continue. |
 | `/workflow-help` | Display workflow controls. |
 
@@ -420,8 +421,8 @@ Enabled children can use OpenAI API, Anthropic API, Codex subscription or Claude
 subscription connections independently of the parent. Each gets a real Git
 worktree containing the parent's current files, including uncommitted and
 untracked content. The parent can delegate through its `delegate` tool and inspect
-results with `agent_status`. Without `--agent-connection`, the four original tools
-remain the complete tool surface.
+results with `agent_status`. The four original tools and `tool_batch` remain
+available without `--agent-connection`.
 
 | Control | Behavior |
 |---|---|
@@ -757,7 +758,7 @@ its subscription route before output, tools, or successful completion are accept
 Missing or expired authentication fails without changing accounts or billing
 methods. Provider rejection does not trigger an automatic model substitution.
 
-Subscription sessions expose DemonCoder's four admitted tools. They do not expose
+Subscription sessions expose DemonCoder's admitted tools and batch wrapper. They do not expose
 the entire backend product: built-in tool paths, inherited MCP servers, and other
 tool sources are disabled or rejected so work passes through the shared executor.
 Backend login state is reused; arbitrary backend plugins and skills are not loaded
@@ -769,8 +770,19 @@ requests. The native Anthropic adapter streams Messages and defaults to the sele
 model's provider-reported maximum output tokens. Native OpenAI retains provider
 output defaults. For either native adapter, a positive `max_output_tokens` setting
 selects an explicit limit, and `--max-output-tokens` overrides that setting for the
-invocation. Both native adapters preserve model conversation in memory across
-turns; DemonCoder does not provide automatic context compaction.
+invocation. Both native adapters retain conversation across turns. At the next
+model boundary after serialized history reaches 512 KiB, they make one tool-free
+summary request using the same model. This threshold measures stored bytes, not
+the provider's token capacity. You can also enter `/compact` while idle.
+
+Native compaction preserves the current prompt and recent complete exchanges,
+including paired tool calls and results. Task evidence, policy and cumulative
+allocations remain outside the shortened conversation. The summary must reduce
+the context size; failed preparation keeps the existing context and reports why
+continuation is held. Summary input is bounded to 1 MiB, summary text to 16 KiB,
+and the request to 30 seconds or the shorter remaining task deadline. Compaction
+does not consume context reserved for the next ordinary prompt. Codex and Claude
+use their own backend compaction commands.
 
 Named connections let you save several assignments, including multiple entries
 for the same adapter. For example, `everyday` and `reviewer` may select different
@@ -1019,6 +1031,13 @@ the runtime validates their final arguments and runs admitted operations.
 | `write` | `path`, `content` | Create or replace a file with UTF-8 text. Its parent directory must already exist. |
 | `edit` | `path`, `old_text`, `new_text` | Replace exactly one occurrence of nonempty `old_text`. Zero or multiple matches fail. |
 | `bash` | `command` | Run Bash in the selected workspace with bounded output and execution time. |
+| `tool_batch` | `calls`, each with `tool` and `arguments` | Run 1–32 explicitly ordered calls through the same per-call admission and accounting. |
+
+A batch has at most 1 MiB of serialized input and 1 MiB of returned output. Nested
+batches and caller-supplied member IDs are rejected. Repeated arguments denote
+separate requested operations. Completed members retain their original results; batch
+completion waits for member results and their observers. Cancellation preserves
+completed changes and reports the incomplete batch without rolling changes back.
 
 For example, a model may request:
 
@@ -1616,7 +1635,7 @@ specified by [AGENTS.md](AGENTS.md).
 | [session.rs](src/session.rs) | Versioned registry, required capabilities, session lifecycle. |
 | [native.rs](src/native.rs) | Shared direct-provider model/tool loop and interrupted-result handling. |
 | [adapters/](src/adapters/) | Native API and external backend protocol implementations. |
-| [tools.rs](src/tools.rs) | Four tools, typed hooks, final admission, confinement, host execution. |
+| [tools.rs](src/tools.rs) | Coding tools and explicit batches, typed hooks, final admission, confinement, host execution. |
 | [oracle.rs](src/oracle.rs) | Separate no-tools outside-access review. |
 | [subagents/](src/subagents/) | Confined assignments, dependency scheduling, supervision and explicit integration. |
 | [workflow/](src/workflow/) | Task acceptance, workspace evidence, review, shared allocation and private recovery. |

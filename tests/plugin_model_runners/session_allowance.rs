@@ -890,3 +890,767 @@ async fn session_allowance_external_missing_or_empty_grant_never_admits_backend_
         }
     }
 }
+
+struct Compactable {
+    history: Vec<Value>,
+    summaries: Arc<std::sync::atomic::AtomicUsize>,
+}
+#[async_trait::async_trait]
+impl Model for Compactable {
+    fn checkpoint(&self) -> Option<Value> {
+        Some(json!(self.history))
+    }
+    fn restore(&mut self, v: &Value) -> anyhow::Result<()> {
+        self.history = v
+            .as_array()
+            .ok_or_else(|| anyhow::anyhow!("fixture history"))?
+            .clone();
+        Ok(())
+    }
+    fn prompt(&mut self, text: String) {
+        self.history.push(json!({"role":"user","content":text}));
+    }
+    fn results(&mut self, _: Vec<ToolResult>) {}
+    async fn response(&mut self, _: &EventSink) -> anyhow::Result<Vec<ToolCall>> {
+        self.history
+            .push(json!({"role":"assistant","content":"seed complete"}));
+        Ok(vec![])
+    }
+    async fn summarize(&mut self, _: String, events: &EventSink) -> anyhow::Result<String> {
+        self.summaries.fetch_add(1, Ordering::SeqCst);
+        events
+            .emit(Event::Usage {
+                input: Some(123),
+                output: Some(7),
+                cached: None,
+                cost_usd: None,
+            })
+            .await?;
+        Ok("Summary retained original task data.".into())
+    }
+}
+#[tokio::test]
+async fn taskless_compaction_model_hooks_charge_live_session_grant_but_summary_does_not() {
+    let _lock = FIXTURES.lock().await;
+    for kind in [HandlerKind::Prompt, HandlerKind::Agent] {
+        let server = Server::new("openai-api", |_, _| json!({"ok":true}));
+        let fixture = funded(Some(limits(2, 2)));
+        let mut tools = ToolExecutor::with_policy(
+            fixture.root.path(),
+            &AccessPolicy {
+                supervisor: Some(env!("CARGO_BIN_EXE_demoncoder").into()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        for event in [HookEvent::PreCompact, HookEvent::PostCompact] {
+            tools
+                .register_non_tool_plan(Arc::new(
+                    NonToolPlan::new(
+                        event,
+                        vec![registration(event, kind, config(&server, "openai-api"), 0)],
+                    )
+                    .unwrap(),
+                ))
+                .unwrap();
+        }
+        let summaries = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let mut session = NativeSession::with_tools(
+            Box::new(Compactable {
+                history: vec![],
+                summaries: summaries.clone(),
+            }),
+            tools,
+        );
+        session
+            .open_lifetime(SessionStart::Startup, &fixture.events)
+            .unwrap();
+        let (_sender, mut commands) = mpsc::channel(4);
+        for i in 0..5 {
+            session
+                .turn(
+                    format!("developer {i}: {}", "context ".repeat(500)),
+                    &mut commands,
+                    &fixture.events,
+                )
+                .await
+                .unwrap();
+        }
+        let before = fixture.record().session_hook_allowance.unwrap().allocation;
+        let result = session.compact(&mut commands, &fixture.events).await;
+        session.close().await.unwrap();
+        assert!(result.is_ok(), "{kind:?}: {:?}", result.err());
+        assert_eq!(
+            server.count(),
+            2,
+            "both real hook model calls require original explicit funding"
+        );
+        assert_eq!(summaries.load(Ordering::SeqCst), 1);
+        let record = fixture.record();
+        let grant = &record.session_hook_allowance.unwrap().allocation;
+        assert_eq!(grant.deadline_ms, before.deadline_ms);
+        assert_eq!(grant.model_calls, 2);
+        assert_eq!(grant.usage.reported_input, 22);
+        let summary = record
+            .operations
+            .iter()
+            .find(|o| {
+                o.usage_receipt
+                    .as_ref()
+                    .is_some_and(|u| u.usage.reported_input == 123)
+            })
+            .unwrap();
+        assert_eq!(summary.budget, Some(BudgetRef::Unallocated));
+    }
+}
+
+#[tokio::test]
+async fn compaction_stopped_task_keeps_original_epoch_and_never_falls_back_to_session_grant() {
+    let _lock = FIXTURES.lock().await;
+    for mode in ["funded", "exhausted", "unfunded"] {
+        let fixture = funded(Some(limits(8, 8)));
+        let server = Server::new("openai-api", |_, _| json!({"ok":true}));
+        if mode != "unfunded" {
+            fixture
+                .runtime
+                .allocate(limits(if mode == "funded" { 8 } else { 5 }, 8), None)
+                .unwrap();
+        }
+        let mut task = demoncoder::workflow::state::Task::new(
+            1,
+            "retain original objective".into(),
+            vec![],
+            demoncoder::workflow::workspace::capture(fixture.root.path()).unwrap(),
+            1,
+        )
+        .unwrap();
+        fixture
+            .runtime
+            .save_task(&Some(task.clone()), 2, None)
+            .unwrap();
+        fixture.runtime.begin_phase("worker", None).unwrap();
+        let mut tools = ToolExecutor::with_policy(
+            fixture.root.path(),
+            &AccessPolicy {
+                supervisor: Some(env!("CARGO_BIN_EXE_demoncoder").into()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        for event in [HookEvent::PreCompact, HookEvent::PostCompact] {
+            tools
+                .register_non_tool_plan(Arc::new(
+                    NonToolPlan::new(
+                        event,
+                        vec![registration(
+                            event,
+                            HandlerKind::Prompt,
+                            config(&server, "openai-api"),
+                            0,
+                        )],
+                    )
+                    .unwrap(),
+                ))
+                .unwrap();
+        }
+        let summaries = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let mut session = NativeSession::with_tools(
+            Box::new(Compactable {
+                history: vec![],
+                summaries: summaries.clone(),
+            }),
+            tools,
+        );
+        session
+            .open_lifetime(SessionStart::Startup, &fixture.events)
+            .unwrap();
+        let (_tx, mut commands) = mpsc::channel(4);
+        for i in 0..5 {
+            session
+                .turn(
+                    format!("seed {i}: {}", "context ".repeat(600)),
+                    &mut commands,
+                    &fixture.events,
+                )
+                .await
+                .unwrap();
+        }
+        task.stopped = true;
+        fixture.runtime.save_task(&Some(task), 2, None).unwrap();
+        let before = fixture.record();
+        let outcome = session.compact(&mut commands, &fixture.events).await;
+        assert_eq!(
+            outcome.is_ok(),
+            mode == "funded",
+            "{mode}: {:?}",
+            outcome.err()
+        );
+        let after = fixture.record();
+        assert_eq!(after.task_allocation_epoch, before.task_allocation_epoch);
+        assert_eq!(
+            serde_json::to_value(&after.task).unwrap(),
+            serde_json::to_value(&before.task).unwrap()
+        );
+        assert_eq!(
+            after.session_hook_allowance.unwrap().allocation.model_calls,
+            0
+        );
+        assert_eq!(server.count(), if mode == "funded" { 2 } else { 0 });
+        assert_eq!(
+            summaries.load(Ordering::SeqCst),
+            usize::from(mode == "funded")
+        );
+        if mode == "funded" {
+            assert_eq!(after.allocation.as_ref().unwrap().model_calls, 8);
+            assert_eq!(
+                after.allocation.as_ref().unwrap().deadline_ms,
+                before.allocation.unwrap().deadline_ms
+            );
+            assert!(
+                after
+                    .operations
+                    .iter()
+                    .filter(|o| matches!(o.host_invocation, Some(HostInvocation::Model)))
+                    .all(|o| matches!(o.budget, Some(BudgetRef::Task { .. })))
+            );
+        }
+        session.close().await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn taskless_compaction_missing_exhausted_or_rejecting_model_hooks_hold_without_borrowing_summary()
+ {
+    let _lock = FIXTURES.lock().await;
+    for mode in ["missing", "exhausted", "rejected"] {
+        let granted = mode != "missing";
+        let server = Server::new(
+            "openai-api",
+            move |index, _| json!({"ok":mode != "rejected" || index == 0,"reason":"retain correction"}),
+        );
+        let kind = HandlerKind::Prompt;
+        let fixture = funded(granted.then_some(limits(if mode == "rejected" { 2 } else { 1 }, 2)));
+        let mut tools = ToolExecutor::with_policy(
+            fixture.root.path(),
+            &AccessPolicy {
+                supervisor: Some(env!("CARGO_BIN_EXE_demoncoder").into()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        for event in [HookEvent::PreCompact, HookEvent::PostCompact] {
+            tools
+                .register_non_tool_plan(Arc::new(
+                    NonToolPlan::new(
+                        event,
+                        vec![registration(event, kind, config(&server, "openai-api"), 0)],
+                    )
+                    .unwrap(),
+                ))
+                .unwrap();
+        }
+        let summaries = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let mut session = NativeSession::with_tools(
+            Box::new(Compactable {
+                history: vec![],
+                summaries: summaries.clone(),
+            }),
+            tools,
+        );
+        session
+            .open_lifetime(SessionStart::Startup, &fixture.events)
+            .unwrap();
+        let (_sender, mut commands) = mpsc::channel(4);
+        for i in 0..5 {
+            session
+                .turn(
+                    format!("developer {i}: {}", "context ".repeat(500)),
+                    &mut commands,
+                    &fixture.events,
+                )
+                .await
+                .unwrap();
+        }
+        let before = fixture
+            .record()
+            .session_hook_allowance
+            .as_ref()
+            .map(|g| g.allocation.deadline_ms);
+        let result = session.compact(&mut commands, &fixture.events).await;
+        session.close().await.unwrap();
+        assert!(
+            result.is_err(),
+            "missing, exhausted or rejecting model hook must visibly hold: {mode}"
+        );
+        assert_eq!(
+            server.count(),
+            if mode == "rejected" {
+                2
+            } else {
+                usize::from(granted)
+            }
+        );
+        assert_eq!(summaries.load(Ordering::SeqCst), usize::from(granted));
+        let record = fixture.record();
+        assert_eq!(record.operations.iter().filter(|o| matches!(&o.host_invocation, Some(HostInvocation::Compaction(c)) if c.applied.is_some())).count(), usize::from(granted));
+        assert!(record.task.is_none(), "a hold must not start work");
+        if granted {
+            assert!(
+                session
+                    .checkpoint()
+                    .unwrap()
+                    .to_string()
+                    .contains("Summary retained original task data.")
+            );
+            let grant = record.session_hook_allowance.unwrap().allocation;
+            assert_eq!(Some(grant.deadline_ms), before);
+            assert_eq!(grant.model_calls, if mode == "rejected" { 2 } else { 1 });
+            let summary = record
+                .operations
+                .iter()
+                .find(|o| {
+                    o.usage_receipt
+                        .as_ref()
+                        .is_some_and(|u| u.usage.reported_input == 123)
+                })
+                .unwrap();
+            assert_eq!(summary.budget, Some(BudgetRef::Unallocated));
+        }
+    }
+}
+
+#[tokio::test]
+async fn automatic_postcompact_model_rejection_uses_original_bounded_task_correction() {
+    let _lock = FIXTURES.lock().await;
+    let server = Server::new(
+        "openai-api",
+        |index, _| json!({"ok":index == 0,"reason":"check the retained task objective"}),
+    );
+    let fixture = funded(Some(limits(8, 8)));
+    fixture.runtime.allocate(limits(4, 8), None).unwrap();
+    let task = demoncoder::workflow::state::Task::new(
+        1,
+        "retain original objective".into(),
+        vec![],
+        demoncoder::workflow::workspace::capture(fixture.root.path()).unwrap(),
+        1,
+    )
+    .unwrap();
+    fixture.runtime.save_task(&Some(task), 2, None).unwrap();
+    fixture.runtime.begin_phase("worker", None).unwrap();
+    let mut tools = ToolExecutor::with_policy(
+        fixture.root.path(),
+        &AccessPolicy {
+            supervisor: Some(env!("CARGO_BIN_EXE_demoncoder").into()),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    for event in [HookEvent::PreCompact, HookEvent::PostCompact] {
+        tools
+            .register_non_tool_plan(Arc::new(
+                NonToolPlan::new(
+                    event,
+                    vec![registration(
+                        event,
+                        HandlerKind::Prompt,
+                        config(&server, "openai-api"),
+                        0,
+                    )],
+                )
+                .unwrap(),
+            ))
+            .unwrap();
+    }
+    let summaries = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let mut session = NativeSession::with_tools(Box::new(Compactable {
+        history: (0..10).map(|i| json!({"role":"assistant","content":format!("earlier {i} {}", "x".repeat(56 * 1024))})).collect(),
+        summaries: summaries.clone(),
+    }), tools);
+    session
+        .open_lifetime(SessionStart::Startup, &fixture.events)
+        .unwrap();
+    let before = fixture.record();
+    let (_tx, mut commands) = mpsc::channel(4);
+    let result = session
+        .turn(
+            "current developer request".into(),
+            &mut commands,
+            &fixture.events,
+        )
+        .await;
+    session.close().await.unwrap();
+    assert!(result.is_ok(), "{:?}", result.err());
+    let after = fixture.record();
+    assert_eq!(server.count(), 2);
+    assert_eq!(summaries.load(Ordering::SeqCst), 1);
+    assert_eq!(after.task.as_ref().unwrap().corrections, 1);
+    assert_eq!(after.task_allocation_epoch, before.task_allocation_epoch);
+    assert_eq!(
+        after.allocation.as_ref().unwrap().deadline_ms,
+        before.allocation.unwrap().deadline_ms
+    );
+    assert_eq!(after.allocation.as_ref().unwrap().model_calls, 4);
+    assert_eq!(
+        after.session_hook_allowance.unwrap().allocation.model_calls,
+        0
+    );
+    assert!(
+        after
+            .operations
+            .iter()
+            .filter(|o| matches!(o.host_invocation, Some(HostInvocation::Model)))
+            .all(|o| matches!(o.budget, Some(BudgetRef::Task { .. })))
+    );
+    let checkpoint = session.checkpoint().unwrap().to_string();
+    assert!(checkpoint.contains("current developer request"));
+    assert!(checkpoint.contains("Plugin-origin PostCompact correction within the original task"));
+}
+
+async fn check_compaction_trigger_funding(
+    kind: HandlerKind,
+    event: HookEvent,
+    trigger: &str,
+    matching: bool,
+    exhausted: bool,
+) {
+    let case = format!("{kind:?} {event:?} {trigger} matching={matching} exhausted={exhausted}");
+    let spend_pre = exhausted && event == HookEvent::PostCompact;
+    let server = Server::new("openai-api", |_, _| json!({"ok":true}));
+    let fixture = funded(exhausted.then_some(limits(u64::from(spend_pre), 2)));
+    let mut tools = ToolExecutor::with_policy(
+        fixture.root.path(),
+        &AccessPolicy {
+            supervisor: Some(env!("CARGO_BIN_EXE_demoncoder").into()),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    if spend_pre {
+        tools
+            .register_non_tool_plan(Arc::new(
+                NonToolPlan::new(
+                    HookEvent::PreCompact,
+                    vec![registration(
+                        HookEvent::PreCompact,
+                        kind,
+                        config(&server, "openai-api"),
+                        0,
+                    )],
+                )
+                .unwrap(),
+            ))
+            .unwrap();
+    }
+    let selected = if matching {
+        trigger
+    } else if trigger == "manual" {
+        "auto"
+    } else {
+        "manual"
+    };
+    let mut selected_hook = registration(event, kind, config(&server, "openai-api"), 1);
+    selected_hook.declaration.matcher.trigger = Some(format!("^{selected}$"));
+    tools
+        .register_non_tool_plan(Arc::new(
+            NonToolPlan::new(event, vec![selected_hook]).unwrap(),
+        ))
+        .unwrap();
+    let summaries = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let mut session = NativeSession::with_tools(
+        Box::new(Compactable {
+            history: if trigger == "auto" {
+                (0..10).map(|i| json!({"role":"assistant","content":format!("earlier {i} {}", "x".repeat(56 * 1024))})).collect()
+            } else {
+                vec![]
+            },
+            summaries: summaries.clone(),
+        }),
+        tools,
+    );
+    session
+        .open_lifetime(SessionStart::Startup, &fixture.events)
+        .unwrap();
+    let (_tx, mut commands) = mpsc::channel(4);
+    if trigger == "manual" {
+        for i in 0..5 {
+            session
+                .turn(
+                    format!("developer {i}: {}", "context ".repeat(500)),
+                    &mut commands,
+                    &fixture.events,
+                )
+                .await
+                .unwrap();
+        }
+    }
+    let before = fixture.record();
+    let checkpoint_before = session.checkpoint().unwrap();
+    let outcome = if trigger == "manual" {
+        session.compact(&mut commands, &fixture.events).await
+    } else {
+        session
+            .turn(
+                "current developer request".into(),
+                &mut commands,
+                &fixture.events,
+            )
+            .await
+    };
+    let error = outcome.as_ref().err().map(|e| format!("{e:#}"));
+    session.close().await.unwrap();
+    assert_eq!(
+        outcome.is_ok(),
+        !matching,
+        "{case}: applicability must precede model funding; {error:?}"
+    );
+    assert_eq!(
+        server.count(),
+        usize::from(spend_pre),
+        "{case}: no unauthorized or unmatched hook request"
+    );
+    let applied = !matching || event == HookEvent::PostCompact;
+    assert_eq!(
+        summaries.load(Ordering::SeqCst),
+        usize::from(applied),
+        "{case}"
+    );
+    let after = fixture.record();
+    assert!(
+        after.task.is_none() && after.allocation.is_none(),
+        "{case}: taskless control cannot start task work"
+    );
+    let compact = after
+        .operations
+        .iter()
+        .find_map(|o| match &o.host_invocation {
+            Some(HostInvocation::Compaction(c)) => Some(c),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(compact.applied.is_some(), applied, "{case}");
+    let usage: Vec<_> = after
+        .operations
+        .iter()
+        .filter(|o| {
+            o.usage_receipt
+                .as_ref()
+                .is_some_and(|u| u.usage.reported_input == 123)
+        })
+        .collect();
+    assert_eq!(usage.len(), usize::from(applied), "{case}");
+    if let Some(summary) = usage.first() {
+        assert_eq!(summary.budget, Some(BudgetRef::Unallocated), "{case}");
+        assert_eq!(
+            summary
+                .usage_receipt
+                .as_ref()
+                .unwrap()
+                .usage
+                .reported_output,
+            7,
+            "{case}"
+        );
+        assert!(
+            session
+                .checkpoint()
+                .unwrap()
+                .to_string()
+                .contains("Summary retained original task data."),
+            "{case}: applied checkpoint survives post hold"
+        );
+    } else if trigger == "manual" {
+        assert_eq!(session.checkpoint().unwrap(), checkpoint_before, "{case}");
+    }
+    let model_count = |record: &Record| {
+        record
+            .operations
+            .iter()
+            .filter(|o| matches!(o.host_invocation, Some(HostInvocation::Model)))
+            .count()
+    };
+    assert_eq!(
+        model_count(&after) - model_count(&before),
+        usize::from(applied) + usize::from(trigger == "auto" && !matching) + usize::from(spend_pre),
+        "{case}: manual never continues; matching post hold never continues"
+    );
+    if let Some(grant) = after.session_hook_allowance.as_ref() {
+        assert_eq!(grant.allocation.model_calls, u64::from(spend_pre), "{case}");
+        assert_eq!(
+            grant.allocation.deadline_ms,
+            before
+                .session_hook_allowance
+                .as_ref()
+                .unwrap()
+                .allocation
+                .deadline_ms,
+            "{case}"
+        );
+    }
+    assert!(
+        lifecycle_hooks(&after)
+            .iter()
+            .all(|h| h.declaration.index != 1 || matching),
+        "{case}: unmatched declaration cannot reserve a hook"
+    );
+}
+
+#[tokio::test]
+async fn compaction_trigger_unmatched_prompt_and_agent_skip_funding_for_manual_and_auto() {
+    let _lock = FIXTURES.lock().await;
+    for kind in [HandlerKind::Prompt, HandlerKind::Agent] {
+        for event in [HookEvent::PreCompact, HookEvent::PostCompact] {
+            for trigger in ["manual", "auto"] {
+                for exhausted in [false, true] {
+                    check_compaction_trigger_funding(kind, event, trigger, false, exhausted).await;
+                }
+            }
+        }
+    }
+}
+
+#[tokio::test]
+async fn compaction_trigger_matching_prompt_and_agent_keep_unfunded_and_exhausted_holds() {
+    let _lock = FIXTURES.lock().await;
+    for kind in [HandlerKind::Prompt, HandlerKind::Agent] {
+        for event in [HookEvent::PreCompact, HookEvent::PostCompact] {
+            for trigger in ["manual", "auto"] {
+                for exhausted in [false, true] {
+                    check_compaction_trigger_funding(kind, event, trigger, true, exhausted).await;
+                }
+            }
+        }
+    }
+}
+
+async fn complete_summary_input_case(history_bytes: usize, accepted: bool) -> Option<usize> {
+    use demoncoder::workflow::{state::Task, workspace};
+    let server = Server::new(
+        "anthropic-api",
+        |_, _| json!({"raw":"Retained complete-input summary."}),
+    );
+    let connection = server.connection("anthropic-api");
+    let root = tempfile::tempdir().unwrap();
+    let (runtime, _) = SharedRuntime::open(root.path(), &connection, None).unwrap();
+    runtime.allocate(limits(1, 1), None).unwrap();
+    let task = Task::new(
+        1,
+        "preserve original task".into(),
+        vec![],
+        workspace::capture(root.path()).unwrap(),
+        1,
+    )
+    .unwrap();
+    runtime.save_task(&Some(task), 2, None).unwrap();
+    runtime.begin_phase("worker", None).unwrap();
+    let (sender, receiver) = mpsc::channel(256);
+    let events = EventSink::new("complete-summary-bound".into(), sender, None)
+        .unwrap()
+        .with_runtime(runtime.clone());
+    let fixture = Fixture {
+        root,
+        runtime,
+        events,
+        receiver,
+    };
+    let mut session = demoncoder::adapters::builtins()
+        .unwrap()
+        .open(&connection, fixture.root.path())
+        .unwrap();
+    session
+        .open_lifetime(SessionStart::Startup, &fixture.events)
+        .unwrap();
+    let mut history = json!([
+        {"role":"user","content":""},
+        {"role":"assistant","content":"earlier response"},
+        {"role":"user","content":"current developer request"},
+        {"role":"assistant","content":"latest complete response"}
+    ]);
+    let empty_size = serde_json::to_vec(&history).unwrap().len();
+    history[0]["content"] = json!("x".repeat(history_bytes - empty_size));
+    assert_eq!(serde_json::to_vec(&history).unwrap().len(), history_bytes);
+    let checkpoint =
+        json!({"model":history,"pending":[],"developer_prompt":"current developer request"});
+    session.restore(&checkpoint, &[]).unwrap();
+    fixture.runtime.checkpoint(checkpoint.clone()).unwrap();
+    let before = fixture.record();
+    let (_tx, mut commands) = mpsc::channel(4);
+    let outcome = session.compact(&mut commands, &fixture.events).await;
+    session.close().await.unwrap();
+    let after = fixture.record();
+    assert_eq!(
+        server.count(),
+        usize::from(accepted),
+        "complete summary input must be bounded before an actual provider request"
+    );
+    assert_eq!(
+        outcome.is_ok(),
+        accepted,
+        "history bytes={history_bytes}: {:?}",
+        outcome.err()
+    );
+    assert_eq!(
+        after.allocation.as_ref().unwrap().model_calls,
+        u64::from(accepted),
+        "over-limit input must not debit the original task summary allowance"
+    );
+    assert_eq!(
+        after.allocation.as_ref().unwrap().deadline_ms,
+        before.allocation.as_ref().unwrap().deadline_ms
+    );
+    assert_eq!(after.task_allocation_epoch, before.task_allocation_epoch);
+    assert_eq!(
+        serde_json::to_value(&after.task).unwrap(),
+        serde_json::to_value(&before.task).unwrap()
+    );
+    let models: Vec<_> = after
+        .operations
+        .iter()
+        .filter(|o| matches!(o.host_invocation, Some(HostInvocation::Model)))
+        .collect();
+    assert_eq!(
+        models.len(),
+        usize::from(accepted),
+        "over-limit input must not admit a summary model operation"
+    );
+    let applied = after.operations.iter().filter(|o| matches!(&o.host_invocation, Some(HostInvocation::Compaction(c)) if c.applied.is_some())).count();
+    assert_eq!(applied, usize::from(accepted));
+    if !accepted {
+        assert_eq!(session.checkpoint(), Some(checkpoint.clone()));
+        assert_eq!(after.checkpoint, Some(checkpoint));
+        return None;
+    }
+    let summary = models[0];
+    assert!(matches!(summary.budget, Some(BudgetRef::Task { .. })));
+    let usage = &summary.usage_receipt.as_ref().unwrap().usage;
+    assert_eq!((usage.reported_input, usage.reported_output), (11, 7));
+    assert!(
+        serde_json::to_vec(&session.checkpoint()).unwrap().len()
+            < serde_json::to_vec(&checkpoint).unwrap().len()
+    );
+    let requests = server.requests.lock().unwrap();
+    assert_eq!(requests[0]["tools"], json!([]));
+    assert_eq!(requests[0]["model"], "explicit-hook-model");
+    Some(prompt(&requests[0]).len())
+}
+
+#[tokio::test]
+async fn compaction_complete_summary_input_limit_precedes_actual_provider_admission() {
+    let _lock = FIXTURES.lock().await;
+    // Measure framing from an actual valid request; do not duplicate its current instruction length.
+    let sample_history = 1024;
+    let framing = complete_summary_input_case(sample_history, true)
+        .await
+        .unwrap()
+        - sample_history;
+    assert!(framing > 0);
+    let limit = 1024 * 1024;
+    assert_eq!(
+        complete_summary_input_case(limit - framing, true).await,
+        Some(limit)
+    );
+    assert_eq!(
+        complete_summary_input_case(limit - framing + 1, false).await,
+        None
+    );
+}

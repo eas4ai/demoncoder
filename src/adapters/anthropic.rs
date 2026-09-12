@@ -15,6 +15,7 @@ use std::path::Path;
 
 const MAX_TOOL_INPUT_BYTES: usize = 1024 * 1024;
 
+#[derive(Clone)]
 struct Anthropic {
     client: Client,
     endpoint: Url,
@@ -122,6 +123,17 @@ impl Model for Anthropic {
             .context("invalid Anthropic conversation checkpoint")?
             .clone();
         Ok(())
+    }
+    async fn summarize(&mut self, input: String, events: &EventSink) -> Result<String> {
+        let mut request = self.clone();
+        request.history.clear();
+        request.definitions.clear();
+        request.model_hook = false;
+        request.max_output_tokens = Some(request.max_output_tokens.unwrap_or(4096).min(4096));
+        request.prompt(input);
+        let calls = request.response(events).await?;
+        anyhow::ensure!(calls.is_empty(), "compaction summary requested tools");
+        crate::native::compaction::summary_text(&request.history[1..])
     }
     fn prompt(&mut self, text: String) {
         self.history.push(json!({"role":"user", "content":text}));

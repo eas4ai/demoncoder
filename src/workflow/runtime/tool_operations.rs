@@ -11,6 +11,8 @@ pub enum HostInvocation {
     Model,
     Backend,
     Commands,
+    ToolBatch(super::tool_batches::ToolBatch),
+    Compaction(super::compaction::Compaction),
     NativeTurn(crate::plugins::receipts::NativeTurn),
     NativeSession(super::plugin_session::NativeSessionLifetime),
     Lifecycle(Box<crate::plugins::receipts::NonToolReceipt>),
@@ -259,7 +261,10 @@ impl SharedRuntime {
         let admission = self.update(|record| {
             let source = record.operations.iter().find(|operation| operation.id == invocation)
                 .context("tool requires a durable host invocation")?;
-            ensure!(source.phase == phase && source.call.is_none() && matches!(source.host_invocation, Some(HostInvocation::Model | HostInvocation::Backend | HostInvocation::Commands)), "tool invocation belongs to another owner or phase, or lacks host identity");
+            ensure!(source.phase == phase && source.call.is_none() && matches!(source.host_invocation, Some(HostInvocation::Model | HostInvocation::Backend | HostInvocation::Commands | HostInvocation::ToolBatch(_))), "tool invocation belongs to another owner or phase, or lacks host identity");
+            if matches!(source.host_invocation, Some(HostInvocation::ToolBatch(_))) {
+                super::tool_batches::validate_member(record, invocation, call)?;
+            }
             if let Some(operation) = record.operations.iter().find(|operation| {
                 operation.tool_receipt.as_ref().is_some_and(|receipt| receipt.invocation == invocation && receipt.original_call.id == call.id)
             }) {

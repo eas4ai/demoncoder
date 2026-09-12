@@ -8,6 +8,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use std::{collections::VecDeque, path::Path};
 use tokio::sync::mpsc;
+pub(crate) mod compaction;
 
 /// Explicit origin marker for errors returned by a provider transport or protocol boundary.
 /// Adapters must leave local configuration, event delivery and persistence errors unmarked.
@@ -42,6 +43,9 @@ pub trait Model: Send {
     fn restore(&mut self, _checkpoint: &serde_json::Value) -> Result<()> {
         anyhow::bail!("model does not support conversation recovery")
     }
+    async fn summarize(&mut self, _input: String, _events: &EventSink) -> Result<String> {
+        anyhow::bail!("model does not support tool-free context compaction")
+    }
     fn prompt(&mut self, text: String);
     fn results(&mut self, results: Vec<ToolResult>);
     async fn response(&mut self, events: &EventSink) -> Result<Vec<ToolCall>>;
@@ -52,6 +56,7 @@ pub struct NativeSession {
     model: Box<dyn Model>,
     tools: ToolExecutor,
     pending: VecDeque<ToolCall>,
+    developer_prompt: Option<String>,
 }
 
 impl NativeSession {
@@ -65,6 +70,7 @@ impl NativeSession {
             model,
             tools,
             pending: VecDeque::new(),
+            developer_prompt: None,
         }
     }
 }
@@ -122,7 +128,7 @@ impl Session for NativeSession {
     fn checkpoint(&self) -> Option<serde_json::Value> {
         self.model
             .checkpoint()
-            .map(|model| serde_json::json!({ "model":model, "pending":self.pending }))
+            .map(|model| serde_json::json!({ "model":model, "pending":self.pending, "developer_prompt":self.developer_prompt }))
     }
     fn settle_interruption(&mut self) -> Result<()> {
         if let Some(result) = self.tools.take_completed()
@@ -143,10 +149,13 @@ impl Session for NativeSession {
         struct Saved {
             model: serde_json::Value,
             pending: Vec<ToolCall>,
+            #[serde(default)]
+            developer_prompt: Option<String>,
         }
         let saved: Saved = serde_json::from_value(checkpoint.clone())
             .map_err(|_| anyhow::anyhow!("invalid native conversation checkpoint"))?;
         self.model.restore(&saved.model)?;
+        self.developer_prompt = saved.developer_prompt;
         if !saved.pending.is_empty() {
             self.model.results(saved.pending.into_iter().map(|call| {
             results.iter().rev().find(|r| r.call_id == call.id && r.tool == call.name).cloned().unwrap_or(ToolResult {
@@ -159,6 +168,13 @@ impl Session for NativeSession {
         Ok(())
     }
 
+    async fn compact(
+        &mut self,
+        commands: &mut mpsc::Receiver<Command>,
+        events: &EventSink,
+    ) -> Result<TurnEnd> {
+        self.compact_context("manual", commands, events).await
+    }
     async fn turn(
         &mut self,
         prompt: String,
@@ -281,7 +297,7 @@ impl NativeSession {
         let outcome = match self
             .lifecycle(
                 crate::plugins::receipts::NonToolOccurrence::UserPromptSubmit {
-                    prompt: submitted,
+                    prompt: submitted.clone(),
                     correction,
                 },
                 commands,
@@ -296,6 +312,7 @@ impl NativeSession {
         if let Some(reason) = outcome.as_ref().and_then(|o| o.hold.as_ref()) {
             anyhow::bail!("UserPromptSubmit blocked: {reason}");
         }
+        self.developer_prompt = Some(submitted);
         self.tools.set_intent(&prompt);
         self.model.prompt(prompt);
         if let Some(outcome) = outcome
@@ -338,6 +355,14 @@ impl NativeSession {
                         return Ok(end);
                     }
                     stop_hook_active = false;
+                }
+            }
+            if self.model.checkpoint().is_some_and(|v| {
+                serde_json::to_vec(&v).is_ok_and(|b| b.len() >= compaction::AUTO_BYTES)
+            }) {
+                let end = self.compact_context("auto", commands, events).await?;
+                if end != TurnEnd::Complete {
+                    return Ok(end);
                 }
             }
             if let Some(delivery) = events.observer_context()? {

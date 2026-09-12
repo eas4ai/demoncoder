@@ -279,7 +279,10 @@ impl SharedRuntime {
         )?;
         if matches!(
             event,
-            HookEvent::UserPromptSubmit
+            HookEvent::PostToolBatch
+                | HookEvent::PreCompact
+                | HookEvent::PostCompact
+                | HookEvent::UserPromptSubmit
                 | HookEvent::Stop
                 | HookEvent::StopFailure
                 | HookEvent::SessionStart

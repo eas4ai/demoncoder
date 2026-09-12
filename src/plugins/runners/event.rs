@@ -225,6 +225,28 @@ fn non_tool_input(
             let mut value = json!({"session_id":facts.session,"cwd":invocation.host.workspace,
                 "hook_event_name":event.as_str(),"demoncoder":facts});
             match &facts.subject.occurrence {
+                NonToolOccurrence::PreCompact {
+                    trigger,
+                    custom_instructions,
+                    ..
+                } => {
+                    value["trigger"] = json!(trigger);
+                    value["custom_instructions"] = json!(custom_instructions);
+                }
+                NonToolOccurrence::PostCompact {
+                    trigger,
+                    compact_summary,
+                    ..
+                } => {
+                    value["trigger"] = json!(trigger);
+                    value["compact_summary"] = json!(compact_summary);
+                }
+                NonToolOccurrence::PostToolBatch { batch, tool_calls } => {
+                    value["tool_calls"] = json!(match batch {
+                        Some(id) => invocation.events.plugin_context()?.0.batch_input(*id)?,
+                        None => tool_calls.clone(),
+                    });
+                }
                 NonToolOccurrence::SessionStart { source } => value["source"] = json!(source),
                 NonToolOccurrence::SessionEnd { reason } => value["reason"] = json!(reason),
                 NonToolOccurrence::UserPromptSubmit { prompt, .. } => {
@@ -277,6 +299,8 @@ fn non_tool_input(
             let name = match event {
                 HookEvent::UserPromptSubmit => "user-prompt-submit",
                 HookEvent::Stop => "stop",
+                HookEvent::PreCompact => "pre-compact",
+                HookEvent::PostCompact => "post-compact",
                 _ => anyhow::bail!("Codex has no source input schema for this lifecycle event"),
             };
             profile.validate_schema(
@@ -312,11 +336,19 @@ fn translated_non_tool_input(
         return translated_source_input(facts, source, invocation.key.source_operation, dialect);
     }
     let turn = facts
-        .native_turn
-        .context("source lifecycle translation requires an actual native turn")?;
+        .subject
+        .occurrence
+        .host_operation()
+        .or(facts.native_turn)
+        .context("source lifecycle translation requires an actual host operation")?;
     ensure!(
         invocation.key.source_operation == turn
-            && facts.provenance.as_deref() == Some("native_host_translation_v1")
+            && facts.provenance.as_deref()
+                == Some(if facts.subject.occurrence.host_operation().is_some() {
+                    "explicit_host_operation_v1"
+                } else {
+                    "native_host_translation_v1"
+                })
             && !facts.host_transcript_path.is_empty(),
         "native lifecycle translation provenance or turn binding missing"
     );
@@ -334,6 +366,40 @@ fn translated_non_tool_input(
         );
     }
     match &facts.subject.occurrence {
+        NonToolOccurrence::PreCompact {
+            trigger,
+            custom_instructions,
+            ..
+        } => {
+            input["trigger"] = json!(trigger);
+            if dialect == HookDialect::Claude {
+                input["custom_instructions"] = json!(custom_instructions);
+            }
+        }
+        NonToolOccurrence::PostCompact {
+            trigger,
+            compact_summary,
+            ..
+        } => {
+            input["trigger"] = json!(trigger);
+            if dialect == HookDialect::Claude {
+                input["compact_summary"] = json!(
+                    compact_summary
+                        .as_deref()
+                        .context("Claude PostCompact requires actual summary")?
+                );
+            }
+        }
+        NonToolOccurrence::PostToolBatch { batch, tool_calls } => {
+            ensure!(
+                dialect == HookDialect::Claude,
+                "Codex has no PostToolBatch source event"
+            );
+            input["tool_calls"] = json!(match batch {
+                Some(id) => invocation.events.plugin_context()?.0.batch_input(*id)?,
+                None => tool_calls.clone(),
+            });
+        }
         NonToolOccurrence::SessionStart { .. } | NonToolOccurrence::SessionEnd { .. } => {
             anyhow::bail!("native lifetime source translation is unavailable")
         }
@@ -380,7 +446,12 @@ fn translated_source_input(
         .context("source translation lacks callback ownership")?;
     ensure!(
         facts.native_turn.is_none()
-            && source_operation == callback.backend_operation
+            && source_operation
+                == facts
+                    .subject
+                    .occurrence
+                    .host_operation()
+                    .unwrap_or(callback.backend_operation)
             && facts.provenance.as_deref() == Some("authenticated_source_callback_v1"),
         "source translation ownership differs"
     );
@@ -414,6 +485,37 @@ fn translated_source_input(
         );
     }
     match &facts.subject.occurrence {
+        NonToolOccurrence::PreCompact {
+            trigger,
+            custom_instructions,
+            ..
+        } => {
+            input["trigger"] = json!(trigger);
+            if dialect == HookDialect::Claude {
+                input["custom_instructions"] = json!(custom_instructions);
+            }
+        }
+        NonToolOccurrence::PostCompact {
+            trigger,
+            compact_summary,
+            ..
+        } => {
+            input["trigger"] = json!(trigger);
+            if dialect == HookDialect::Claude {
+                input["compact_summary"] = json!(
+                    compact_summary
+                        .as_deref()
+                        .context("Claude PostCompact requires actual summary")?
+                );
+            }
+        }
+        NonToolOccurrence::PostToolBatch { batch, tool_calls } => {
+            ensure!(
+                dialect == HookDialect::Claude && batch.is_none(),
+                "batch source translation is unavailable"
+            );
+            input["tool_calls"] = json!(tool_calls);
+        }
         NonToolOccurrence::SessionStart { .. } | NonToolOccurrence::SessionEnd { .. } => {
             anyhow::bail!("native lifetime source translation is unavailable")
         }

@@ -87,7 +87,10 @@ pub struct NonToolFacts {
 }
 impl NonToolFacts {
     pub(crate) fn causal_operation(&self) -> u64 {
-        self.native_turn
+        self.subject
+            .occurrence
+            .host_operation()
+            .or(self.native_turn)
             .or(self.native_session)
             .or_else(|| self.callback.as_ref().map(|c| c.backend_operation))
             .unwrap_or(self.operation)
@@ -204,6 +207,22 @@ pub struct NonToolReceipt {
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "event")]
 pub enum NonToolOccurrence {
+    PreCompact {
+        compaction: Option<u64>,
+        trigger: String,
+        custom_instructions: Option<String>,
+    },
+    PostCompact {
+        compaction: Option<u64>,
+        trigger: String,
+        compact_summary: Option<String>,
+    },
+    PostToolBatch {
+        /// Host batch ID; absent only on an authenticated source batch callback.
+        batch: Option<u64>,
+        /// Host entries reference immutable member operations; source entries retain source facts.
+        tool_calls: Vec<Value>,
+    },
     SessionStart {
         source: crate::session::SessionStart,
     },
@@ -226,8 +245,20 @@ pub enum NonToolOccurrence {
     },
 }
 impl NonToolOccurrence {
+    pub(crate) fn host_operation(&self) -> Option<u64> {
+        match self {
+            Self::PostToolBatch { batch, .. } => *batch,
+            Self::PreCompact { compaction, .. } | Self::PostCompact { compaction, .. } => {
+                *compaction
+            }
+            _ => None,
+        }
+    }
     pub(crate) fn event(&self) -> super::hook_types::HookEvent {
         match self {
+            Self::PreCompact { .. } => super::hook_types::HookEvent::PreCompact,
+            Self::PostCompact { .. } => super::hook_types::HookEvent::PostCompact,
+            Self::PostToolBatch { .. } => super::hook_types::HookEvent::PostToolBatch,
             Self::SessionStart { .. } => super::hook_types::HookEvent::SessionStart,
             Self::SessionEnd { .. } => super::hook_types::HookEvent::SessionEnd,
             Self::UserPromptSubmit { .. } => super::hook_types::HookEvent::UserPromptSubmit,

@@ -211,6 +211,13 @@ pub trait Session: Send {
     ) -> Result<()> {
         bail!("this adapter cannot restore its internal conversation")
     }
+    async fn compact(
+        &mut self,
+        _commands: &mut mpsc::Receiver<Command>,
+        _events: &EventSink,
+    ) -> Result<TurnEnd> {
+        bail!("Context compaction is unavailable for this session")
+    }
     async fn turn(
         &mut self,
         prompt: String,
@@ -223,6 +230,34 @@ pub trait Session: Send {
     async fn cancel_background(&mut self) -> Result<()> {
         Ok(())
     }
+}
+
+/// A manual backend command cannot acquire queued Creator prompts while it runs.
+pub(crate) async fn compact_external(
+    session: &mut dyn Session,
+    commands: &mut mpsc::Receiver<Command>,
+    events: &EventSink,
+) -> Result<TurnEnd> {
+    let outcome = {
+        let (sender, mut receiver) = mpsc::channel(4);
+        let work = session.turn("/compact".into(), &mut receiver, events);
+        tokio::pin!(work);
+        loop {
+            tokio::select! {biased;
+                command=commands.recv()=>match command {
+                    Some(Command::Submit{reply,..})=>{let _=reply.send(Err("Context compaction is running; draft retained."));},
+                    Some(Command::Prompt(_))=>events.emit_advisory(Event::Error{message:"Context compaction is running; submit after it finishes.".into()})?,
+                    Some(command @ (Command::Cancel|Command::Shutdown))=>{let _=sender.try_send(command);},
+                    None=>break Ok(TurnEnd::CommandsClosed),
+                },
+                result=&mut work=>break result,
+            }
+        }
+    };
+    if !matches!(outcome, Ok(TurnEnd::Complete)) {
+        session.close().await?;
+    }
+    outcome
 }
 
 pub type Factory = fn(&Connection, &Path) -> Result<Box<dyn Session>>;

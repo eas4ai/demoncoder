@@ -72,11 +72,23 @@ pub fn open(config: &Connection, workspace: &Path) -> Result<Box<dyn Session>> {
         tools: ToolExecutor::with_policy(workspace, &config.access)?,
         model_hook: config.access.snapshot.is_some(),
         next_control_id: 1,
-        lifecycle: config.access.lifecycle.clone(),
+        lifecycle: crate::plugins::bridge::Lifecycle::for_access(&config.access)?,
         callbacks: None,
-        non_tool_enabled: !config.access.non_tools.is_empty(),
+        non_tool_enabled: config.access.non_tools.iter().any(|p| {
+            matches!(
+                p.plan.event,
+                crate::plugins::hook_types::HookEvent::UserPromptSubmit
+                    | crate::plugins::hook_types::HookEvent::Stop
+                    | crate::plugins::hook_types::HookEvent::PostToolBatch
+            )
+        }),
         non_tool_callbacks: None,
-        post_enabled: !config.access.post_tools.is_empty(),
+        post_enabled: !config.access.post_tools.is_empty()
+            || config
+                .access
+                .non_tools
+                .iter()
+                .any(|p| p.plan.event == crate::plugins::hook_types::HookEvent::PostToolBatch),
         post_callbacks: None,
     }))
 }
@@ -93,7 +105,17 @@ impl Claude {
             self.post_callbacks = self.post_enabled.then(post::Callbacks::new).transpose()?;
             self.non_tool_callbacks = self
                 .non_tool_enabled
-                .then(|| non_tool::Callbacks::new(self.workspace.clone(), self.model.clone()))
+                .then(|| -> Result<_> {
+                    let mut callbacks =
+                        non_tool::Callbacks::new(self.workspace.clone(), self.model.clone())?;
+                    if self
+                        .tools
+                        .has_non_tool_plan(crate::plugins::hook_types::HookEvent::PostToolBatch)
+                    {
+                        callbacks.enable_batches()?;
+                    }
+                    Ok(callbacks)
+                })
                 .transpose()?;
             let mut args: Vec<String> = [
                 "-p",
@@ -218,6 +240,7 @@ impl Claude {
         'turns: loop {
             let mut handoff = next_correction.take();
             let source_correction_turn = handoff.is_some();
+            let compact_turn = prompt.trim() == "/compact";
             let mut deadline = super::post_correction::CorrectionDeadline::new(handoff.is_some());
             deadline
                 .during(events.emit(Event::Context {
@@ -256,7 +279,7 @@ impl Claude {
                 }
                 user
             };
-            if let Some(ordinary) = &mut self.non_tool_callbacks {
+            if !compact_turn && let Some(ordinary) = &mut self.non_tool_callbacks {
                 if user.get("uuid").is_none() {
                     user["uuid"] = json!(post::user_uuid()?);
                 }
@@ -345,7 +368,8 @@ impl Claude {
                     return Ok(None);
                 }
                 capture_session(&mut self.session, &message)?;
-                if !interrupting && let Some(ordinary) = &mut self.non_tool_callbacks { ordinary.observe(&message, events)?; }
+                if let Some(callbacks)=&mut self.callbacks {callbacks.observe_managed(&message,events)?;}
+                if !compact_turn && !interrupting && let Some(ordinary) = &mut self.non_tool_callbacks { ordinary.observe(&message, events)?; }
                 match message["type"].as_str() {
                     Some("user") if message["isReplay"] == true && user["uuid"].is_string() && source_correction_turn => {
                         anyhow::ensure!(
@@ -570,6 +594,11 @@ async fn handle_control(
     let response = match request["subtype"].as_str() {
         Some("hook_callback") => {
             if let Some(ordinary) = ordinary.filter(|c| c.owns(request)) {
+                if request["input"]["hook_event_name"] == "PostToolBatch" {
+                    post.as_mut()
+                        .context("source batch metadata owner missing")?
+                        .validate_batch(&request["input"], events)?;
+                }
                 let response = tokio::select! {
                     result = ordinary.handle(message, session_id, events, tools) => result?,
                     result = process.wait_for_exit() => { result?; unreachable!() },
@@ -609,11 +638,15 @@ async fn handle_control(
             // not send an SDK error or close stdin: both can fail open upstream.
             let callback = callbacks.context("unexpected backend lifecycle callback")?;
             let decision = tokio::select! {
-                result = callback.handle(message, session_id, events) => result,
+                result = callback.handle_managed(message, session_id, events, tools) => result,
                 result = process.wait_for_exit() => { result?; unreachable!() },
             };
             match decision {
-                Ok(response) => response,
+                Ok(response) => {
+                    process.send(json!({"type":"control_response","response":{"subtype":"success","request_id":message["request_id"],"response":response}})).await?;
+                    callback.managed_sent(events)?;
+                    return Ok(None);
+                }
                 Err(error) => {
                     if request["input"]["hook_event_name"] == "PreCompact" {
                         // Give a live relay a typed denial, then terminate the
@@ -707,6 +740,13 @@ impl Session for Claude {
         "claude"
     }
 
+    async fn compact(
+        &mut self,
+        commands: &mut mpsc::Receiver<Command>,
+        events: &EventSink,
+    ) -> Result<TurnEnd> {
+        crate::session::compact_external(self, commands, events).await
+    }
     async fn turn(
         &mut self,
         prompt: String,

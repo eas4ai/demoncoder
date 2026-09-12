@@ -36,6 +36,7 @@ pub(super) struct Callbacks {
     text_block: Option<(u64, String)>,
     accepted: bool,
     awaiting_correction: bool,
+    awaiting_batch: bool,
     pending: Option<u64>,
     model: Option<String>,
 }
@@ -72,9 +73,22 @@ impl Callbacks {
             text_block: None,
             accepted: false,
             awaiting_correction: false,
+            awaiting_batch: false,
             pending: None,
             model,
         })
+    }
+    pub(super) fn enable_batches(&mut self) -> Result<()> {
+        let nonce = self
+            .ids
+            .keys()
+            .next()
+            .and_then(|s| s.split(':').next())
+            .context("source callback nonce missing")?
+            .to_owned();
+        self.ids
+            .insert(format!("{nonce}:PostToolBatch"), "PostToolBatch");
+        Ok(())
     }
     pub(super) fn registration(&self, mut hooks: Value) -> Value {
         if !hooks.is_object() {
@@ -122,6 +136,7 @@ impl Callbacks {
         self.text_block = None;
         self.accepted = false;
         self.awaiting_correction = false;
+        self.awaiting_batch = false;
         Ok(())
     }
     pub(super) fn superseded(&mut self) {
@@ -207,6 +222,21 @@ impl Callbacks {
                 prompt: self.prompt.clone(),
                 correction: !matches!(self.origin, SourceOrigin::HostSubmission),
             }
+        } else if event == "PostToolBatch" {
+            ensure!(
+                self.prompt_id.as_deref() == Some(prompt_id)
+                    && self.transcript.as_deref() == Some(transcript)
+                    && self.assistant
+                    && !self.response_open,
+                "source batch lacks completed response or exact prompt owner"
+            );
+            NonToolOccurrence::PostToolBatch {
+                batch: None,
+                tool_calls: input["tool_calls"]
+                    .as_array()
+                    .context("source batch members missing")?
+                    .clone(),
+            }
         } else {
             ensure!(
                 self.prompt_id.as_deref() == Some(prompt_id)
@@ -282,10 +312,13 @@ impl Callbacks {
                 self.awaiting_correction = true;
                 self.assistant = false;
                 response = json!({"decision":"block","reason":outcome.context});
-            } else if event == "UserPromptSubmit" && !outcome.context.is_empty() {
+            } else if matches!(event, "UserPromptSubmit" | "PostToolBatch")
+                && !outcome.context.is_empty()
+            {
                 response = json!({"hookSpecificOutput":{"hookEventName":event,"additionalContext":outcome.context}});
             }
         }
+        self.awaiting_batch = event == "PostToolBatch" && self.pending.is_some();
         if event == "Stop" && !self.awaiting_correction {
             self.accepted = true;
         }
@@ -359,14 +392,14 @@ impl Callbacks {
             );
         }
         if assistant {
-            // The source can omit command UUIDs on its internal Stop retry.
-            // Only our admitted, still-pending correction owns that response.
-            let stop_retry = self.awaiting_correction
+            // The SDK omits command UUIDs on internal Stop retries and after
+            // a completed batch. Only the exact pending delivery owns that response.
+            let internal_continuation = (self.awaiting_correction || self.awaiting_batch)
                 && self.pending.is_some()
                 && message.get("user_message_uuid").is_none()
                 && message.get("user_message_uuids").is_none();
             ensure!(
-                message["user_message_uuid"] == self.command_uuid || stop_retry,
+                message["user_message_uuid"] == self.command_uuid || internal_continuation,
                 "source response command identity differs"
             );
             ensure!(
@@ -377,6 +410,7 @@ impl Callbacks {
             self.assistant_text = None;
             self.response_open = true;
             self.awaiting_correction = false;
+            self.awaiting_batch = false;
         }
         if terminal {
             self.retired_command = Some((self.command_uuid.clone(), "completed"));

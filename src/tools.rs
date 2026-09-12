@@ -23,6 +23,8 @@ use tokio::{
 
 use crate::events::{Event, EventSink};
 
+mod batch;
+
 const MAX_BYTES: usize = 1024 * 1024;
 const RESOLVE: ResolveFlags = ResolveFlags::BENEATH.union(ResolveFlags::NO_SYMLINKS);
 
@@ -447,6 +449,7 @@ impl ToolExecutor {
         if self.language_services.is_some() {
             tools.push(crate::language_services::definition());
         }
+        tools.push(batch::definition());
         tools
     }
 
@@ -704,6 +707,10 @@ impl ToolExecutor {
                 return Ok((snapshot.execute(&call)?, None));
             }
             match call.name.as_str() {
+                "tool_batch" => {
+                    effect.start().await?;
+                    Ok((self.execute_batch(&call, events).await?, None))
+                }
                 "read" => {
                     let args: ReadArgs = serde_json::from_value(call.arguments.clone())?;
                     let mut file = self
@@ -893,6 +900,9 @@ impl ToolExecutor {
             "tool arguments exceed 1 MiB"
         );
         match call.name.as_str() {
+            "tool_batch" => {
+                self.validate_batch(&call.arguments)?;
+            }
             "read" => {
                 let _: ReadArgs = serde_json::from_value(call.arguments.clone())?;
             }

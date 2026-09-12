@@ -43,6 +43,7 @@ pub(super) struct Callbacks {
     entries: BTreeMap<String, Entry>,
     invocation: Option<u64>,
     requests: BTreeSet<String>,
+    batched: BTreeSet<String>,
     profile: crate::plugins::profile::CompatibilityProfile,
 }
 impl Callbacks {
@@ -61,6 +62,7 @@ impl Callbacks {
             entries: BTreeMap::new(),
             invocation: None,
             requests: BTreeSet::new(),
+            batched: BTreeSet::new(),
             profile: crate::plugins::profile::CompatibilityProfile::embedded()?,
         })
     }
@@ -81,6 +83,7 @@ impl Callbacks {
         );
         self.entries.clear();
         self.requests.clear();
+        self.batched.clear();
         self.invocation = Some(invocation);
         Ok(())
     }
@@ -267,6 +270,62 @@ impl Callbacks {
         ensure!(entry.original.is_none(), "completed source tool repeated");
         entry.original = Some(original.clone());
         Ok(original)
+    }
+    pub(super) fn validate_batch(&mut self, input: &Value, events: &EventSink) -> Result<()> {
+        let calls = input["tool_calls"]
+            .as_array()
+            .context("source batch members missing")?;
+        ensure!(
+            (1..=32).contains(&calls.len()),
+            "source batch membership bound"
+        );
+        let mut ids = BTreeSet::new();
+        for call in calls {
+            let id = Self::source_id(call)?;
+            ensure!(
+                ids.insert(id.to_owned()) && !self.batched.contains(id),
+                "source batch member repeated"
+            );
+            let entry = self
+                .entries
+                .get(id)
+                .context("source batch member lacks observed host admission")?;
+            ensure!(
+                entry.invocation == Self::invocation(events)?
+                    && call["tool_name"] == entry.source["tool_name"]
+                    && call["tool_input"] == entry.source["tool_input"],
+                "source batch member differs from admitted source call"
+            );
+            for field in ["session_id", "cwd", "transcript_path", "prompt_id"] {
+                ensure!(
+                    input.get(field) == entry.source.get(field),
+                    "source batch owner differs: {field}"
+                );
+            }
+            let original = entry
+                .original
+                .as_ref()
+                .context("source batch arrived before member settlement")?;
+            let host = entry
+                .call
+                .as_ref()
+                .context("source batch lacks host correlation")?;
+            ensure!(
+                !matches!(
+                    events.post_continuation(host)?,
+                    crate::plugins::receipts::PostContinuation::Held { .. }
+                ),
+                "source batch member continuation held"
+            );
+            if let Some(response) = call.get("tool_response") {
+                ensure!(
+                    *response == json!([{"type":"text","text":serde_json::to_string(original)?}]),
+                    "source batch response differs from immutable original"
+                );
+            }
+        }
+        self.batched.extend(ids);
+        Ok(())
     }
     pub(super) async fn presentation(
         &mut self,

@@ -15,7 +15,8 @@ pub(crate) fn is_control(text: &str) -> bool {
         || matches!(
             text.split_whitespace().next(),
             Some(
-                "/task"
+                "/compact"
+                    | "/task"
                     | "/task-status"
                     | "/verify"
                     | "/review"
@@ -370,6 +371,7 @@ impl WorkflowSession {
             return self.work(objective, false, commands, events).await;
         }
         match prompt.trim() {
+            "/compact" => self.inner.compact(commands, events).await,
             "/task-status" => self.show_inspection(events).await,
             "/accept" => {
                 ensure!(
