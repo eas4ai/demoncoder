@@ -11,4 +11,4 @@ The existing application shutdown wrapper allows three seconds for queue submiss
 
 ## Realized by
 
-(none yet: recorded, not built)
+- 0e919bd90cb75052ad040b63dfb9876e476f45b0 Reserve application shutdown time for native end cleanup
