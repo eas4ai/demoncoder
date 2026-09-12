@@ -22,15 +22,17 @@ async fn main() -> Result<()> {
     if let Some(spec) = &args.supervise_hook {
         std::process::exit(demoncoder::supervisor::run_hook(spec).await?);
     }
+    let session_hook_limits = args.session_hook_limits()?;
     startup::prepare(&args).await?;
     let live_settings = demoncoder::settings::Handle::open(&args)?;
     let mut selection = args.selection()?;
     let settings = args.workflow_settings()?;
-    let (runtime, resumed) = demoncoder::workflow::runtime::SharedRuntime::open_with_scope(
+    let (runtime, resumed) = demoncoder::workflow::runtime::SharedRuntime::open_with_session_hooks(
         &selection.workspace,
         &selection.connection,
         args.resume.as_deref(),
         &settings.capture_scope,
+        session_hook_limits.as_ref(),
     )?;
     let agent_settings = args.agent_settings()?;
     anyhow::ensure!(

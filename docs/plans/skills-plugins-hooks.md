@@ -27,12 +27,13 @@ Complete lifecycle/package conformance remains open. See
 [the integration review](../reviews/plugin-codex-external-non-tool-runtime.md).
 
 Latest verified prerequisites add native provider-failure observations, original
-native session lifetime ownership, and the application shutdown reservation.
-The current Rust candidate passes 873 tests (17 ignored), the separate terminal
-output-limit suite passes three cases, and fresh shutdown specification and quality
-reviews pass. Earlier installed/live-source evidence retains its original candidate;
+native session lifetime ownership, the application shutdown reservation, and
+explicit session-hook allowance persistence with atomic session directory creation.
+The current Rust candidate passes 894 tests (17 ignored), the separate terminal
+output-limit suite passes three cases, and fresh allowance/storage specification
+and quality reviews pass. Earlier installed/live-source evidence retains its original candidate;
 it is not silently refreshed by these Rust checks. See the
-[shutdown integration review](../reviews/plugin-native-shutdown-envelope.md).
+[allowance persistence review](../reviews/plugin-session-hook-allowance-persistence.md).
 
 Only the parent records Cairn decisions, changes declarations and commits evidence. Workers own bounded files; they do not change the selected scope or evidence. A test fixture may model a provider, but its report must say controlled transport. Source/type checks, successful parsing and test registration never establish runtime delivery.
 
@@ -411,6 +412,30 @@ session commands need session-owned lifetime policy and remain unavailable here;
 they are not silently converted to synchronous execution. Those behaviors,
 additional startup effects, Interrupt, outer timeout and actual source events
 remain in this same commitment.
+
+### Explicit session-hook allowance persistence prerequisite
+
+Decision: [persist an explicit session grant](../decisions/persist-explicit-session-hook-allowances-without-task-funding-or-resume-resets.md).
+Implementation and verification pass. Three explicit invocation options configure the
+session's cumulative time, model/backend invocation slots and host-observed tool
+slots; omission grants no allowance. The existing durable runtime stores it
+separately from task/delegation funding. Resume must retain the exact limits,
+counters, deadline and uncertainty; changed, removed or newly added options must
+fail before recovery state is changed. Existing task limits remain unchanged.
+This first action verifies persistence and public configuration only: focused
+controls, the 894-test parallel Rust regression (17 ignored), three terminal cases,
+formatting, lint and fresh specification and quality reviews all pass.
+Exact operation attribution, model/service admission, spending and lifecycle
+runner execution follow as separate reviewed actions. No new handler is enabled
+by this persistence prerequisite.
+
+The full parallel regression exposed an existing timestamp/process-ID session
+directory collision. The [atomic creation repair](../decisions/reserve-unique-session-directories-atomically-under-concurrent-startup.md)
+is verified as part of this prerequisite: fresh bounded candidates preserve
+existing records and later initialization failures propagate without retry.
+The actual 32-open probe changes from two successes and 30 collisions to 32
+successes. The default-parallel regression passes, with the original failure
+retained in the review.
 
 ### Application shutdown deadline integration repair
 

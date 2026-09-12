@@ -6,6 +6,7 @@ pub(crate) mod plugin_non_tool;
 pub(crate) mod plugin_observer;
 mod plugin_once;
 pub mod plugin_session;
+pub mod session_budget;
 mod tool_operations;
 pub(crate) use tool_operations::ToolAdmission;
 pub use tool_operations::ToolReceipt;
@@ -197,6 +198,8 @@ pub struct Record {
     pub next_task: u64,
     pub allocation: Option<Allocation>,
     pub checkpoint: Option<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_hook_allowance: Option<session_budget::SessionHookAllowance>,
     pub checkpoint_cursor: u64,
     pub operations: Vec<Operation>,
     pub messages: Vec<Message>,
@@ -337,6 +340,19 @@ impl SharedRuntime {
         resume: Option<&Path>,
         capture_scope: &super::workspace::CaptureScope,
     ) -> Result<(Self, bool)> {
+        Self::open_with_session_hooks(workspace, connection, resume, capture_scope, None)
+    }
+
+    pub fn open_with_session_hooks(
+        workspace: &Path,
+        connection: &Connection,
+        resume: Option<&Path>,
+        capture_scope: &super::workspace::CaptureScope,
+        session_hook_limits: Option<&Limits>,
+    ) -> Result<(Self, bool)> {
+        if let Some(limits) = session_hook_limits {
+            limits.validate_session_hooks()?;
+        }
         capture_scope.validate()?;
         let home = PathBuf::from(
             std::env::var_os("HOME")
@@ -369,10 +385,18 @@ impl SharedRuntime {
                 record.workspace == workspace && record.identity.matches(connection),
                 "resume requires the original workspace, connection, model and access mode"
             );
+            ensure!(
+                record
+                    .session_hook_allowance
+                    .as_ref()
+                    .map(|allowance| &allowance.allocation.limits)
+                    == session_hook_limits,
+                "resume requires the original session-hook allowance; restore the original --session-hook-seconds, --session-hook-model-calls and --session-hook-tool-calls options (or omit all three if originally absent), or start a new session"
+            );
             (store, record, true)
         } else {
             let name = format!("{}-{}", super::allocation::now_ms()?, std::process::id());
-            let store = Store::create(&sessions.join(name))?;
+            let store = Store::create_unique(&sessions, &name)?;
             let record = Record {
                 plugin_activations: Vec::new(),
                 workspace: workspace.into(),
@@ -383,6 +407,10 @@ impl SharedRuntime {
                 archived: Vec::new(),
                 next_task: 1,
                 allocation: None,
+                session_hook_allowance: session_hook_limits
+                    .cloned()
+                    .map(session_budget::SessionHookAllowance::new)
+                    .transpose()?,
                 checkpoint: None,
                 checkpoint_cursor: 0,
                 operations: Vec::new(),
@@ -427,6 +455,9 @@ impl SharedRuntime {
         }
         if let Some(allocation) = &mut record.allocation {
             allocation.checkpoint_time();
+        }
+        if let Some(allowance) = &mut record.session_hook_allowance {
+            allowance.allocation.checkpoint_time();
         }
         store.write(&serde_json::to_value(&record)?)?;
         Ok((
@@ -476,6 +507,9 @@ impl SharedRuntime {
         let result = f(&mut runtime.record)?;
         if let Some(allocation) = &mut runtime.record.allocation {
             allocation.checkpoint_time();
+        }
+        if let Some(allowance) = &mut runtime.record.session_hook_allowance {
+            allowance.allocation.checkpoint_time();
         }
         let payload = serde_json::to_value(&runtime.record)?;
         if let Err(error) = runtime.store.write(&payload) {
@@ -937,6 +971,48 @@ fn ensure_children_settled(record: &Record) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn session_clock_checkpoint_retains_consumption_and_completed_results_on_rollback() {
+        let root = tempfile::tempdir().unwrap();
+        let directory = root.path().join("record");
+        let mut record = crate::inspection::tests::record(root.path());
+        record.allocation = Some(Allocation::new(Limits::default()).unwrap());
+        record.session_hook_allowance = Some(
+            session_budget::SessionHookAllowance::new(Limits {
+                seconds: 60,
+                model_calls: 1,
+                tool_calls: 1,
+            })
+            .unwrap(),
+        );
+        let runtime = SharedRuntime::for_test(&directory, record).unwrap();
+        // Trusted mutation tests checkpoint persistence, not runner admission.
+        runtime
+            .update(|record| {
+                let allowance = &mut record.session_hook_allowance.as_mut().unwrap().allocation;
+                allowance.admit(true)?;
+                allowance.observed_ms += 60_000;
+                append_message(record, "assistant", "retained completion")
+            })
+            .unwrap();
+        let record = runtime.record().unwrap();
+        assert!(!record.allocation.unwrap().clock_invalid);
+        let allowance = record.session_hook_allowance.unwrap().allocation;
+        assert!(allowance.clock_invalid);
+        assert_eq!(allowance.model_calls, 1);
+        drop(runtime);
+        let saved = Store::open(&directory).unwrap().read().unwrap();
+        assert_eq!(
+            saved["session_hook_allowance"]["allocation"]["clock_invalid"],
+            true
+        );
+        assert_eq!(
+            saved["session_hook_allowance"]["allocation"]["model_calls"],
+            1
+        );
+        assert_eq!(saved["messages"][0]["text"], "retained completion");
+    }
 
     #[test]
     fn inspection_never_waits_for_a_writer_or_claims_failed_persistence_is_current() {
