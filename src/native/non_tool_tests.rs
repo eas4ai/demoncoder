@@ -14,6 +14,7 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering},
 };
 
+mod session_lifetime;
 mod stop_failure;
 
 struct Counting {

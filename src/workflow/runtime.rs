@@ -5,6 +5,7 @@ pub(crate) mod plugin_lifecycle;
 pub(crate) mod plugin_non_tool;
 pub(crate) mod plugin_observer;
 mod plugin_once;
+pub mod plugin_session;
 mod tool_operations;
 pub(crate) use tool_operations::ToolAdmission;
 pub use tool_operations::ToolReceipt;

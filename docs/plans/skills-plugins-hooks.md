@@ -379,6 +379,31 @@ Fresh review also found local event errors inside `Model::response`. The
 must distinguish actual transport/protocol failures from local output,
 persistence and validation failures, preserving the original returned error.
 
+### Native session lifetime prerequisite
+
+Decision: [own startup and shutdown observations](../decisions/own-native-session-startup-and-shutdown-observations-without-borrowing-task-authority.md).
+Verified: the native host session now owns a durable lifetime and synchronous
+command observations at actual startup/resume and termination, including no-prompt
+sessions. Resource close after cancellation, failure or provider replacement does
+not invent SessionEnd. Exact identity, workspace and frozen plans govern effects;
+task allowances and recovery holds remain unchanged. Typed termination causes
+preserve explicit shutdown and channel closure without wrapping provider errors.
+
+Startup has a 30-second asynchronous boundary and end has five seconds, including
+tracked command cleanup. Real process, queued-control, replacement, uncertain
+restart, persistence-failure and failed/cancelled-turn continuation probes pass.
+Final all-target regression: 869 passed, zero failed, 17 ignored. Formatting,
+Clippy, fresh specification review and fresh quality review pass. Static findings
+and the synchronous-I/O timing limit are retained in
+[the prerequisite review](../reviews/plugin-native-session-lifetime.md).
+
+This does not complete lifecycle dispatch. HTTP/MCP/model session execution needs
+explicit allowance and service/accounting ownership. Configured asynchronous
+session commands need session-owned lifetime policy and remain unavailable here;
+they are not silently converted to synchronous execution. Those behaviors,
+additional startup effects, Interrupt, outer timeout and actual source events
+remain in this same commitment.
+
 ### Durable synchronous one-shot prerequisite
 
 Decision: [activation and exact outcomes](../decisions/bind-one-shot-hooks-to-durable-activation-and-exact-outcomes.md).

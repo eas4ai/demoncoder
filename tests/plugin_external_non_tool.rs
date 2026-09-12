@@ -301,7 +301,7 @@ async fn actual_external_submit_and_stop_use_the_original_owner() -> Result<()> 
     std::fs::write(
         output.join("host-result.json"),
         serde_json::to_vec_pretty(
-            &json!({"case":case,"result":result.as_ref().map(|end| match end { TurnEnd::Complete => "complete", TurnEnd::Cancelled => "cancelled", TurnEnd::Shutdown => "shutdown" }).map_err(|e| format!("{e:#}")),"seen":*seen.lock().unwrap()}),
+            &json!({"case":case,"result":result.as_ref().map(|end| match end { TurnEnd::Complete => "complete", TurnEnd::Cancelled => "cancelled", TurnEnd::Shutdown => "shutdown", TurnEnd::CommandsClosed => "commands_closed" }).map_err(|e| format!("{e:#}")),"seen":*seen.lock().unwrap()}),
         )?,
     )?;
     let receipts: Vec<_> = record

@@ -37,6 +37,23 @@ pub enum TurnEnd {
     Complete,
     Cancelled,
     Shutdown,
+    CommandsClosed,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SessionStart {
+    Startup,
+    Resume,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SessionEnd {
+    Shutdown,
+    CommandsClosed,
+    UiClosed,
+    HostError,
 }
 
 pub(crate) struct Correction {
@@ -76,7 +93,8 @@ pub(crate) fn relay_command(
 ) -> Result<Option<TurnEnd>> {
     let (text, reply) = match command {
         Some(Command::Cancel) => return Ok(Some(TurnEnd::Cancelled)),
-        Some(Command::Shutdown) | None => return Ok(Some(TurnEnd::Shutdown)),
+        Some(Command::Shutdown) => return Ok(Some(TurnEnd::Shutdown)),
+        None => return Ok(Some(TurnEnd::CommandsClosed)),
         Some(Command::Prompt(text)) => (text, None),
         Some(Command::Submit { text, reply }) => (text, Some(reply)),
     };
@@ -138,6 +156,19 @@ pub(crate) fn relay_command(
 
 #[async_trait]
 pub trait Session: Send {
+    fn native_lifetime(&self) -> bool {
+        false
+    }
+    fn open_lifetime(&mut self, _source: SessionStart, _events: &EventSink) -> Result<()> {
+        Ok(())
+    }
+    /// Called only by the outer host lifetime, never by resource close or a turn.
+    async fn session_start(&mut self, _source: SessionStart, _events: &EventSink) -> Result<()> {
+        Ok(())
+    }
+    async fn session_end(&mut self, _reason: SessionEnd, _events: &EventSink) -> Result<()> {
+        bail!("current adapter cannot execute the native session observation")
+    }
     fn observer_notification(&self) -> Result<Option<Arc<tokio::sync::Notify>>> {
         Ok(None)
     }
@@ -291,6 +322,7 @@ async fn publish_lifecycle(
     commands: &mut mpsc::Receiver<Command>,
     events: &EventSink,
     session: &mut dyn Session,
+    end_reason: &mut SessionEnd,
 ) -> Result<Option<TurnEnd>> {
     let publication = events.emit(event);
     tokio::pin!(publication);
@@ -301,11 +333,12 @@ async fn publish_lifecycle(
                 Ok(()) => Ok(None),
                 // The UI closes its receiver on quit; that is a cleanup request,
                 // while a retained-log error must still be reported.
-                Err(error) if error.downcast_ref::<mpsc::error::SendError<Envelope>>().is_some() => Ok(Some(TurnEnd::Shutdown)),
+                Err(error) if error.downcast_ref::<mpsc::error::SendError<Envelope>>().is_some() => { *end_reason=SessionEnd::UiClosed; Ok(Some(TurnEnd::Shutdown)) },
                 Err(error) => Err(error),
             },
             command = commands.recv() => match command {
-                Some(Command::Shutdown) | None => return Ok(Some(TurnEnd::Shutdown)),
+                Some(Command::Shutdown) => { *end_reason=SessionEnd::Shutdown; return Ok(Some(TurnEnd::Shutdown)); },
+                None => { *end_reason=SessionEnd::CommandsClosed; return Ok(Some(TurnEnd::Shutdown)); },
                 Some(Command::Cancel) => {
                     session.cancel_background().await?;
                     if allow_cancel { return Ok(Some(TurnEnd::Cancelled)); }
@@ -326,12 +359,93 @@ async fn publish_lifecycle(
     }
 }
 
+/// Startup is a host observation boundary, never a prompt admission window.
+async fn start_lifetime(
+    session: &mut dyn Session,
+    commands: &mut mpsc::Receiver<Command>,
+    events: &EventSink,
+) -> Result<Option<SessionEnd>> {
+    if !session.native_lifetime() {
+        return Ok(None);
+    }
+    let started = tokio::time::Instant::now();
+    if let Err(error) = session.open_lifetime(SessionStart::Startup, events) {
+        let _ = events.emit_advisory(Event::Error {
+            message: format!("SessionStart fact could not be retained: {error:#}"),
+        });
+    }
+    let mut cancelled = false;
+    let startup = async {
+        let observation = session.session_start(SessionStart::Startup, events);
+        tokio::pin!(observation);
+        loop {
+            tokio::select! {
+                biased;
+                command = commands.recv() => match command {
+                    Some(Command::Shutdown) => return Ok(Some(SessionEnd::Shutdown)),
+                    None => return Ok(Some(SessionEnd::CommandsClosed)),
+                    Some(Command::Cancel) => { cancelled = true; return Ok(None); },
+                    Some(Command::Submit { reply, .. }) => {
+                        let _ = reply.send(Err("Session startup in progress; draft retained."));
+                    },
+                    Some(Command::Prompt(_)) => {},
+                },
+                result = &mut observation => return result.map(|()| None),
+            }
+        }
+    };
+    let outcome =
+        tokio::time::timeout_at(started + std::time::Duration::from_secs(27), startup).await;
+    if let Err(error) = events
+        .drain_lifetime_commands(started + std::time::Duration::from_secs(30))
+        .await
+    {
+        let _ = events.lifetime_diagnostic(format!(
+            "SessionStart command cleanup incomplete: {error:#}"
+        ));
+    }
+    match outcome {
+        Ok(Ok(Some(reason))) => {
+            let _ = events.lifetime_diagnostic(
+                "SessionStart observation interrupted by session termination".into(),
+            );
+            return Ok(Some(reason));
+        }
+        Ok(Ok(None)) => {}
+        outcome => {
+            let _ = events
+                .lifetime_diagnostic(format!("SessionStart observation unavailable: {outcome:?}"));
+        }
+    }
+    if cancelled {
+        session.cancel_background().await?;
+        let _ = events.lifetime_diagnostic(
+            "SessionStart observation cancelled; effects may be unknown".into(),
+        );
+        while let Ok(command) = commands.try_recv() {
+            match command {
+                Command::Submit { reply, .. } => {
+                    let _ = reply.send(Err("Session startup cancelled; draft retained."));
+                }
+                Command::Shutdown => return Ok(Some(SessionEnd::Shutdown)),
+                _ => {}
+            }
+        }
+    }
+    Ok(None)
+}
+
 pub async fn run(
     mut session: Box<dyn Session>,
     mut commands: mpsc::Receiver<Command>,
     events: EventSink,
 ) -> Result<()> {
+    let mut end_reason = SessionEnd::Shutdown;
     let result = async {
+        if let Some(reason) = start_lifetime(session.as_mut(), &mut commands, &events).await? {
+            end_reason = reason;
+            return Ok(());
+        }
         if publish_lifecycle(
             Event::Ready {
                 owner: session.owner(),
@@ -340,6 +454,7 @@ pub async fn run(
             &mut commands,
             &events,
             session.as_mut(),
+            &mut end_reason,
         )
         .await?
         .is_some()
@@ -347,7 +462,7 @@ pub async fn run(
             return Ok(());
         }
         for event in session.initial_events()? {
-            if publish_lifecycle(event, false, &mut commands, &events, session.as_mut())
+            if publish_lifecycle(event, false, &mut commands, &events, session.as_mut(), &mut end_reason)
                 .await?
                 .is_some()
             {
@@ -359,7 +474,7 @@ pub async fn run(
             let observer_ready=session.observer_ready()?;
             let command=tokio::select! {
                 biased;
-                command=commands.recv()=>match command {Some(command)=>Some(command),None=>break},
+                command=commands.recv()=>match command {Some(command)=>Some(command),None=>{end_reason=SessionEnd::CommandsClosed;break}},
                 ready=async {
                     if observer_ready { return Ok::<_,anyhow::Error>(()); }
                     if let Some(notification)=notification { notification.notified().await; } else { std::future::pending::<()>().await; }
@@ -399,6 +514,7 @@ pub async fn run(
                 &mut commands,
                 &events,
                 session.as_mut(),
+            &mut end_reason,
             )
             .await?
             {
@@ -408,6 +524,7 @@ pub async fn run(
             };
             let status = match outcome {
                 Ok(TurnEnd::Shutdown) => break,
+                Ok(TurnEnd::CommandsClosed) => { end_reason=SessionEnd::CommandsClosed; break; },
                 Ok(TurnEnd::Complete) => "complete",
                 Ok(TurnEnd::Cancelled) => {
                     session.cancel_background().await?;
@@ -422,6 +539,7 @@ pub async fn run(
                         &mut commands,
                         &events,
                         session.as_mut(),
+            &mut end_reason,
                     )
                     .await?
                     .is_some()
@@ -437,6 +555,7 @@ pub async fn run(
                 &mut commands,
                 &events,
                 session.as_mut(),
+            &mut end_reason,
             )
             .await?
             .is_some()
@@ -447,6 +566,48 @@ pub async fn run(
         Ok(())
     }
     .await;
+    let ended = tokio::time::Instant::now();
+    commands.close();
+    while let Ok(command) = commands.try_recv() {
+        if let Command::Submit { reply, .. } = command {
+            let _ = reply.send(Err(CORRECTION_CLOSED));
+        }
+    }
+    drop(commands);
+    if result.is_err() {
+        end_reason = SessionEnd::HostError;
+    }
+    if let Ok(Some(selected)) = events.take_host_end() {
+        end_reason = selected;
+    }
+    match events.end_host_lifetime(end_reason) {
+        Ok(Some(lifetime_events)) => {
+            let observation = tokio::time::timeout_at(
+                ended + std::time::Duration::from_secs(2),
+                session.session_end(end_reason, &lifetime_events),
+            )
+            .await;
+            if let Err(error) = events
+                .drain_lifetime_commands(ended + std::time::Duration::from_secs(5))
+                .await
+            {
+                let _ = events.lifetime_diagnostic(format!(
+                    "SessionEnd command cleanup incomplete: {error:#}"
+                ));
+            }
+            if !matches!(observation, Ok(Ok(()))) {
+                let _ = events.lifetime_diagnostic(format!(
+                    "SessionEnd observation unavailable: {observation:?}"
+                ));
+            }
+        }
+        Ok(None) => {}
+        Err(error) => {
+            let _ = events.emit_advisory(Event::Error {
+                message: format!("SessionEnd fact could not be retained: {error:#}"),
+            });
+        }
+    }
     let close = session.close().await;
     result.and(close)
 }

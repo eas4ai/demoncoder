@@ -444,17 +444,55 @@ impl SharedRuntime {
             .once_live
             .clone())
     }
+    pub(crate) async fn drain_native_session_commands(
+        &self,
+        lifetime: u64,
+        deadline: tokio::time::Instant,
+    ) -> Result<()> {
+        let record = self.record()?;
+        super::plugin_session::lifetime(&record, lifetime)?;
+        let operations: std::collections::BTreeSet<_> = record
+            .operations
+            .iter()
+            .filter(|o| {
+                o.non_tool_receipt()
+                    .is_some_and(|r| r.facts.native_session == Some(lifetime))
+            })
+            .map(|o| o.id)
+            .collect();
+        let tracker = self.once_live()?;
+        loop {
+            let live = {
+                let mut tracker = tracker
+                    .lock()
+                    .map_err(|_| anyhow::anyhow!("command cleanup owner lock failed"))?;
+                tracker.runners.retain(|_, lease| lease.strong_count() > 0);
+                tracker
+                    .runners
+                    .keys()
+                    .any(|key| operations.contains(&key.operation))
+            };
+            if !live {
+                return Ok(());
+            }
+            ensure!(
+                tokio::time::Instant::now() < deadline,
+                "native command cleanup deadline exhausted; effects may be unknown"
+            );
+            tokio::time::sleep_until(
+                deadline.min(tokio::time::Instant::now() + std::time::Duration::from_millis(5)),
+            )
+            .await;
+        }
+    }
 }
 pub(super) fn track_live(
     tracker: &LiveHooks,
     hook: &HookReceipt,
     lease: Option<&std::sync::Arc<tokio::sync::OwnedSemaphorePermit>>,
 ) -> Result<()> {
-    if hook.once.is_none() {
-        return Ok(());
-    }
     ensure!(
-        lease.is_some() || cfg!(test),
+        hook.once.is_none() || lease.is_some() || cfg!(test),
         "one-shot execution lease missing"
     );
     let Some(lease) = lease else {

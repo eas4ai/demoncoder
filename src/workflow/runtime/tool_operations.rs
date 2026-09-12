@@ -12,6 +12,7 @@ pub enum HostInvocation {
     Backend,
     Commands,
     NativeTurn(crate::plugins::receipts::NativeTurn),
+    NativeSession(super::plugin_session::NativeSessionLifetime),
     Lifecycle(Box<crate::plugins::receipts::NonToolReceipt>),
     PluginService {
         owner: u64,

@@ -69,6 +69,10 @@ pub(super) fn validate_model_admission(
     hook: &ModelAdmission,
 ) -> Result<()> {
     ensure!(
+        !matches!(hook.event, HookEvent::SessionStart | HookEvent::SessionEnd),
+        "native session command lifetime grants no model allowance"
+    );
+    ensure!(
         !hook.cancelled.load(std::sync::atomic::Ordering::Acquire),
         "model hook cancelled before admission"
     );
@@ -113,6 +117,10 @@ impl SharedRuntime {
         event: HookEvent,
         service: &str,
     ) -> Result<u64> {
+        ensure!(
+            !matches!(event, HookEvent::SessionStart | HookEvent::SessionEnd),
+            "native session command lifetime grants no service allowance"
+        );
         ensure!(
             service.len() == 64 && service.bytes().all(|b| b.is_ascii_hexdigit()),
             "MCP service operation identity is invalid"
@@ -334,7 +342,11 @@ pub(super) fn active_for_event(
             )
         } else if matches!(
             event,
-            HookEvent::UserPromptSubmit | HookEvent::Stop | HookEvent::StopFailure
+            HookEvent::UserPromptSubmit
+                | HookEvent::Stop
+                | HookEvent::StopFailure
+                | HookEvent::SessionStart
+                | HookEvent::SessionEnd
         ) {
             let receipt = super::plugin_non_tool::active(record, id, event)?;
             (
@@ -797,7 +809,11 @@ impl SharedRuntime {
             self.finish_plugin_hook(owner, hook)
         } else if matches!(
             event,
-            HookEvent::UserPromptSubmit | HookEvent::Stop | HookEvent::StopFailure
+            HookEvent::UserPromptSubmit
+                | HookEvent::Stop
+                | HookEvent::StopFailure
+                | HookEvent::SessionStart
+                | HookEvent::SessionEnd
         ) {
             self.finish_non_tool_hook(owner, event, hook)
         } else {

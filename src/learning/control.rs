@@ -45,7 +45,8 @@ pub async fn cancellable<T>(
                     events.emit(Event::Text { text: "\nLearning operation cancelled. A pending catalog save may finish; inspect before repeating. No correction starts from this cancellation.\n".into() }).await?;
                     return Ok(Err(TurnEnd::Cancelled));
                 }
-                Some(Command::Shutdown) | None => return Ok(Err(TurnEnd::Shutdown)),
+                Some(Command::Shutdown) => return Ok(Err(TurnEnd::Shutdown)),
+                None => return Ok(Err(TurnEnd::CommandsClosed)),
                 Some(Command::Submit { reply, .. }) => { let _ = reply.send(Err("Learning operation is running; draft retained. Cancel or wait.")); },
                 Some(Command::Prompt(_)) => events.emit_advisory(Event::Error { message: "Learning operation is running; submit after it stops.".into() })?,
             },

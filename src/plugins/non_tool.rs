@@ -22,13 +22,19 @@ impl NonToolPlan {
         ensure!(
             matches!(
                 event,
-                HookEvent::UserPromptSubmit | HookEvent::Stop | HookEvent::StopFailure
+                HookEvent::UserPromptSubmit
+                    | HookEvent::Stop
+                    | HookEvent::StopFailure
+                    | HookEvent::SessionStart
+                    | HookEvent::SessionEnd
             ),
             "non-tool plan requires UserPromptSubmit, Stop or StopFailure"
         );
         ensure!(
-            event != HookEvent::StopFailure
-                || registrations.iter().all(|r| !r.declaration.required_gate),
+            !matches!(
+                event,
+                HookEvent::StopFailure | HookEvent::SessionStart | HookEvent::SessionEnd
+            ) || registrations.iter().all(|r| !r.declaration.required_gate),
             "StopFailure is observation only"
         );
         ensure!(
@@ -132,7 +138,11 @@ impl NonToolEffects {
             self.proposals.push(AppliedProposal {
                 invocation: receipt.invocation,
                 proposal,
-                disposition,
+                disposition: if matches!(event, HookEvent::SessionStart | HookEvent::SessionEnd) {
+                    ProposalDisposition::Pending
+                } else {
+                    disposition
+                },
             });
         }
         Ok(())
@@ -207,6 +217,15 @@ impl NonToolPlan {
         let mut groups: Vec<Vec<usize>> = Vec::new();
         let mut named = BTreeMap::new();
         for (index, handler) in self.plan.handlers.iter().enumerate() {
+            if matches!(event, HookEvent::SessionStart | HookEvent::SessionEnd)
+                && (handler.registration.declaration.identity.dialect != HookDialect::Native
+                    || handler.registration.declaration.identity.runner
+                        != super::hook_types::HandlerKind::Command
+                    || handler.registration.runner.observer_config().is_some())
+            {
+                effects.diagnostics.push(format!("{} observation unavailable: this native lifetime prerequisite supports synchronous native commands only", handler.registration.declaration.identity.declaration));
+                continue;
+            }
             if !handler.matches_non_tool(&facts.subject.occurrence) {
                 continue;
             }
@@ -233,7 +252,7 @@ impl NonToolPlan {
         for indices in groups {
             let lease = Arc::new(
                 tokio::time::timeout(
-                    runtime.remaining()?,
+                    runtime.plugin_remaining(operation, event)?,
                     self.plan
                         .runners
                         .clone()
@@ -243,8 +262,13 @@ impl NonToolPlan {
             );
             runtime.plugin_runner_owner(operation, event)?;
             let boundary = runtime.mutation_boundary(expected_workspace)?;
-            let guard =
-                Arc::new(tokio::time::timeout(runtime.remaining()?, boundary.lock_owned()).await?);
+            let guard = Arc::new(
+                tokio::time::timeout(
+                    runtime.plugin_remaining(operation, event)?,
+                    boundary.lock_owned(),
+                )
+                .await?,
+            );
             let mut snapshots = BTreeMap::new();
             for &index in &indices {
                 let d = &self.plan.handlers[index].registration.declaration;
@@ -367,7 +391,9 @@ impl NonToolPlan {
             for (receipt, invocation, runner) in runnable {
                 runtime.plugin_runner_owner(operation, event)?;
                 let preparation = tokio::time::timeout(
-                    runtime.remaining()?.min(std::time::Duration::from_secs(30)),
+                    runtime
+                        .plugin_remaining(operation, event)?
+                        .min(std::time::Duration::from_secs(30)),
                     runner.prepare(&invocation),
                 )
                 .await;
@@ -447,7 +473,11 @@ impl NonToolPlan {
             }
         }
         let boundary = runtime.mutation_boundary(expected_workspace)?;
-        let _guard = tokio::time::timeout(runtime.remaining()?, boundary.lock_owned()).await?;
+        let _guard = tokio::time::timeout(
+            runtime.plugin_remaining(operation, event)?,
+            boundary.lock_owned(),
+        )
+        .await?;
         for (reads, previous) in validation {
             let current = super::lifecycle::capture(&self.plan, workspace.clone(), reads).await?;
             if current.root_identity() != previous.root_identity()
@@ -468,9 +498,12 @@ impl NonToolPlan {
             "lifecycle context exceeds aggregate bound"
         );
         for diagnostic in &effects.diagnostics {
-            events.emit_advisory(Event::Error {
+            let publication = events.emit_advisory(Event::Error {
                 message: diagnostic.clone(),
-            })?;
+            });
+            if !matches!(event, HookEvent::SessionStart | HookEvent::SessionEnd) {
+                publication?;
+            }
         }
         if let Some(reason) = &effects.hold {
             events.emit_advisory(Event::Error {

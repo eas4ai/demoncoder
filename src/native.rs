@@ -71,6 +71,46 @@ impl NativeSession {
 
 #[async_trait]
 impl Session for NativeSession {
+    fn native_lifetime(&self) -> bool {
+        true
+    }
+    fn open_lifetime(
+        &mut self,
+        source: crate::session::SessionStart,
+        events: &EventSink,
+    ) -> Result<()> {
+        events.begin_host_lifetime(source, self.tools.native_lifetime_plans())?;
+        Ok(())
+    }
+    async fn session_start(
+        &mut self,
+        source: crate::session::SessionStart,
+        events: &EventSink,
+    ) -> Result<()> {
+        if let Some(events) = events.host_lifetime_events()? {
+            self.tools
+                .dispatch_non_tool(
+                    crate::plugins::receipts::NonToolOccurrence::SessionStart { source },
+                    &events,
+                )
+                .await?;
+        }
+        Ok(())
+    }
+    async fn session_end(
+        &mut self,
+        reason: crate::session::SessionEnd,
+        events: &EventSink,
+    ) -> Result<()> {
+        events.validate_end_policy(reason, &self.tools.native_lifetime_plans())?;
+        self.tools
+            .dispatch_non_tool(
+                crate::plugins::receipts::NonToolOccurrence::SessionEnd { reason },
+                events,
+            )
+            .await?;
+        Ok(())
+    }
     fn owner(&self) -> &'static str {
         "demoncoder"
     }
@@ -138,7 +178,7 @@ impl Session for NativeSession {
                 let end = match &outcome {
                     Ok(TurnEnd::Complete) => NativeTurnEnd::Complete,
                     Ok(TurnEnd::Cancelled) => NativeTurnEnd::Cancelled,
-                    Ok(TurnEnd::Shutdown) => NativeTurnEnd::Shutdown,
+                    Ok(TurnEnd::Shutdown | TurnEnd::CommandsClosed) => NativeTurnEnd::Shutdown,
                     Err(_) => NativeTurnEnd::Failed,
                 };
                 let finished = turn_events.finish_native_turn(end);
@@ -189,14 +229,14 @@ impl NativeSession {
         // Failure is already decided. Controls may cancel observation, but neither
         // plugin output nor newly submitted text can start a correction or retry.
         while let Ok(command) = commands.try_recv() {
-            failure_control(Some(command), commands)?;
+            failure_control(Some(command), commands, events)?;
         }
         let dispatch = self.tools.dispatch_non_tool(occurrence, events);
         tokio::pin!(dispatch);
         loop {
             tokio::select! {
                 biased;
-                command = commands.recv() => failure_control(command, commands)?,
+                command = commands.recv() => failure_control(command, commands, events)?,
                 result = &mut dispatch => return result.map(|_| ()),
             }
         }
@@ -512,9 +552,14 @@ fn preserve_provider_failure(
     Ok(())
 }
 
-fn failure_control(command: Option<Command>, commands: &mut mpsc::Receiver<Command>) -> Result<()> {
+fn failure_control(
+    command: Option<Command>,
+    commands: &mut mpsc::Receiver<Command>,
+    events: &EventSink,
+) -> Result<()> {
     match command {
         Some(Command::Shutdown) => {
+            let _ = events.select_host_end(crate::session::SessionEnd::Shutdown);
             // Returning the provider error must not swallow the outer session's
             // shutdown signal. Closing this same receiver makes its next recv
             // take the existing command-channel shutdown path.
@@ -550,7 +595,8 @@ fn control(
 ) -> Result<Option<TurnEnd>> {
     match command {
         Some(Command::Cancel) => Ok(Some(TurnEnd::Cancelled)),
-        Some(Command::Shutdown) | None => Ok(Some(TurnEnd::Shutdown)),
+        Some(Command::Shutdown) => Ok(Some(TurnEnd::Shutdown)),
+        None => Ok(Some(TurnEnd::CommandsClosed)),
         Some(Command::Prompt(text)) => {
             if crate::workflow::is_control(&text) {
                 events.emit_advisory(Event::Error {

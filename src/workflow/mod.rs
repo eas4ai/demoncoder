@@ -562,7 +562,8 @@ impl WorkflowSession {
                         biased;
                         command = commands.recv() => match command {
                             Some(Command::Cancel) => return Ok(TurnEnd::Cancelled),
-                            Some(Command::Shutdown) | None => return Ok(TurnEnd::Shutdown),
+                            Some(Command::Shutdown) => return Ok(TurnEnd::Shutdown),
+                            None => return Ok(TurnEnd::CommandsClosed),
                             Some(Command::Submit {reply, ..}) => { let _ = reply.send(Err("Verification is running; draft retained. Cancel or wait for it to finish.")); },
                             Some(Command::Prompt(_)) => events.emit_advisory(Event::Error { message: "Verification is running; submit after it stops.".into() })?,
                         },
@@ -659,7 +660,8 @@ impl WorkflowSession {
                     biased;
                     command = commands.recv() => match command {
                         Some(Command::Cancel) => return Ok(TurnEnd::Cancelled),
-                        Some(Command::Shutdown) | None => return Ok(TurnEnd::Shutdown),
+                        Some(Command::Shutdown) => return Ok(TurnEnd::Shutdown),
+                            None => return Ok(TurnEnd::CommandsClosed),
                         Some(Command::Submit {reply, ..}) => { let _ = reply.send(Err("Review is running; draft retained. Cancel or wait for it to finish.")); },
                         Some(Command::Prompt(_)) => events.emit_advisory(Event::Error { message: "Review is running; submit after it stops.".into() })?,
                     },
@@ -703,6 +705,48 @@ impl WorkflowSession {
 
 #[async_trait]
 impl Session for WorkflowSession {
+    fn native_lifetime(&self) -> bool {
+        self.inner.native_lifetime()
+    }
+    fn open_lifetime(&mut self, _: crate::session::SessionStart, events: &EventSink) -> Result<()> {
+        self.inner.open_lifetime(
+            if self.resumed {
+                crate::session::SessionStart::Resume
+            } else {
+                crate::session::SessionStart::Startup
+            },
+            &events
+                .clone()
+                .with_runtime(self.runtime.clone())
+                .with_identity(&self.connection),
+        )
+    }
+    async fn session_start(
+        &mut self,
+        _: crate::session::SessionStart,
+        events: &EventSink,
+    ) -> Result<()> {
+        self.inner
+            .session_start(
+                if self.resumed {
+                    crate::session::SessionStart::Resume
+                } else {
+                    crate::session::SessionStart::Startup
+                },
+                &events
+                    .clone()
+                    .with_runtime(self.runtime.clone())
+                    .with_identity(&self.connection),
+            )
+            .await
+    }
+    async fn session_end(
+        &mut self,
+        reason: crate::session::SessionEnd,
+        events: &EventSink,
+    ) -> Result<()> {
+        self.inner.session_end(reason, events).await
+    }
     fn admit(&mut self, prompt: &str) -> Result<()> {
         self.admitted_creator = None;
         let task = self.runtime.record()?.task;
@@ -783,7 +827,10 @@ impl Session for WorkflowSession {
         self.runtime.save_task(&self.task, self.next_id, None)?;
         self.runtime.finish_phase()?;
         if let Some(candidate) = outcome_candidate
-            && !matches!(&result, Ok(TurnEnd::Cancelled | TurnEnd::Shutdown))
+            && !matches!(
+                &result,
+                Ok(TurnEnd::Cancelled | TurnEnd::Shutdown | TurnEnd::CommandsClosed)
+            )
             && let Some(end) = self
                 .retain_improvement_outcome(candidate, commands, &events)
                 .await?

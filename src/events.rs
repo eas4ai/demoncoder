@@ -139,7 +139,16 @@ pub struct Envelope {
 
 /// One ordered publication path for both retained events and the UI.
 #[derive(Clone)]
+struct HostLifetime {
+    runtime: crate::workflow::runtime::RuntimeReference,
+    operation: u64,
+    selected_end: Option<crate::session::SessionEnd>,
+}
+
+#[derive(Clone)]
 pub struct EventSink {
+    host_lifetime: Arc<Mutex<Option<HostLifetime>>>,
+    native_session_scope: Option<u64>,
     source_lifecycle: Option<crate::plugins::receipts::ObservedCallback>,
     native_turn: Option<u64>,
     assistant_text: Option<Arc<Mutex<AssistantText>>>,
@@ -214,6 +223,8 @@ impl EventSink {
             })
             .transpose()?;
         Ok(Self {
+            host_lifetime: Default::default(),
+            native_session_scope: None,
             source_lifecycle: None,
             native_turn: None,
             assistant_text: None,
@@ -238,6 +249,154 @@ impl EventSink {
             prompt_origin: Some(PromptOrigin::Developer(text)),
             ..self.clone()
         }
+    }
+    pub(crate) fn begin_host_lifetime(
+        &self,
+        source: crate::session::SessionStart,
+        plans: Vec<(crate::plugins::hook_types::HookEvent, String)>,
+    ) -> Result<Option<Self>> {
+        anyhow::ensure!(
+            self.phase == "worker" && self.native_turn.is_none() && self.hook_model.is_none(),
+            "only the outer native session can begin a host lifetime"
+        );
+        let Some(runtime) = &self.runtime else {
+            return Ok(None);
+        };
+        let mut retained = self
+            .host_lifetime
+            .lock()
+            .map_err(|_| anyhow::anyhow!("native lifetime lock failed"))?;
+        anyhow::ensure!(retained.is_none(), "native host lifetime already started");
+        let id = runtime.begin_native_session(source, self.identity.as_ref(), plans)?;
+        *retained = Some(HostLifetime {
+            runtime: runtime.downgrade(),
+            operation: id,
+            selected_end: None,
+        });
+        Ok(Some(Self {
+            native_session_scope: Some(id),
+            phase: "native-session".into(),
+            ..self.clone()
+        }))
+    }
+    // Preserve a control consumed while the native turn must still return its
+    // original provider error. This records no end fact and grants no effects.
+    pub(crate) fn select_host_end(&self, reason: crate::session::SessionEnd) -> Result<()> {
+        let mut retained = self
+            .host_lifetime
+            .lock()
+            .map_err(|_| anyhow::anyhow!("native lifetime lock failed"))?;
+        if let Some(lifetime) = retained.as_mut() {
+            lifetime.selected_end.get_or_insert(reason);
+        }
+        Ok(())
+    }
+    pub(crate) fn take_host_end(&self) -> Result<Option<crate::session::SessionEnd>> {
+        let mut retained = self
+            .host_lifetime
+            .lock()
+            .map_err(|_| anyhow::anyhow!("native lifetime lock failed"))?;
+        Ok(retained
+            .as_mut()
+            .and_then(|lifetime| lifetime.selected_end.take()))
+    }
+    pub(crate) fn end_host_lifetime(
+        &self,
+        reason: crate::session::SessionEnd,
+    ) -> Result<Option<Self>> {
+        let retained = self
+            .host_lifetime
+            .lock()
+            .map_err(|_| anyhow::anyhow!("native lifetime lock failed"))?
+            .clone();
+        let Some(HostLifetime {
+            runtime: reference,
+            operation: id,
+            ..
+        }) = retained
+        else {
+            return Ok(None);
+        };
+        let runtime = reference.upgrade()?;
+        runtime.end_native_session(id, reason)?;
+        Ok(Some(Self {
+            native_session_scope: Some(id),
+            phase: "native-session".into(),
+            runtime: Some(runtime),
+            ..self.clone()
+        }))
+    }
+    pub(crate) fn host_lifetime_events(&self) -> Result<Option<Self>> {
+        let retained = self
+            .host_lifetime
+            .lock()
+            .map_err(|_| anyhow::anyhow!("native lifetime lock failed"))?
+            .clone();
+        let Some(HostLifetime {
+            runtime,
+            operation: id,
+            ..
+        }) = retained
+        else {
+            return Ok(None);
+        };
+        Ok(Some(Self {
+            native_session_scope: Some(id),
+            phase: "native-session".into(),
+            runtime: Some(runtime.upgrade()?),
+            ..self.clone()
+        }))
+    }
+    pub(crate) fn validate_end_policy(
+        &self,
+        reason: crate::session::SessionEnd,
+        plans: &[(crate::plugins::hook_types::HookEvent, String)],
+    ) -> Result<()> {
+        let id = self
+            .native_session_scope
+            .context("native session end owner missing")?;
+        self.runtime
+            .as_ref()
+            .context("native session runtime missing")?
+            .validate_native_end_policy(id, reason, plans)
+    }
+    pub(crate) fn lifetime_diagnostic(&self, message: String) -> Result<()> {
+        let retained = self
+            .host_lifetime
+            .lock()
+            .map_err(|_| anyhow::anyhow!("native lifetime lock failed"))?
+            .clone();
+        if let Some(HostLifetime {
+            runtime,
+            operation: id,
+            ..
+        }) = retained
+        {
+            runtime.upgrade()?.native_session_diagnostic(id, message)?;
+        }
+        Ok(())
+    }
+    pub(crate) async fn drain_lifetime_commands(
+        &self,
+        deadline: tokio::time::Instant,
+    ) -> Result<()> {
+        let retained = self
+            .host_lifetime
+            .lock()
+            .map_err(|_| anyhow::anyhow!("native lifetime lock failed"))?
+            .clone();
+        if let Some(HostLifetime {
+            runtime,
+            operation: id,
+            ..
+        }) = retained
+        {
+            runtime
+                .upgrade()?
+                .drain_native_session_commands(id, deadline)
+                .await?;
+        }
+        Ok(())
     }
     pub(crate) fn begin_native_turn(&self) -> Result<Self> {
         // Snapshot reviewers and Oracle sessions are not ordinary worker turns.
@@ -379,6 +538,8 @@ impl EventSink {
 
     pub(crate) fn child(&self, phase: &str, sender: mpsc::Sender<Envelope>) -> Self {
         Self {
+            host_lifetime: Default::default(),
+            native_session_scope: None,
             prompt_origin: None,
             source_lifecycle: None,
             native_turn: None,
@@ -538,6 +699,7 @@ impl EventSink {
             &self.phase,
             self.identity.as_ref(),
             crate::plugins::receipts::LifecycleOrigin {
+                native_session: self.native_session_scope,
                 native_turn: self.native_turn,
                 source: self.source_lifecycle.clone(),
             },

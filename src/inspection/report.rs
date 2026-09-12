@@ -630,6 +630,18 @@ fn source(out: &mut Pager, evidence: &str) -> fmt::Result {
 
 fn lifecycle_report(out: &mut Pager, record: &Record, task: Option<u64>) -> fmt::Result {
     for operation in &record.operations {
+        if let Some(crate::workflow::runtime::HostInvocation::NativeSession(lifetime)) =
+            &operation.host_invocation
+        {
+            writeln!(
+                out,
+                "\nNative session lifetime {} · {:?} · {:?}",
+                operation.id, lifetime.source, lifetime.end
+            )?;
+            for diagnostic in &lifetime.diagnostics {
+                quote(out, "Session diagnostic:", diagnostic)?;
+            }
+        }
         if let Some(crate::workflow::runtime::HostInvocation::NativeTurn(turn)) =
             &operation.host_invocation
             && turn.task == task

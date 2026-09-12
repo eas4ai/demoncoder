@@ -273,7 +273,11 @@ impl SharedRuntime {
         ensure!(!runtime.failed, "session persistence failed");
         if matches!(
             event,
-            HookEvent::UserPromptSubmit | HookEvent::Stop | HookEvent::StopFailure
+            HookEvent::UserPromptSubmit
+                | HookEvent::Stop
+                | HookEvent::StopFailure
+                | HookEvent::SessionStart
+                | HookEvent::SessionEnd
         ) {
             let receipt = super::plugin_non_tool::active(&runtime.record, id, event)?;
             return Ok((receipt.facts.operation, receipt.facts.role.clone()));

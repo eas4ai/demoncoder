@@ -144,6 +144,23 @@ pub(super) fn validate(
     operation: &super::Operation,
     receipt: &super::NonToolReceipt,
 ) -> Result<()> {
+    if let Some(id) = receipt.facts.native_session {
+        let (identity, workspace) =
+            super::super::plugin_session::validate(record, id, &receipt.facts.subject.occurrence)?;
+        let (_, lifetime) = super::super::plugin_session::lifetime(record, id)?;
+        ensure!(
+            operation.phase == "native-session"
+                && receipt.facts.role == operation.phase
+                && operation.identity.as_ref() == Some(identity)
+                && receipt.facts.workspace == workspace
+                && receipt.facts.session == lifetime.session
+                && receipt.facts.native_turn.is_none()
+                && receipt.facts.callback.is_none()
+                && receipt.facts.child_owner.is_none(),
+            "native session observation owner differs"
+        );
+        return Ok(());
+    }
     if let Some(turn) = receipt.facts.native_turn {
         super::turn::validate(record, turn, &operation.phase)?;
     }

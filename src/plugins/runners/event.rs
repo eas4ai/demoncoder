@@ -225,6 +225,8 @@ fn non_tool_input(
             let mut value = json!({"session_id":facts.session,"cwd":invocation.host.workspace,
                 "hook_event_name":event.as_str(),"demoncoder":facts});
             match &facts.subject.occurrence {
+                NonToolOccurrence::SessionStart { source } => value["source"] = json!(source),
+                NonToolOccurrence::SessionEnd { reason } => value["reason"] = json!(reason),
                 NonToolOccurrence::UserPromptSubmit { prompt, .. } => {
                     value["prompt"] = json!(prompt)
                 }
@@ -332,6 +334,9 @@ fn translated_non_tool_input(
         );
     }
     match &facts.subject.occurrence {
+        NonToolOccurrence::SessionStart { .. } | NonToolOccurrence::SessionEnd { .. } => {
+            anyhow::bail!("native lifetime source translation is unavailable")
+        }
         NonToolOccurrence::UserPromptSubmit { prompt, .. } => input["prompt"] = json!(prompt),
         NonToolOccurrence::StopFailure {
             error,
@@ -409,6 +414,9 @@ fn translated_source_input(
         );
     }
     match &facts.subject.occurrence {
+        NonToolOccurrence::SessionStart { .. } | NonToolOccurrence::SessionEnd { .. } => {
+            anyhow::bail!("native lifetime source translation is unavailable")
+        }
         NonToolOccurrence::UserPromptSubmit { prompt, .. } => input["prompt"] = json!(prompt),
         NonToolOccurrence::StopFailure { .. } => {
             anyhow::bail!("external StopFailure callback is not implemented")

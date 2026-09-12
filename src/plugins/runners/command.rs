@@ -383,7 +383,7 @@ impl HookRunner for CommandRunner {
                 owner.validate()?
             } else {
                 runtime
-                    .remaining()?
+                    .plugin_remaining(operation, event)?
                     .min(Duration::from_secs(30))
                     .saturating_sub(Duration::from_secs(3))
             };
@@ -421,7 +421,10 @@ impl HookRunner for CommandRunner {
                 } else {
                     let runtime = runtime.upgrade()?;
                     runtime.plugin_runner_owner(operation, event)?;
-                    ensure!(!runtime.remaining()?.is_zero(), "command owner expired");
+                    ensure!(
+                        !runtime.plugin_remaining(operation, event)?.is_zero(),
+                        "command owner expired"
+                    );
                 }
                 Ok(())
             };

@@ -23,6 +23,1417 @@ use std::{
 use tokio::sync::mpsc;
 
 static FIXTURES: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+fn lifetime_executor(
+    fixture: &Fixture,
+    event: demoncoder::plugins::hook_types::HookEvent,
+    code: &str,
+) -> ToolExecutor {
+    let plan = lifetime_plan(fixture, event, code, false, false);
+    let mut executor = fixture.executor(vec![], false);
+    executor.register_non_tool_plan(plan).unwrap();
+    executor
+}
+fn lifetime_plan(
+    fixture: &Fixture,
+    event: demoncoder::plugins::hook_types::HookEvent,
+    code: &str,
+    asynchronous: bool,
+    rewake: bool,
+) -> Arc<demoncoder::plugins::non_tool::NonToolPlan> {
+    let (_source, captured) = package(HookDialect::Native, code);
+    let mut declared = declaration(event.as_str(), HookDialect::Native, HandlerClass::Observer);
+    declared.matcher = Matcher::default();
+    let mut config = python_config();
+    config.asynchronous = asynchronous;
+    config.async_rewake = rewake;
+    if let CommandProgram::Argv(args) = &mut config.program {
+        args.push(format!(
+            "lifetime-{}",
+            fixture.root.path().file_name().unwrap().to_string_lossy()
+        ));
+    }
+    config.write_paths = vec!["lifetime.txt".into()];
+    let registration =
+        CommandRunner::registration_for_event(captured, declared, event, config, None).unwrap();
+    Arc::new(demoncoder::plugins::non_tool::NonToolPlan::new(event, vec![registration]).unwrap())
+}
+
+#[tokio::test]
+async fn native_session_start_whole_deadline_reaps_command_before_ready() {
+    use demoncoder::{
+        events::Event,
+        plugins::hook_types::HookEvent,
+        session::{self, Command},
+    };
+    let _lock = FIXTURES.lock().await;
+    let mut fixture = Fixture::new();
+    std::fs::write(fixture.root.path().join("lifetime.txt"), "").unwrap();
+    let registrations = ["first", "second"].into_iter().map(|name| {
+        let (_source, captured) = package(HookDialect::Native, "import time\nwith open('lifetime.txt','a') as f: f.write('started')\ntime.sleep(15)\nprint('{}')\n");
+        let mut declared = declaration(name, HookDialect::Native, HandlerClass::Observer);
+        declared.matcher = Matcher::default();
+        let mut config = python_config(); config.timeout_ms = 20_000; config.write_paths = vec!["lifetime.txt".into()];
+        if let CommandProgram::Argv(args) = &mut config.program {args.push(format!("lifetime-{}", fixture.root.path().file_name().unwrap().to_string_lossy()));}
+        CommandRunner::registration_for_event(captured, declared, HookEvent::SessionStart, config, None).unwrap()
+    }).collect();
+    let mut executor = fixture.executor(vec![], false);
+    executor
+        .register_non_tool_plan(Arc::new(
+            demoncoder::plugins::non_tool::NonToolPlan::new(HookEvent::SessionStart, registrations)
+                .unwrap(),
+        ))
+        .unwrap();
+    let native = NativeSession::with_tools(
+        Box::new(Responses {
+            calls: VecDeque::new(),
+            results: Arc::new(Mutex::new(vec![])),
+        }),
+        executor,
+    );
+    let (sender, receiver) = mpsc::channel(4);
+    let events = fixture.events.clone();
+    let started = std::time::Instant::now();
+    let controls = async {
+        while std::fs::read(fixture.root.path().join("lifetime.txt"))
+            .unwrap()
+            .len()
+            < 14
+        {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        let (_supervisor, namespace) = sandbox_owners(&format!(
+            "lifetime-{}",
+            fixture.root.path().file_name().unwrap().to_string_lossy()
+        ));
+        while !matches!(
+            fixture._receiver.recv().await.unwrap().event,
+            Event::Ready { .. }
+        ) {}
+        assert!(started.elapsed() >= Duration::from_secs(26));
+        assert!(started.elapsed() < Duration::from_millis(30300));
+        assert!(
+            namespace.stopped(),
+            "startup returned while command namespace remained alive"
+        );
+        sender.send(Command::Shutdown).await.unwrap();
+    };
+    let (result, ()) = tokio::time::timeout(Duration::from_secs(32), async {
+        tokio::join!(session::run(Box::new(native), receiver, events), controls)
+    })
+    .await
+    .unwrap();
+    result.unwrap();
+}
+
+#[tokio::test]
+async fn native_session_interrupted_command_reload_retains_uncertainty_without_replay() {
+    use demoncoder::{
+        events::Event,
+        plugins::hook_types::HookEvent,
+        session::{self, Command, SessionStart},
+        workflow::{Settings, WorkflowSession, runtime::HostInvocation},
+    };
+    let _lock = FIXTURES.lock().await;
+    let root = tempfile::tempdir().unwrap();
+    let effect = root.path().join("lifetime.txt");
+    std::fs::write(&effect, "").unwrap();
+    let connection: Connection = serde_json::from_value(json!({"adapter":"openai-api"})).unwrap();
+    let (runtime, _) = SharedRuntime::open(root.path(), &connection, None).unwrap();
+    let directory = runtime.directory().unwrap();
+    let token = format!(
+        "restart-{}",
+        root.path().file_name().unwrap().to_string_lossy()
+    );
+    let (_source, captured) = package(
+        HookDialect::Native,
+        "import time\nwith open('lifetime.txt','a') as f: f.write('once')\ntime.sleep(100)\n",
+    );
+    let mut declared = declaration(
+        "startup-restart",
+        HookDialect::Native,
+        HandlerClass::Observer,
+    );
+    declared.matcher = Matcher::default();
+    let mut config = python_config();
+    config.write_paths = vec!["lifetime.txt".into()];
+    if let CommandProgram::Argv(args) = &mut config.program {
+        args.push(token.clone());
+    }
+    let plan = Arc::new(
+        demoncoder::plugins::non_tool::NonToolPlan::new(
+            HookEvent::SessionStart,
+            vec![
+                CommandRunner::registration_for_event(
+                    captured,
+                    declared,
+                    HookEvent::SessionStart,
+                    config,
+                    None,
+                )
+                .unwrap(),
+            ],
+        )
+        .unwrap(),
+    );
+    let create = || {
+        let mut executor = ToolExecutor::with_policy(
+            root.path(),
+            &AccessPolicy {
+                supervisor: Some(env!("CARGO_BIN_EXE_demoncoder").into()),
+                ..AccessPolicy::default()
+            },
+        )
+        .unwrap();
+        executor.register_non_tool_plan(plan.clone()).unwrap();
+        NativeSession::with_tools(
+            Box::new(Responses {
+                calls: VecDeque::new(),
+                results: Arc::new(Mutex::new(vec![])),
+            }),
+            executor,
+        )
+    };
+    let (event_sender, _event_receiver) = mpsc::channel(256);
+    let events = EventSink::new("original".into(), event_sender, None)
+        .unwrap()
+        .with_runtime(runtime.clone());
+    let (_sender, receiver) = mpsc::channel(4);
+    let task = tokio::spawn(session::run(Box::new(create()), receiver, events));
+    tokio::time::timeout(Duration::from_secs(3), async {
+        while std::fs::read(&effect).unwrap().is_empty() {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .unwrap();
+    let (_supervisor, namespace) = sandbox_owners(&token);
+    task.abort();
+    assert!(task.await.unwrap_err().is_cancelled());
+    tokio::time::timeout(Duration::from_secs(3), async {
+        while !namespace.stopped() {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .unwrap();
+    let before = runtime.record().unwrap();
+    assert!(
+        before
+            .operations
+            .iter()
+            .any(|o| matches!(&o.host_invocation,Some(HostInvocation::Lifecycle(r)) if !r.settled))
+    );
+    assert!(before.operations.iter().any(
+        |o| matches!(&o.host_invocation,Some(HostInvocation::NativeSession(r)) if r.end.is_none())
+    ));
+    drop(runtime);
+    let (resumed, resume) =
+        SharedRuntime::open(root.path(), &connection, Some(&directory)).unwrap();
+    assert!(resume);
+    assert!(resumed.record().unwrap().recovery_pending);
+    let session = WorkflowSession::new(
+        Box::new(create()),
+        connection,
+        root.path().into(),
+        Settings::default(),
+        resumed.clone(),
+        resume,
+    )
+    .unwrap();
+    let (event_sender, mut event_receiver) = mpsc::channel(256);
+    let events = EventSink::new("resumed".into(), event_sender, None)
+        .unwrap()
+        .with_runtime(resumed.clone());
+    let (sender, receiver) = mpsc::channel(4);
+    let controls = async {
+        while !matches!(
+            event_receiver.recv().await.unwrap().event,
+            Event::Ready { .. }
+        ) {}
+        sender.send(Command::Shutdown).await.unwrap();
+    };
+    let (result, ()) = tokio::time::timeout(Duration::from_secs(2), async {
+        tokio::join!(session::run(Box::new(session), receiver, events), controls)
+    })
+    .await
+    .unwrap();
+    result.unwrap();
+    let record = resumed.record().unwrap();
+    let lifetimes: Vec<_> = record
+        .operations
+        .iter()
+        .filter_map(|o| match &o.host_invocation {
+            Some(HostInvocation::NativeSession(r)) => Some(r),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(lifetimes.len(), 2);
+    assert!(lifetimes[0].end.is_none());
+    assert_eq!(lifetimes[1].source, SessionStart::Resume);
+    assert!(record.recovery_pending);
+    assert_eq!(std::fs::read_to_string(&effect).unwrap(), "once");
+    assert!(
+        lifetimes[1]
+            .diagnostics
+            .iter()
+            .any(|d| d.contains("unavailable"))
+    );
+    std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[tokio::test]
+async fn native_session_active_turn_retains_explicit_shutdown_or_channel_close_reason() {
+    use demoncoder::{
+        events::Event,
+        plugins::hook_types::HookEvent,
+        session::{self, Command, SessionEnd},
+        workflow::runtime::HostInvocation,
+    };
+    let _lock = FIXTURES.lock().await;
+    for explicit in [false, true] {
+        let mut fixture = Fixture::new();
+        std::fs::write(fixture.root.path().join("lifetime.txt"), "").unwrap();
+        let executor = lifetime_executor(
+            &fixture,
+            HookEvent::SessionEnd,
+            "open('lifetime.txt','a').write('end')\nprint('{}')\n",
+        );
+        let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let native = NativeSession::with_tools(Box::new(WaitFirst(calls.clone())), executor);
+        let (sender, receiver) = mpsc::channel(4);
+        let events = fixture.events.clone();
+        let controls = async {
+            while !matches!(
+                fixture._receiver.recv().await.unwrap().event,
+                Event::Ready { .. }
+            ) {}
+            sender.send(Command::Prompt("wait".into())).await.unwrap();
+            while calls.load(std::sync::atomic::Ordering::SeqCst) == 0 {
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+            if explicit {
+                sender.send(Command::Shutdown).await.unwrap();
+            }
+            drop(sender);
+        };
+        let (result, ()) = tokio::time::timeout(Duration::from_secs(2), async {
+            tokio::join!(session::run(Box::new(native), receiver, events), controls)
+        })
+        .await
+        .unwrap();
+        result.unwrap();
+        let record = fixture.record();
+        let lifetime = record
+            .operations
+            .iter()
+            .find_map(|o| match &o.host_invocation {
+                Some(HostInvocation::NativeSession(r)) => Some(r),
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(
+            lifetime.end,
+            Some(if explicit {
+                SessionEnd::Shutdown
+            } else {
+                SessionEnd::CommandsClosed
+            })
+        );
+        assert_eq!(
+            std::fs::read_to_string(fixture.root.path().join("lifetime.txt")).unwrap(),
+            "end"
+        );
+    }
+}
+
+struct WaitFirst(Arc<std::sync::atomic::AtomicUsize>);
+#[async_trait::async_trait]
+impl Model for WaitFirst {
+    fn prompt(&mut self, _: String) {}
+    fn results(&mut self, _: Vec<ToolResult>) {}
+    async fn response(&mut self, _: &EventSink) -> anyhow::Result<Vec<ToolCall>> {
+        if self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0 {
+            std::future::pending().await
+        } else {
+            Ok(vec![])
+        }
+    }
+}
+
+#[tokio::test]
+async fn native_session_stop_failure_shutdown_retains_selected_cause_and_original_failure() {
+    use demoncoder::{
+        events::Event,
+        plugins::{hook_types::HookEvent, receipts::NonToolOccurrence},
+        session::{self, Command, SessionEnd},
+        workflow::runtime::HostInvocation,
+    };
+    let _lock = FIXTURES.lock().await;
+    for explicit in [true, false] {
+        let mut fixture = Fixture::new();
+        std::fs::write(fixture.root.path().join("lifetime.txt"), "").unwrap();
+        fixture
+            .runtime
+            .begin_phase("worker", Some("original task"))
+            .unwrap();
+        fixture
+            .runtime
+            .allocate(demoncoder::workflow::allocation::Limits::default(), None)
+            .unwrap();
+        let mut executor = lifetime_executor(
+            &fixture,
+            HookEvent::SessionEnd,
+            "open('lifetime.txt','a').write('end')\nprint('{}')\n",
+        );
+        executor.register_non_tool_plan(lifetime_plan(&fixture,HookEvent::StopFailure,"import time\nwith open('lifetime.txt','a') as f: f.write('failure')\ntime.sleep(100)\n",false,false)).unwrap();
+        let native = NativeSession::with_tools(
+            Box::new(FailingProvider(Arc::new(
+                std::sync::atomic::AtomicUsize::new(0),
+            ))),
+            executor,
+        );
+        let (sender, receiver) = mpsc::channel(4);
+        let events = fixture.events.clone();
+        let controls = async {
+            while !matches!(
+                fixture._receiver.recv().await.unwrap().event,
+                Event::Ready { .. }
+            ) {}
+            sender.send(Command::Prompt("fail".into())).await.unwrap();
+            let started = std::time::Instant::now();
+            while std::fs::read(fixture.root.path().join("lifetime.txt"))
+                .unwrap()
+                .is_empty()
+            {
+                assert!(
+                    started.elapsed() < Duration::from_secs(2),
+                    "StopFailure did not launch: {:?}",
+                    fixture.runtime.record().unwrap().operations
+                );
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+            if explicit {
+                sender.send(Command::Shutdown).await.unwrap();
+            }
+            drop(sender);
+        };
+        let (result, ()) = tokio::time::timeout(Duration::from_secs(3), async {
+            tokio::join!(session::run(Box::new(native), receiver, events), controls)
+        })
+        .await
+        .unwrap();
+        result.unwrap();
+        let record = fixture.record();
+        let lifetime = record
+            .operations
+            .iter()
+            .find_map(|o| match &o.host_invocation {
+                Some(HostInvocation::NativeSession(r)) => Some(r),
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(
+            lifetime.end,
+            Some(if explicit {
+                SessionEnd::Shutdown
+            } else {
+                SessionEnd::CommandsClosed
+            })
+        );
+        assert!(record.operations.iter().any(|o|matches!(&o.host_invocation,Some(HostInvocation::Lifecycle(r)) if matches!(&r.facts.subject.occurrence,NonToolOccurrence::StopFailure {error_details,..} if error_details=="provider said authentication_failed without a typed category"))));
+        assert_eq!(
+            std::fs::read_to_string(fixture.root.path().join("lifetime.txt")).unwrap(),
+            "failureend"
+        );
+    }
+}
+
+struct FailOnce(Arc<std::sync::atomic::AtomicUsize>);
+#[async_trait::async_trait]
+impl Model for FailOnce {
+    fn prompt(&mut self, _: String) {}
+    fn results(&mut self, _: Vec<ToolResult>) {}
+    async fn response(&mut self, _: &EventSink) -> anyhow::Result<Vec<ToolCall>> {
+        if self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0 {
+            Err(demoncoder::native::provider_response_failure(
+                anyhow::anyhow!("failed first turn"),
+            ))
+        } else {
+            Ok(vec![])
+        }
+    }
+}
+
+async fn lifetime_turn_followup(cancelled: bool) {
+    use demoncoder::{
+        events::Event,
+        plugins::hook_types::HookEvent,
+        session::{self, Command},
+    };
+    let _lock = FIXTURES.lock().await;
+    let mut fixture = Fixture::new();
+    std::fs::write(fixture.root.path().join("lifetime.txt"), "").unwrap();
+    let mut executor = lifetime_executor(
+        &fixture,
+        HookEvent::SessionStart,
+        "open('lifetime.txt','a').write('start\\n')\nprint('{}')\n",
+    );
+    executor
+        .register_non_tool_plan(lifetime_plan(
+            &fixture,
+            HookEvent::SessionEnd,
+            "open('lifetime.txt','a').write('end\\n')\nprint('{}')\n",
+            false,
+            false,
+        ))
+        .unwrap();
+    let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let model: Box<dyn Model> = if cancelled {
+        Box::new(WaitFirst(calls.clone()))
+    } else {
+        Box::new(FailOnce(calls.clone()))
+    };
+    let native = NativeSession::with_tools(model, executor);
+    let (sender, receiver) = mpsc::channel(4);
+    let events = fixture.events.clone();
+    let controls = async {
+        while !matches!(
+            fixture._receiver.recv().await.unwrap().event,
+            Event::Ready { .. }
+        ) {}
+        for expected in [if cancelled { "cancelled" } else { "failed" }, "complete"] {
+            sender
+                .send(Command::Prompt("another prompt".into()))
+                .await
+                .unwrap();
+            if expected == "cancelled" {
+                while calls.load(std::sync::atomic::Ordering::SeqCst) == 0 {
+                    tokio::time::sleep(Duration::from_millis(5)).await;
+                }
+                sender.send(Command::Cancel).await.unwrap();
+            }
+            loop {
+                if let Event::TurnFinished { status } =
+                    fixture._receiver.recv().await.unwrap().event
+                {
+                    assert_eq!(status, expected);
+                    break;
+                }
+            }
+            assert_eq!(
+                std::fs::read_to_string(fixture.root.path().join("lifetime.txt")).unwrap(),
+                "start\n"
+            );
+        }
+        sender.send(Command::Shutdown).await.unwrap();
+    };
+    let (result, ()) = tokio::join!(session::run(Box::new(native), receiver, events), controls);
+    result.unwrap();
+    assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 2);
+    assert_eq!(
+        std::fs::read_to_string(fixture.root.path().join("lifetime.txt")).unwrap(),
+        "start\nend\n"
+    );
+}
+
+#[tokio::test]
+async fn native_session_failed_turn_resource_close_allows_next_prompt_before_actual_end() {
+    lifetime_turn_followup(false).await;
+}
+#[tokio::test]
+async fn native_session_cancelled_turn_resource_close_allows_next_prompt_before_actual_end() {
+    lifetime_turn_followup(true).await;
+}
+
+#[tokio::test]
+async fn native_session_persistence_failure_suppresses_end_command_and_finishes_shutdown() {
+    use demoncoder::{
+        events::Event,
+        plugins::hook_types::HookEvent,
+        session::{self, Command},
+    };
+    let _lock = FIXTURES.lock().await;
+    let mut fixture = Fixture::new();
+    std::fs::write(fixture.root.path().join("lifetime.txt"), "").unwrap();
+    let executor = lifetime_executor(
+        &fixture,
+        HookEvent::SessionEnd,
+        "open('lifetime.txt','a').write('unowned')\nprint('{}')\n",
+    );
+    let native = NativeSession::with_tools(
+        Box::new(Responses {
+            calls: VecDeque::new(),
+            results: Arc::new(Mutex::new(vec![])),
+        }),
+        executor,
+    );
+    let (sender, receiver) = mpsc::channel(4);
+    let events = fixture.events.clone();
+    let controls = async {
+        while !matches!(
+            fixture._receiver.recv().await.unwrap().event,
+            Event::Ready { .. }
+        ) {}
+        std::fs::write(
+            fixture.runtime.directory().unwrap().join("state.json"),
+            "damaged durable record",
+        )
+        .unwrap();
+        sender.send(Command::Shutdown).await.unwrap();
+    };
+    let (result, ()) = tokio::time::timeout(Duration::from_secs(1), async {
+        tokio::join!(session::run(Box::new(native), receiver, events), controls)
+    })
+    .await
+    .unwrap();
+    result.unwrap();
+    assert!(
+        fixture
+            .runtime
+            .allocate(demoncoder::workflow::allocation::Limits::default(), None)
+            .unwrap_err()
+            .to_string()
+            .contains("persistence failed")
+    );
+    assert!(
+        std::fs::read(fixture.root.path().join("lifetime.txt"))
+            .unwrap()
+            .is_empty()
+    );
+}
+
+struct ReplaceNative {
+    current: Box<dyn Session>,
+    replacement: Option<Box<dyn Session>>,
+}
+
+struct ExternalResource;
+
+#[tokio::test]
+async fn native_session_explicit_shutdown_reason_is_not_relabelled_by_closed_ui() {
+    use demoncoder::{
+        session::{self, Command, SessionEnd},
+        workflow::runtime::HostInvocation,
+    };
+    let _fixture_lock = FIXTURES.lock().await;
+    let mut fixture = Fixture::new();
+    fixture._receiver.close();
+    let native = NativeSession::with_tools(
+        Box::new(Responses {
+            calls: VecDeque::new(),
+            results: Arc::new(Mutex::new(vec![])),
+        }),
+        fixture.executor(vec![], false),
+    );
+    let (sender, receiver) = mpsc::channel(4);
+    sender.send(Command::Shutdown).await.unwrap();
+    session::run(Box::new(native), receiver, fixture.events.clone())
+        .await
+        .unwrap();
+    let record = fixture.record();
+    let lifetime = record
+        .operations
+        .iter()
+        .find_map(|o| match &o.host_invocation {
+            Some(HostInvocation::NativeSession(lifetime)) => Some(lifetime),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(lifetime.end, Some(SessionEnd::Shutdown));
+}
+#[async_trait::async_trait]
+impl Session for ExternalResource {
+    fn owner(&self) -> &'static str {
+        "external-fixture"
+    }
+    async fn turn(
+        &mut self,
+        _: String,
+        _: &mut mpsc::Receiver<demoncoder::session::Command>,
+        _: &EventSink,
+    ) -> anyhow::Result<demoncoder::session::TurnEnd> {
+        Ok(demoncoder::session::TurnEnd::Complete)
+    }
+}
+
+#[tokio::test]
+async fn native_session_shutdown_does_not_wait_for_producer_held_channel_permit() {
+    use demoncoder::session::{self, Command};
+    let _fixture_lock = FIXTURES.lock().await;
+    let fixture = Fixture::new();
+    let native = NativeSession::with_tools(
+        Box::new(Responses {
+            calls: VecDeque::new(),
+            results: Arc::new(Mutex::new(vec![])),
+        }),
+        fixture.executor(vec![], false),
+    );
+    let (sender, receiver) = mpsc::channel(4);
+    let permit = sender.reserve().await.unwrap();
+    sender.send(Command::Shutdown).await.unwrap();
+    let result = tokio::time::timeout(
+        Duration::from_millis(500),
+        session::run(Box::new(native), receiver, fixture.events.clone()),
+    )
+    .await;
+    drop(permit);
+    result
+        .expect("producer-held permit blocked actual session termination")
+        .unwrap();
+}
+
+#[tokio::test]
+async fn native_session_removed_end_plan_or_external_replacement_retains_unavailable_diagnostic() {
+    use demoncoder::{
+        events::Event,
+        plugins::hook_types::HookEvent,
+        session::{self, Command},
+        workflow::runtime::HostInvocation,
+    };
+    let _fixture_lock = FIXTURES.lock().await;
+    for external in [false, true] {
+        let mut fixture = Fixture::new();
+        std::fs::write(fixture.root.path().join("lifetime.txt"), "").unwrap();
+        let model = || {
+            Box::new(Responses {
+                calls: VecDeque::new(),
+                results: Arc::new(Mutex::new(vec![])),
+            })
+        };
+        let replacement: Box<dyn Session> = if external {
+            Box::new(ExternalResource)
+        } else {
+            Box::new(NativeSession::with_tools(
+                model(),
+                fixture.executor(vec![], false),
+            ))
+        };
+        let session = ReplaceNative {
+            current: Box::new(NativeSession::with_tools(
+                model(),
+                lifetime_executor(
+                    &fixture,
+                    HookEvent::SessionEnd,
+                    "open('lifetime.txt','a').write('end')\nprint('{}')\n",
+                ),
+            )),
+            replacement: Some(replacement),
+        };
+        let (sender, receiver) = mpsc::channel(4);
+        let events = fixture.events.clone();
+        let controls = async {
+            while !matches!(
+                fixture._receiver.recv().await.unwrap().event,
+                Event::Ready { .. }
+            ) {}
+            sender
+                .send(Command::Prompt("replace".into()))
+                .await
+                .unwrap();
+            while !matches!(
+                fixture._receiver.recv().await.unwrap().event,
+                Event::TurnFinished { .. }
+            ) {}
+            sender.send(Command::Shutdown).await.unwrap();
+        };
+        let (result, ()) =
+            tokio::join!(session::run(Box::new(session), receiver, events), controls);
+        result.unwrap();
+        let record = fixture.record();
+        let lifetime = record
+            .operations
+            .iter()
+            .find_map(|o| match &o.host_invocation {
+                Some(HostInvocation::NativeSession(lifetime)) => Some(lifetime),
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(lifetime.end, Some(session::SessionEnd::Shutdown));
+        assert!(
+            lifetime
+                .diagnostics
+                .iter()
+                .any(|d| d.contains("SessionEnd observation unavailable")),
+            "replacement silently dropped the pinned end observer: external={external}"
+        );
+        assert!(
+            std::fs::read_to_string(fixture.root.path().join("lifetime.txt"))
+                .unwrap()
+                .is_empty()
+        );
+    }
+}
+
+#[test]
+fn native_session_rewake_configuration_is_rejected_before_registration() {
+    use demoncoder::plugins::hook_types::HookEvent;
+    let (_source, captured) = package(HookDialect::Native, "print('{}')\n");
+    let mut declared = declaration(
+        "session-rewake",
+        HookDialect::Native,
+        HandlerClass::Observer,
+    );
+    declared.matcher = Matcher::default();
+    let mut config = python_config();
+    config.async_rewake = true;
+    let result = CommandRunner::registration_for_event(
+        captured,
+        declared,
+        HookEvent::SessionStart,
+        config,
+        None,
+    );
+    assert!(
+        result
+            .err()
+            .unwrap()
+            .to_string()
+            .contains("rewake requires Claude source semantics")
+    );
+}
+
+#[tokio::test]
+async fn native_session_configured_async_command_is_unavailable_without_launch_or_rewake() {
+    use demoncoder::{
+        events::Event,
+        plugins::hook_types::HookEvent,
+        session::{self, Command},
+        workflow::runtime::HostInvocation,
+    };
+    let _fixture_lock = FIXTURES.lock().await;
+    {
+        let (asynchronous, rewake) = (true, false);
+        let mut fixture = Fixture::new();
+        std::fs::write(fixture.root.path().join("lifetime.txt"), "").unwrap();
+        let plan = lifetime_plan(
+            &fixture,
+            HookEvent::SessionStart,
+            "open('lifetime.txt','w').write('unowned effect')\nprint('{}')\n",
+            asynchronous,
+            rewake,
+        );
+        let mut tools = fixture.executor(vec![], false);
+        tools.register_non_tool_plan(plan).unwrap();
+        let native = NativeSession::with_tools(
+            Box::new(Responses {
+                calls: VecDeque::new(),
+                results: Arc::new(Mutex::new(vec![])),
+            }),
+            tools,
+        );
+        let (sender, receiver) = mpsc::channel(4);
+        let events = fixture.events.clone();
+        let controls = async {
+            while !matches!(
+                fixture._receiver.recv().await.unwrap().event,
+                Event::Ready { .. }
+            ) {}
+            sender.send(Command::Shutdown).await.unwrap();
+        };
+        let (result, ()) = tokio::join!(session::run(Box::new(native), receiver, events), controls);
+        result.unwrap();
+        assert!(
+            std::fs::read_to_string(fixture.root.path().join("lifetime.txt"))
+                .unwrap()
+                .is_empty()
+        );
+        let record = fixture.record();
+        let receipt = record
+            .operations
+            .iter()
+            .find_map(|o| match &o.host_invocation {
+                Some(HostInvocation::Lifecycle(receipt)) => Some(receipt),
+                _ => None,
+            })
+            .unwrap();
+        assert!(
+            receipt.settled
+                && receipt.hooks.is_empty()
+                && receipt.diagnostics[0].contains("synchronous native commands only")
+        );
+    }
+}
+
+#[tokio::test]
+async fn native_session_replacement_with_unchanged_startup_policy_observes_end_once() {
+    use demoncoder::{
+        events::Event,
+        plugins::hook_types::HookEvent,
+        session::{self, Command},
+    };
+    let _fixture_lock = FIXTURES.lock().await;
+    let mut fixture = Fixture::new();
+    std::fs::write(fixture.root.path().join("lifetime.txt"), "").unwrap();
+    let plan = lifetime_plan(
+        &fixture,
+        HookEvent::SessionEnd,
+        "open('lifetime.txt','a').write('end')\nprint('{}')\n",
+        false,
+        false,
+    );
+    let create = || {
+        let mut tools = fixture.executor(vec![], false);
+        tools.register_non_tool_plan(plan.clone()).unwrap();
+        NativeSession::with_tools(
+            Box::new(Responses {
+                calls: VecDeque::new(),
+                results: Arc::new(Mutex::new(vec![])),
+            }),
+            tools,
+        )
+    };
+    let session = ReplaceNative {
+        current: Box::new(create()),
+        replacement: Some(Box::new(create())),
+    };
+    let (sender, receiver) = mpsc::channel(4);
+    let events = fixture.events.clone();
+    let controls = async {
+        while !matches!(
+            fixture._receiver.recv().await.unwrap().event,
+            Event::Ready { .. }
+        ) {}
+        sender
+            .send(Command::Prompt("replace".into()))
+            .await
+            .unwrap();
+        while !matches!(
+            fixture._receiver.recv().await.unwrap().event,
+            Event::TurnFinished { .. }
+        ) {}
+        sender.send(Command::Shutdown).await.unwrap();
+    };
+    let (result, ()) = tokio::join!(session::run(Box::new(session), receiver, events), controls);
+    result.unwrap();
+    assert_eq!(
+        std::fs::read_to_string(fixture.root.path().join("lifetime.txt")).unwrap(),
+        "end"
+    );
+}
+
+#[tokio::test]
+async fn native_session_end_malformed_observer_cannot_veto_shutdown_with_closed_ui() {
+    use demoncoder::{plugins::hook_types::HookEvent, session, workflow::runtime::HostInvocation};
+    let _fixture_lock = FIXTURES.lock().await;
+    for code in [
+        "print('not JSON')\n",
+        "raise RuntimeError('fixture observer failure')\n",
+    ] {
+        let mut fixture = Fixture::new();
+        std::fs::write(fixture.root.path().join("lifetime.txt"), "").unwrap();
+        let executor = lifetime_executor(&fixture, HookEvent::SessionEnd, code);
+        let native = NativeSession::with_tools(
+            Box::new(Responses {
+                calls: VecDeque::new(),
+                results: Arc::new(Mutex::new(vec![])),
+            }),
+            executor,
+        );
+        let (_sender, receiver) = mpsc::channel(4);
+        fixture._receiver.close();
+        tokio::time::timeout(
+            Duration::from_secs(5),
+            session::run(Box::new(native), receiver, fixture.events.clone()),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        let record = fixture.record();
+        let receipt = record
+            .operations
+            .iter()
+            .find_map(|o| match &o.host_invocation {
+                Some(HostInvocation::Lifecycle(receipt)) => Some(receipt),
+                _ => None,
+            })
+            .unwrap();
+        assert!(
+            receipt.settled && !receipt.diagnostics.is_empty(),
+            "closed UI lost the known observer outcome"
+        );
+        assert!(!receipt.correction_required && !receipt.correction_admitted);
+    }
+}
+
+#[tokio::test]
+async fn native_session_startup_context_is_retained_pending_until_a_host_owner_applies_it() {
+    use demoncoder::{
+        events::Event,
+        plugins::hook_types::HookEvent,
+        session::{self, Command},
+        workflow::runtime::HostInvocation,
+    };
+    let _fixture_lock = FIXTURES.lock().await;
+    let mut fixture = Fixture::new();
+    std::fs::write(fixture.root.path().join("lifetime.txt"), "").unwrap();
+    let executor = lifetime_executor(
+        &fixture,
+        HookEvent::SessionStart,
+        r#"print('{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"unapplied startup context"}}')"#,
+    );
+    let native = NativeSession::with_tools(
+        Box::new(Responses {
+            calls: VecDeque::new(),
+            results: Arc::new(Mutex::new(vec![])),
+        }),
+        executor,
+    );
+    let (sender, receiver) = mpsc::channel(4);
+    let events = fixture.events.clone();
+    let controls = async {
+        while !matches!(
+            fixture._receiver.recv().await.unwrap().event,
+            Event::Ready { .. }
+        ) {}
+        sender.send(Command::Shutdown).await.unwrap();
+    };
+    let (result, ()) = tokio::join!(session::run(Box::new(native), receiver, events), controls);
+    result.unwrap();
+    let record = fixture.record();
+    let receipt = record
+        .operations
+        .iter()
+        .find_map(|o| match &o.host_invocation {
+            Some(HostInvocation::Lifecycle(receipt)) => Some(receipt),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(
+        receipt.proposals.len(),
+        1,
+        "actual startup command response was not retained"
+    );
+    assert!(
+        matches!(
+            receipt.proposals[0].disposition,
+            demoncoder::plugins::receipts::ProposalDisposition::Pending
+        ),
+        "unapplied startup context was reported as applied"
+    );
+}
+
+#[tokio::test]
+async fn native_session_end_command_outlives_task_deadline_without_spending_it() {
+    use demoncoder::{
+        events::Event,
+        plugins::hook_types::HookEvent,
+        session::{self, Command},
+        workflow::allocation::Limits,
+    };
+    let _fixture_lock = FIXTURES.lock().await;
+    let mut fixture = Fixture::new();
+    fixture
+        .runtime
+        .allocate(
+            Limits {
+                seconds: 1,
+                model_calls: 1,
+                tool_calls: 1,
+            },
+            None,
+        )
+        .unwrap();
+    let before = fixture.record().allocation.unwrap();
+    std::fs::write(fixture.root.path().join("lifetime.txt"), "").unwrap();
+    let executor = lifetime_executor(
+        &fixture,
+        HookEvent::SessionEnd,
+        "open('lifetime.txt','w').write('ended')\nprint('{}')\n",
+    );
+    let native = NativeSession::with_tools(
+        Box::new(Responses {
+            calls: VecDeque::new(),
+            results: Arc::new(Mutex::new(vec![])),
+        }),
+        executor,
+    );
+    let (sender, receiver) = mpsc::channel(4);
+    let events = fixture.events.clone();
+    let controls = async {
+        while !matches!(
+            fixture._receiver.recv().await.unwrap().event,
+            Event::Ready { .. }
+        ) {}
+        tokio::time::sleep(Duration::from_millis(1100)).await;
+        sender.send(Command::Shutdown).await.unwrap();
+    };
+    let (result, ()) = tokio::join!(session::run(Box::new(native), receiver, events), controls);
+    result.unwrap();
+    assert_eq!(
+        std::fs::read_to_string(fixture.root.path().join("lifetime.txt")).unwrap(),
+        "ended"
+    );
+    let after = fixture.record().allocation.unwrap();
+    assert_eq!(
+        (
+            after.started_ms,
+            after.deadline_ms,
+            after.model_calls,
+            after.tool_calls
+        ),
+        (before.started_ms, before.deadline_ms, 0, 0)
+    );
+}
+
+#[tokio::test]
+async fn native_session_end_whole_deadline_reaps_command_and_detached_descendant() {
+    use demoncoder::{
+        events::Event,
+        plugins::hook_types::HookEvent,
+        session::{self, Command},
+    };
+    let _fixture_lock = FIXTURES.lock().await;
+    let mut fixture = Fixture::new();
+    std::fs::write(fixture.root.path().join("lifetime.txt"), "").unwrap();
+    let executor = lifetime_executor(
+        &fixture,
+        HookEvent::SessionEnd,
+        r#"import os,time
+if os.fork()==0:
+    os.setsid()
+    if os.fork(): os._exit(0)
+    for fd in (0,1,2): os.close(fd)
+    while True:
+        with open('lifetime.txt','a') as f: f.write('x')
+        time.sleep(.005)
+time.sleep(100)
+"#,
+    );
+    let native = NativeSession::with_tools(
+        Box::new(Responses {
+            calls: VecDeque::new(),
+            results: Arc::new(Mutex::new(vec![])),
+        }),
+        executor,
+    );
+    let (sender, receiver) = mpsc::channel(4);
+    let events = fixture.events.clone();
+    let controls = async {
+        while !matches!(
+            fixture._receiver.recv().await.unwrap().event,
+            Event::Ready { .. }
+        ) {}
+        let start = std::time::Instant::now();
+        sender.send(Command::Shutdown).await.unwrap();
+        while std::fs::read_to_string(fixture.root.path().join("lifetime.txt"))
+            .unwrap()
+            .is_empty()
+        {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        let owners = sandbox_owners(&format!(
+            "lifetime-{}",
+            fixture.root.path().file_name().unwrap().to_string_lossy()
+        ));
+        (start, owners)
+    };
+    let (result, (start, (_supervisor, namespace))) =
+        tokio::time::timeout(Duration::from_secs(6), async {
+            tokio::join!(session::run(Box::new(native), receiver, events), controls)
+        })
+        .await
+        .unwrap();
+    result.unwrap();
+    assert!(start.elapsed() < Duration::from_millis(5300));
+    assert!(
+        namespace.stopped(),
+        "session deadline returned with a live namespace"
+    );
+    let bytes = std::fs::read(fixture.root.path().join("lifetime.txt")).unwrap();
+    tokio::time::sleep(Duration::from_millis(80)).await;
+    assert_eq!(
+        std::fs::read(fixture.root.path().join("lifetime.txt")).unwrap(),
+        bytes,
+        "detached descendant wrote after session cleanup"
+    );
+}
+#[async_trait::async_trait]
+impl Session for ReplaceNative {
+    fn owner(&self) -> &'static str {
+        "demoncoder"
+    }
+    fn native_lifetime(&self) -> bool {
+        true
+    }
+    fn open_lifetime(
+        &mut self,
+        source: demoncoder::session::SessionStart,
+        events: &EventSink,
+    ) -> anyhow::Result<()> {
+        self.current.open_lifetime(source, events)
+    }
+    async fn session_start(
+        &mut self,
+        source: demoncoder::session::SessionStart,
+        events: &EventSink,
+    ) -> anyhow::Result<()> {
+        self.current.session_start(source, events).await
+    }
+    async fn session_end(
+        &mut self,
+        reason: demoncoder::session::SessionEnd,
+        events: &EventSink,
+    ) -> anyhow::Result<()> {
+        self.current.session_end(reason, events).await
+    }
+    async fn turn(
+        &mut self,
+        _: String,
+        _: &mut mpsc::Receiver<demoncoder::session::Command>,
+        _: &EventSink,
+    ) -> anyhow::Result<demoncoder::session::TurnEnd> {
+        self.current.close().await?;
+        self.current = self.replacement.take().unwrap();
+        Ok(demoncoder::session::TurnEnd::Complete)
+    }
+    async fn close(&mut self) -> anyhow::Result<()> {
+        self.current.close().await
+    }
+}
+
+#[tokio::test]
+async fn native_session_replacement_cannot_borrow_startup_policy_for_new_end_command() {
+    use demoncoder::{
+        events::Event,
+        plugins::hook_types::HookEvent,
+        session::{self, Command},
+    };
+    let _fixture_lock = FIXTURES.lock().await;
+    let mut fixture = Fixture::new();
+    std::fs::write(fixture.root.path().join("lifetime.txt"), "").unwrap();
+    let model = || {
+        Box::new(Responses {
+            calls: VecDeque::new(),
+            results: Arc::new(Mutex::new(vec![])),
+        })
+    };
+    let session = ReplaceNative {
+        current: Box::new(NativeSession::with_tools(
+            model(),
+            fixture.executor(vec![], false),
+        )),
+        replacement: Some(Box::new(NativeSession::with_tools(
+            model(),
+            lifetime_executor(
+                &fixture,
+                HookEvent::SessionEnd,
+                "open('lifetime.txt','w').write('new policy ran')\nprint('{}')\n",
+            ),
+        ))),
+    };
+    let (sender, receiver) = mpsc::channel(4);
+    let events = fixture.events.clone();
+    let controls = async {
+        while !matches!(
+            fixture._receiver.recv().await.unwrap().event,
+            Event::Ready { .. }
+        ) {}
+        sender
+            .send(Command::Prompt("replace provider".into()))
+            .await
+            .unwrap();
+        while !matches!(
+            fixture._receiver.recv().await.unwrap().event,
+            Event::TurnFinished { .. }
+        ) {}
+        sender.send(Command::Shutdown).await.unwrap();
+    };
+    let (result, ()) = tokio::join!(session::run(Box::new(session), receiver, events), controls);
+    result.unwrap();
+    assert_eq!(
+        std::fs::read_to_string(fixture.root.path().join("lifetime.txt")).unwrap(),
+        "",
+        "replacement borrowed a policy absent at session startup"
+    );
+}
+
+#[tokio::test]
+async fn native_session_queued_shutdown_retains_actual_start_and_end_without_model_work() {
+    use demoncoder::{
+        session::{self, Command, SessionEnd},
+        workflow::runtime::HostInvocation,
+    };
+    let _fixture_lock = FIXTURES.lock().await;
+    let fixture = Fixture::new();
+    let mut native = NativeSession::with_tools(
+        Box::new(Responses {
+            calls: VecDeque::new(),
+            results: Arc::new(Mutex::new(vec![])),
+        }),
+        fixture.executor(vec![], false),
+    );
+    native.close().await.unwrap();
+    native.close().await.unwrap();
+    assert!(
+        fixture.record().operations.is_empty(),
+        "resource cleanup manufactured a session boundary"
+    );
+    let (sender, receiver) = mpsc::channel(4);
+    sender.send(Command::Shutdown).await.unwrap();
+    session::run(Box::new(native), receiver, fixture.events.clone())
+        .await
+        .unwrap();
+    let record = fixture.record();
+    let lifetimes: Vec<_> = record
+        .operations
+        .iter()
+        .filter_map(|o| match &o.host_invocation {
+            Some(HostInvocation::NativeSession(lifetime)) => Some(lifetime),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        lifetimes.len(),
+        1,
+        "queued shutdown lost the actual outer session lifetime"
+    );
+    assert_eq!(lifetimes[0].end, Some(SessionEnd::Shutdown));
+    assert!(record.allocation.is_none());
+}
+
+#[tokio::test]
+async fn native_session_startup_cancel_rejects_queued_submit_and_joins_command() {
+    use demoncoder::{
+        plugins::hook_types::HookEvent,
+        session::{self, Command},
+    };
+    let _fixture_lock = FIXTURES.lock().await;
+    let fixture = Fixture::new();
+    std::fs::write(fixture.root.path().join("lifetime.txt"), "").unwrap();
+    let executor = lifetime_executor(
+        &fixture,
+        HookEvent::SessionStart,
+        r#"import os,time
+with open('lifetime.txt','w') as f: f.write(str(os.getpid()))
+time.sleep(100)
+"#,
+    );
+    let native = NativeSession::with_tools(
+        Box::new(Responses {
+            calls: VecDeque::new(),
+            results: Arc::new(Mutex::new(vec![])),
+        }),
+        executor,
+    );
+    let (sender, receiver) = mpsc::channel(8);
+    let (reply, admission) = tokio::sync::oneshot::channel();
+    let controls = async {
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while std::fs::read_to_string(fixture.root.path().join("lifetime.txt"))
+                .unwrap()
+                .is_empty()
+            {
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .unwrap();
+        let owners = sandbox_owners(&format!(
+            "lifetime-{}",
+            fixture.root.path().file_name().unwrap().to_string_lossy()
+        ));
+        sender.send(Command::Cancel).await.unwrap();
+        sender
+            .send(Command::Submit {
+                text: "must not reach model".into(),
+                reply,
+            })
+            .await
+            .unwrap();
+        sender.send(Command::Shutdown).await.unwrap();
+        owners
+    };
+    let (result, (_supervisor, namespace)) = tokio::time::timeout(Duration::from_secs(7), async {
+        tokio::join!(
+            session::run(Box::new(native), receiver, fixture.events.clone()),
+            controls
+        )
+    })
+    .await
+    .unwrap();
+    result.unwrap();
+    assert!(
+        admission.await.unwrap().is_err(),
+        "startup cancellation admitted queued model work"
+    );
+    assert!(!fixture.record().operations.iter().any(|o| matches!(
+        o.host_invocation,
+        Some(demoncoder::workflow::runtime::HostInvocation::Model)
+    )));
+    assert!(
+        namespace.stopped(),
+        "cancelled command survived actual session cleanup"
+    );
+}
+
+#[tokio::test]
+async fn native_session_lifetime_without_prompt_runs_confined_start_and_end_once() {
+    use demoncoder::plugins::{hook_types::HookEvent, non_tool::NonToolPlan};
+    use demoncoder::session::{self, Command};
+    let _fixture_lock = FIXTURES.lock().await;
+    let mut fixture = Fixture::new();
+    std::fs::write(fixture.root.path().join("lifetime.txt"), "").unwrap();
+    let mut executor = fixture.executor(vec![], false);
+    for event in [HookEvent::SessionStart, HookEvent::SessionEnd] {
+        let code = r#"import json,sys
+x=json.load(sys.stdin)
+with open('lifetime.txt','a') as f: f.write(x['hook_event_name']+'\n')
+print('{}')
+"#;
+        let (_source, captured) = package(HookDialect::Native, code);
+        let mut declared = declaration(event.as_str(), HookDialect::Native, HandlerClass::Observer);
+        declared.matcher = Matcher::default();
+        let mut config = python_config();
+        config.write_paths = vec!["lifetime.txt".into()];
+        let registration =
+            CommandRunner::registration_for_event(captured, declared, event, config, None).unwrap();
+        executor
+            .register_non_tool_plan(Arc::new(
+                NonToolPlan::new(event, vec![registration]).unwrap(),
+            ))
+            .unwrap();
+    }
+    let native = NativeSession::with_tools(
+        Box::new(Responses {
+            calls: VecDeque::new(),
+            results: Arc::new(Mutex::new(vec![])),
+        }),
+        executor,
+    );
+    let (sender, receiver) = mpsc::channel(8);
+    let events = fixture.events.clone();
+    let shutdown = async {
+        tokio::time::timeout(Duration::from_secs(10), async {
+            while std::fs::read_to_string(fixture.root.path().join("lifetime.txt"))
+                .unwrap()
+                .is_empty()
+            {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap_or_else(|error| {
+            panic!(
+                "outer session startup did not run the registered command: {error}; {}",
+                serde_json::to_string_pretty(&fixture.record()).unwrap()
+            )
+        });
+        while !matches!(
+            fixture._receiver.recv().await.unwrap().event,
+            demoncoder::events::Event::Ready { .. }
+        ) {}
+        sender.send(Command::Shutdown).await.unwrap();
+    };
+    let (result, ()) = tokio::join!(session::run(Box::new(native), receiver, events), shutdown);
+    result.unwrap();
+    assert_eq!(
+        std::fs::read_to_string(fixture.root.path().join("lifetime.txt")).unwrap(),
+        "SessionStart\nSessionEnd\n"
+    );
+    assert!(fixture.record().allocation.is_none());
+    assert!(fixture.record().task.is_none());
+}
 struct Responses {
     calls: VecDeque<Vec<ToolCall>>,
     results: Arc<Mutex<Vec<ToolResult>>>,
@@ -2326,6 +3737,10 @@ print(json.dumps({'systemMessage':json.dumps(x)}))
             let event = receipt.facts.subject.occurrence.clone();
             let mut expected = json!({"session_id":receipt.facts.session,"cwd":fixture.root.path(),"transcript_path":receipt.facts.host_transcript_path,"permission_mode":"default"});
             match event {
+                demoncoder::plugins::receipts::NonToolOccurrence::SessionStart { .. }
+                | demoncoder::plugins::receipts::NonToolOccurrence::SessionEnd { .. } => {
+                    unreachable!("turn fixture")
+                }
                 demoncoder::plugins::receipts::NonToolOccurrence::StopFailure { .. } => {
                     panic!("ordinary success cannot produce StopFailure")
                 }

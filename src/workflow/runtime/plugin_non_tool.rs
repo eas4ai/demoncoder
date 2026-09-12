@@ -37,6 +37,17 @@ pub(super) fn active(record: &Record, id: u64, event: HookEvent) -> Result<&NonT
 }
 
 impl SharedRuntime {
+    fn non_tool_admission<T>(
+        &self,
+        event: HookEvent,
+        f: impl FnOnce(&mut Record) -> Result<T>,
+    ) -> Result<T> {
+        if matches!(event, HookEvent::SessionStart | HookEvent::SessionEnd) {
+            self.update(f)
+        } else {
+            self.admission(f)
+        }
+    }
     pub(crate) fn ensure_source_continuation(&self, id: u64, backend: u64) -> Result<()> {
         self.validate_source_continuation(id, backend, SourceDelivery::Sent)
     }
@@ -148,6 +159,13 @@ impl SharedRuntime {
     ) -> Result<crate::plugins::hook_types::ModelCallContext> {
         let record = self.record()?;
         active(&record, id, event)?;
+        if matches!(event, HookEvent::SessionStart | HookEvent::SessionEnd) {
+            return Ok(crate::plugins::hook_types::ModelCallContext {
+                allocation_available: false,
+                correction_available: false,
+                ..Default::default()
+            });
+        }
         Ok(crate::plugins::hook_types::ModelCallContext {
             allocation_available: record.allocation.as_ref().is_some_and(|a| {
                 a.remaining_ms().is_ok_and(|ms| ms > 0)
@@ -272,6 +290,7 @@ impl SharedRuntime {
             phase,
             identity,
             LifecycleOrigin {
+                native_session: None,
                 native_turn,
                 source: None,
             },
@@ -291,6 +310,19 @@ impl SharedRuntime {
     ) -> Result<NonToolFacts> {
         use std::os::unix::fs::MetadataExt;
         let native_turn = origin.native_turn;
+        let native_session = origin.native_session;
+        ensure!(
+            native_session.is_some()
+                == matches!(
+                    occurrence,
+                    NonToolOccurrence::SessionStart { .. } | NonToolOccurrence::SessionEnd { .. }
+                ),
+            "native lifetime event requires exact session authority"
+        );
+        ensure!(
+            native_session.is_none() || (native_turn.is_none() && origin.source.is_none()),
+            "native session cannot borrow turn or source authority"
+        );
         ensure!(
             occurrence.event() != HookEvent::StopFailure
                 || (native_turn.is_some() && origin.source.is_none()),
@@ -318,8 +350,38 @@ impl SharedRuntime {
             declarations.len() <= 32 && serde_json::to_vec(&declarations)?.len() <= 1024 * 1024,
             "lifecycle declarations exceed bound"
         );
-        self.admission(|record| {
-            let owner = owner::resolve(record, phase)?;
+        self.non_tool_admission(occurrence.event(), |record| {
+            let owner = if let Some(id) = native_session {
+                ensure!(
+                    phase == "native-session",
+                    "native lifetime cannot authorize child or worker phase"
+                );
+                ensure!(
+                    !record
+                        .operations
+                        .iter()
+                        .filter_map(Operation::non_tool_receipt)
+                        .any(|r| r.facts.native_session == Some(id)
+                            && r.facts.subject.occurrence.event() == occurrence.event()),
+                    "native session occurrence already recorded; never replay"
+                );
+                let (identity, _) = super::plugin_session::validate(record, id, &occurrence)?;
+                let (_, lifetime) = super::plugin_session::lifetime(record, id)?;
+                ensure!(
+                    lifetime
+                        .plans
+                        .iter()
+                        .any(|(event, digest)| *event == occurrence.event() && digest == &plan),
+                    "native session hook policy differs from startup generation"
+                );
+                owner::Owner {
+                    identity,
+                    root: &record.workspace,
+                    child: None,
+                }
+            } else {
+                owner::resolve(record, phase)?
+            };
             ensure!(
                 identity.is_none_or(|i| i == owner.identity)
                     && (owner.child.is_none() || identity.is_some()),
@@ -371,12 +433,15 @@ impl SharedRuntime {
                 std::fs::metadata(&workspace).context("lifecycle workspace unavailable")?;
             let id = record.operations.len() as u64 + 1;
             let facts = NonToolFacts {
+                native_session,
                 callback: origin.source.as_ref().map(|s| s.correlation.clone()),
                 native_turn,
                 provenance: if origin.source.is_some() {
                     Some("authenticated_source_callback_v1".into())
                 } else {
-                    native_turn.map(|_| "native_host_translation_v1".into())
+                    native_turn
+                        .or(native_session)
+                        .map(|_| "native_host_translation_v1".into())
                 },
                 declaration_role: Some("worker".into()),
                 child_owner,
@@ -441,8 +506,17 @@ impl SharedRuntime {
         lease: Option<&std::sync::Arc<tokio::sync::OwnedSemaphorePermit>>,
     ) -> Result<crate::plugins::once::HookReservation> {
         let tracker = self.once_live()?;
-        self.admission(|record| {
+        self.non_tool_admission(event, |record| {
             let receipt = active(record, id, event)?;
+            ensure!(
+                !matches!(event, HookEvent::SessionStart | HookEvent::SessionEnd)
+                    || (hook.declaration.dialect
+                        == crate::plugins::hook_types::HookDialect::Native
+                        && hook.declaration.runner
+                            == crate::plugins::hook_types::HandlerKind::Command
+                        && !hook.required_gate),
+                "native lifetime authorizes only native command observations"
+            );
             ensure!(
                 receipt.hooks.len() + receipt.once_skips.len() < 32,
                 "lifecycle hook limit reached"

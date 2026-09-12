@@ -437,7 +437,7 @@ pub(crate) async fn run_owned(invocation: &HookInvocation, runner: &dyn HookRunn
     // All source group futures are polled together against the same candidate.
     let owner = invocation.events.plugin_context().and_then(|(r, id)| {
         r.plugin_runner_owner(id, invocation.events.plugin_event())?;
-        r.remaining()
+        r.plugin_remaining(id, invocation.events.plugin_event())
     });
     match owner {
         Ok(remaining) if !remaining.is_zero() => {

@@ -57,6 +57,8 @@ pub struct AdmissionKey {
 #[serde(deny_unknown_fields)]
 pub struct NonToolFacts {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub native_session: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub callback: Option<SourceCallback>,
     /// Absent on legacy records; an occurrence ID is never a substitute turn.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -86,6 +88,7 @@ pub struct NonToolFacts {
 impl NonToolFacts {
     pub(crate) fn causal_operation(&self) -> u64 {
         self.native_turn
+            .or(self.native_session)
             .or_else(|| self.callback.as_ref().map(|c| c.backend_operation))
             .unwrap_or(self.operation)
     }
@@ -136,6 +139,7 @@ pub(crate) struct ObservedCallback {
 
 #[derive(Clone, Debug, Default)]
 pub(crate) struct LifecycleOrigin {
+    pub native_session: Option<u64>,
     pub native_turn: Option<u64>,
     pub source: Option<ObservedCallback>,
 }
@@ -200,6 +204,12 @@ pub struct NonToolReceipt {
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "event")]
 pub enum NonToolOccurrence {
+    SessionStart {
+        source: crate::session::SessionStart,
+    },
+    SessionEnd {
+        reason: crate::session::SessionEnd,
+    },
     UserPromptSubmit {
         prompt: String,
         correction: bool,
@@ -218,6 +228,8 @@ pub enum NonToolOccurrence {
 impl NonToolOccurrence {
     pub(crate) fn event(&self) -> super::hook_types::HookEvent {
         match self {
+            Self::SessionStart { .. } => super::hook_types::HookEvent::SessionStart,
+            Self::SessionEnd { .. } => super::hook_types::HookEvent::SessionEnd,
             Self::UserPromptSubmit { .. } => super::hook_types::HookEvent::UserPromptSubmit,
             Self::Stop { .. } => super::hook_types::HookEvent::Stop,
             Self::StopFailure { .. } => super::hook_types::HookEvent::StopFailure,
