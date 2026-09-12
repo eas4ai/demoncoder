@@ -145,6 +145,14 @@ struct HostLifetime {
     selected_end: Option<crate::session::SessionEnd>,
 }
 
+/// The actual host future owns this guard, independently of retained event clones.
+pub(crate) struct HostLifetimeGuard(EventSink);
+impl Drop for HostLifetimeGuard {
+    fn drop(&mut self) {
+        let _ = self.0.finalize_host_lifetime();
+    }
+}
+
 #[derive(Clone)]
 pub struct EventSink {
     host_lifetime: Arc<Mutex<Option<HostLifetime>>>,
@@ -203,6 +211,57 @@ impl ObserverOwner {
 }
 
 impl EventSink {
+    pub(crate) fn own_host_lifetime(&self) -> HostLifetimeGuard {
+        HostLifetimeGuard(self.clone())
+    }
+
+    pub(crate) fn finalize_host_lifetime(&self) -> Result<()> {
+        let retained = self
+            .host_lifetime
+            .lock()
+            .map_err(|_| anyhow::anyhow!("native lifetime lock failed"))?
+            .clone();
+        if let Some(owner) = retained {
+            owner
+                .runtime
+                .upgrade()?
+                .finalize_native_session(owner.operation)?;
+        }
+        Ok(())
+    }
+    pub(crate) fn cancel_lifetime_services(&self) -> Result<()> {
+        let retained = self
+            .host_lifetime
+            .lock()
+            .map_err(|_| anyhow::anyhow!("native lifetime lock failed"))?
+            .clone();
+        if let Some(owner) = retained {
+            owner
+                .runtime
+                .upgrade()?
+                .cancel_native_session_services(owner.operation)?;
+        }
+        Ok(())
+    }
+
+    pub(crate) async fn drain_lifetime_services(
+        &self,
+        deadline: tokio::time::Instant,
+    ) -> Result<()> {
+        let retained = self
+            .host_lifetime
+            .lock()
+            .map_err(|_| anyhow::anyhow!("native lifetime lock failed"))?
+            .clone();
+        if let Some(owner) = retained {
+            owner
+                .runtime
+                .upgrade()?
+                .drain_native_session_services(owner.operation, deadline)
+                .await?;
+        }
+        Ok(())
+    }
     pub fn new(
         connection: String,
         sender: mpsc::Sender<Envelope>,

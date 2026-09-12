@@ -1,13 +1,14 @@
 //! Exact admitted Streamable HTTP authority; no replay, redirects or GET recovery.
 use super::protocol::{self, Message};
 use crate::plugins::runners::HttpConfig;
+use crate::workflow::runtime::plugin_admission::TransportInvocation;
 use anyhow::{Result, ensure};
 use reqwest::{
     Client, Url,
     header::{HeaderMap, HeaderValue},
 };
 use serde_json::Value;
-use std::time::Duration;
+use std::{sync::atomic::AtomicBool, time::Duration};
 
 pub(super) struct Http {
     client: Client,
@@ -64,9 +65,16 @@ impl Http {
         }
         request
     }
-    pub(super) async fn send(&mut self, message: &Value, expected: Option<u64>) -> Result<Value> {
+    pub(super) async fn send(
+        &mut self,
+        message: &Value,
+        expected: Option<u64>,
+        authority: &TransportInvocation,
+        revoked: &AtomicBool,
+    ) -> Result<Value> {
         let initialized = message.get("method").and_then(Value::as_str) == Some("initialize");
         let bytes = protocol::encode(message)?;
+        authority.validate_view(revoked)?;
         let mut response = self
             .request(reqwest::Method::POST)
             .header("content-type", "application/json")
@@ -149,6 +157,7 @@ impl Http {
             .await
             .map_err(|_| anyhow::anyhow!("MCP HTTP response interrupted; effects may be unknown"))?
         {
+            authority.validate_owner()?;
             total = total.saturating_add(chunk.len());
             ensure!(total <= maximum, "MCP aggregate response exceeds bound");
             if content == "text/event-stream" {
@@ -171,7 +180,7 @@ impl Http {
                             );
                         }
                         Message::Request { id, ping } => {
-                            self.reject_or_ping(id, ping).await?;
+                            self.reject_or_ping(id, ping, authority, revoked).await?;
                             ensure!(ping, "MCP server requested an unadvertised host capability");
                         }
                     }
@@ -197,7 +206,14 @@ impl Http {
             }
         }
     }
-    async fn reject_or_ping(&self, id: Value, ping: bool) -> Result<()> {
+    async fn reject_or_ping(
+        &self,
+        id: Value,
+        ping: bool,
+        authority: &TransportInvocation,
+        revoked: &AtomicBool,
+    ) -> Result<()> {
+        authority.validate_view(revoked)?;
         let mut response = self
             .request(reqwest::Method::POST)
             .header("content-type", "application/json")
@@ -217,6 +233,7 @@ impl Http {
                 .is_none(),
             "MCP reply acceptance has a body"
         );
+        authority.validate_view(revoked)?;
         Ok(())
     }
     pub(super) fn check_secrets(&self, bytes: &[u8]) -> Result<()> {

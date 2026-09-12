@@ -29,13 +29,16 @@ Complete lifecycle/package conformance remains open. See
 Latest verified prerequisites add native provider-failure observations, original
 native session lifetime ownership, the application shutdown reservation, explicit
 session-hook allowance persistence with atomic session directory creation, exact
-operation budget/usage attribution including ordinary Oracle ownership, and native
-session Prompt/Agent execution from the original explicit grant. The current Rust
-candidate passes 938 tests (17 ignored), the separate terminal output-limit suite
+operation budget/usage attribution including ordinary Oracle ownership, native
+session Prompt/Agent execution from the original explicit grant, and native
+session HTTP/MCP execution with owned lifetime cleanup. The current Rust
+candidate passes 964 tests (17 ignored), the separate terminal output-limit suite
 passes three cases, and fresh specification and quality reviews pass. Earlier
 installed/live-source evidence retains its original candidate; these Rust checks
-do not refresh it. See the [model allowance review](../reviews/plugin-session-model-allowance.md)
-for corrected authority findings, static non-passes and evidence-capture limits.
+do not refresh it. See the [transport lifetime review](../reviews/plugin-session-http-mcp-lifetime.md)
+for corrected idle-write authority, cleanup controls and final verification. The
+[model allowance review](../reviews/plugin-session-model-allowance.md) retains its
+corrected authority findings, static non-passes and evidence-capture limits.
 The [attribution review](../reviews/plugin-operation-budget-attribution.md) retains
 the earlier Oracle findings and unexplained crash.
 
@@ -370,8 +373,8 @@ Implementation and verification passed for this prerequisite. Production tests
 observe native provider failure, actual hook effects, failed/malformed observer
 results, cancellation, no task continuation or model retry, and truthful handling
 of expired ownership. Explicit model handlers retain their declared, charged use.
-Outer timeouts that drop the turn future, session lifetime
-ownership, Interrupt and actual external source events remain required later.
+Outer timeouts that drop the turn future, Interrupt and actual external source
+events remain required later. Session lifetime ownership is recorded below.
 Fresh specification and quality reviews passed. The final full Rust suite passed
 841 tests with 17 ignored and no failures; Clippy and formatting passed.
 The [review](../reviews/plugin-native-stop-failure.md) retains the meaningful
@@ -410,12 +413,33 @@ Clippy, fresh specification review and fresh quality review pass. Static finding
 and the synchronous-I/O timing limit are retained in
 [the prerequisite review](../reviews/plugin-native-session-lifetime.md).
 
-This does not complete lifecycle dispatch. HTTP/MCP/model session execution needs
-explicit allowance and service/accounting ownership. Configured asynchronous
+This does not complete lifecycle dispatch. The model and transport prerequisites
+below add explicit allowance and service/accounting ownership. Configured asynchronous
 session commands need session-owned lifetime policy and remain unavailable here;
-they are not silently converted to synchronous execution. Those behaviors,
+they are not silently converted to synchronous execution. Those commands,
 additional startup effects, Interrupt, outer timeout and actual source events
 remain in this same commitment.
+
+### Native session HTTP and MCP lifetime integration
+
+Decision: [bind transports to original lifetime authority](../decisions/bind-native-session-http-and-mcp-hooks-to-original-lifetime-authority.md).
+Implementation and verification are complete within lifecycle dispatch. Native
+startup/end HTTP and MCP require the original explicit session grant, their live occurrence
+and unchanged configured authority. Existing time and service-local limits apply;
+transport calls do not consume model or Agent snapshot-tool slots.
+
+MCP reuse retains the original host lifetime, cumulative deadline and connection
+call count. Each invocation checks current occurrence authority, including after
+persistence and before effects or delivery. Idle services must not hold startup
+cleanup open; final shutdown must revoke and drain their actual processes and
+connections within the existing end and application bounds. Changed stdio snapshots
+still require readmission. Public activation, asynchronous session commands and
+actual external lifecycle qualification remain later work. The final candidate
+passes 964 Rust tests (17 ignored), Clippy, formatting, three separate terminal
+checks and both independent reviews. Idle stdio writes retain their original view
+authority after startup settles, while active writes also validate their exact
+invocation. Corrected process, cancellation and credential-policy controls and
+static non-passes are recorded in the [review](../reviews/plugin-session-http-mcp-lifetime.md).
 
 ### Native session model allowance integration
 
@@ -435,8 +459,8 @@ and the separate PTY suite passes three cases. Fresh specification and quality
 reviews pass after correcting post-persistence authority and legacy-shape findings.
 The [review](../reviews/plugin-session-model-allowance.md) records evidence identities,
 failed controls, static non-passes and the corrected evidence-capture process.
-HTTP/MCP and asynchronous session command lifetime integration remain pending;
-native host execution does not qualify external backend lifecycle sources.
+HTTP/MCP lifetime integration is recorded above. Asynchronous session commands
+remain pending; native host execution does not qualify external backend lifecycle sources.
 
 ### Exact operation budget and usage attribution prerequisite
 
@@ -454,7 +478,7 @@ across delayed event delivery, allowing normal completed Model/Commands sources
 while rejecting replacement funding. The corrected parallel regression passes
 919 tests (17 ignored), with Clippy, formatting, three terminal cases and fresh
 specification and quality reviews passing. This action repairs attribution on
-current execution paths; session model and service runner enablement follows.
+current execution paths; the subsequent model and transport prerequisites add runner execution.
 See [the review](../reviews/plugin-operation-budget-attribution.md) for proof and limits.
 
 ### Explicit session-hook allowance persistence prerequisite

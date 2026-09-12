@@ -399,12 +399,27 @@ async fn start_lifetime(
     };
     let outcome =
         tokio::time::timeout_at(started + std::time::Duration::from_secs(27), startup).await;
+    let interrupted = cancelled || !matches!(&outcome, Ok(Ok(None)));
+    if interrupted && let Err(error) = events.cancel_lifetime_services() {
+        let _ = events.lifetime_diagnostic(format!(
+            "SessionStart service cancellation incomplete: {error:#}"
+        ));
+    }
     if let Err(error) = events
         .drain_lifetime_commands(started + std::time::Duration::from_secs(30))
         .await
     {
         let _ = events.lifetime_diagnostic(format!(
             "SessionStart command cleanup incomplete: {error:#}"
+        ));
+    }
+    if interrupted
+        && let Err(error) = events
+            .drain_lifetime_services(started + std::time::Duration::from_secs(30))
+            .await
+    {
+        let _ = events.lifetime_diagnostic(format!(
+            "SessionStart service cleanup incomplete: {error:#}"
         ));
     }
     match outcome {
@@ -470,6 +485,7 @@ pub async fn run(
     mut commands: mpsc::Receiver<Command>,
     events: EventSink,
 ) -> Result<()> {
+    let _lifetime_owner = events.own_host_lifetime();
     let mut end_reason = SessionEnd::Shutdown;
     let result = async {
         if let Some(reason) = start_lifetime(session.as_mut(), &mut commands, &events).await? {
@@ -595,7 +611,7 @@ pub async fn run(
         }
         Ok(())
     }
-    .await;
+              .await;
     let ended = tokio::time::Instant::now();
     commands.close();
     while let Ok(command) = commands.try_recv() {
@@ -610,36 +626,46 @@ pub async fn run(
     if let Ok(Some(selected)) = events.take_host_end() {
         end_reason = selected;
     }
-    match events.end_host_lifetime(end_reason) {
-        Ok(Some(lifetime_events)) => {
-            let observation = tokio::time::timeout_at(
+    let observation = match events.end_host_lifetime(end_reason) {
+        Ok(Some(lifetime_events)) => Some(
+            tokio::time::timeout_at(
                 ended + std::time::Duration::from_secs(2),
                 session.session_end(end_reason, &lifetime_events),
             )
-            .await;
-            if let Err(error) = events
-                .drain_lifetime_commands(ended + NATIVE_END_BUDGET)
-                .await
-            {
-                let _ = events.lifetime_diagnostic(format!(
-                    "SessionEnd command cleanup incomplete: {error:#}"
-                ));
-            }
-            if !matches!(observation, Ok(Ok(()))) {
-                let _ = events.lifetime_diagnostic(format!(
-                    "SessionEnd observation unavailable: {observation:?}"
-                ));
-            }
-        }
-        Ok(None) => {}
+            .await,
+        ),
+        Ok(None) => None,
         Err(error) => {
             let _ = events.emit_advisory(Event::Error {
                 message: format!("SessionEnd fact could not be retained: {error:#}"),
             });
+            None
+        }
+    };
+    let finalized = events.finalize_host_lifetime();
+    if let Some(observation) = observation {
+        if let Err(error) = events
+            .drain_lifetime_commands(ended + NATIVE_END_BUDGET)
+            .await
+        {
+            let _ = events
+                .lifetime_diagnostic(format!("SessionEnd command cleanup incomplete: {error:#}"));
+        }
+        if !matches!(observation, Ok(Ok(()))) {
+            let _ = events.lifetime_diagnostic(format!(
+                "SessionEnd observation unavailable: {observation:?}"
+            ));
         }
     }
+    if let Err(error) = events
+        .drain_lifetime_services(ended + NATIVE_END_BUDGET)
+        .await
+    {
+        let _ =
+            events.lifetime_diagnostic(format!("SessionEnd service cleanup incomplete: {error:#}"));
+    }
     let close = session.close().await;
-    result.and(close)
+    result.and(finalized).and(close)
 }
 
 #[cfg(test)]

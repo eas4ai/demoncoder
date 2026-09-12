@@ -12,7 +12,10 @@ use crate::plugins::{
     runners::{CommandConfig, HttpConfig},
     wire::SchemaValidator,
 };
-use crate::workflow::runtime::{RuntimeReference, SharedRuntime, plugin_admission::ServiceOwner};
+use crate::workflow::runtime::{
+    RuntimeReference, SharedRuntime,
+    plugin_admission::{ServiceOwner, TransportInvocation},
+};
 use anyhow::{Context, Result, ensure};
 use serde::Serialize;
 use serde_json::{Value, json};
@@ -108,6 +111,7 @@ pub struct ManagedService {
     revoked: Arc<AtomicBool>,
     state: AtomicU8,
     changed: tokio::sync::Notify,
+    monitoring: AtomicBool,
     secrets: protocol::Secrets,
     connection: tokio::sync::Mutex<Option<Connection>>,
 }
@@ -124,6 +128,8 @@ struct Connection {
     lease: Option<Arc<tokio::sync::OwnedSemaphorePermit>>,
     snapshot: Option<String>,
     startup: u64,
+    invocation: TransportInvocation,
+    revoked: Arc<AtomicBool>,
 }
 struct CallCancellation {
     service: Arc<ManagedService>,
@@ -235,6 +241,14 @@ impl ManagedServices {
             .map_err(|_| anyhow::anyhow!("MCP manager lock failed"))?;
         entries.retain(|_, v| v.strong_count() > 0);
         if let Some(existing) = entries.get(&identity).and_then(Weak::upgrade) {
+            ensure!(
+                !existing.revoked.load(Ordering::Acquire)
+                    && matches!(
+                        existing.state(),
+                        ServiceState::Admitted | ServiceState::Starting | ServiceState::Ready
+                    ),
+                "MCP service requires fresh host admission after revocation"
+            );
             return Ok(existing);
         }
         ensure!(entries.len() < 8, "MCP admitted service limit reached");
@@ -249,6 +263,7 @@ impl ManagedServices {
             revoked: Arc::new(AtomicBool::new(false)),
             state: AtomicU8::new(ServiceState::Admitted as u8),
             changed: tokio::sync::Notify::new(),
+            monitoring: AtomicBool::new(false),
             secrets: Arc::new(Mutex::new(secrets)),
             connection: tokio::sync::Mutex::new(None),
         });
@@ -277,6 +292,13 @@ impl ManagedService {
     }
     pub async fn stop(&self) -> Result<()> {
         self.revoke();
+        let result = self.close_connection().await;
+        while self.monitoring.load(Ordering::Acquire) {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        result
+    }
+    async fn close_connection(&self) -> Result<()> {
         if let Some(connection) = self.connection.lock().await.take() {
             connection.close().await?;
         }
@@ -312,19 +334,41 @@ impl ManagedService {
             invocation.key.workspace == self.config.identity.workspace
                 && (root.dev(), root.ino()) == self.config.identity.workspace
                 && invocation.snapshot.root_identity() == self.config.identity.workspace
-                && invocation.key.role == self.config.identity.role
+                && invocation.declaration.role == self.config.identity.role
                 && invocation.declaration.generation == self.config.identity.generation,
             "MCP service authority mismatch"
         );
         let (runtime, operation) = invocation.events.plugin_context()?;
-        runtime.plugin_runner_owner(operation, invocation.events.plugin_event())?;
+        runtime.plugin_funded_remaining(operation, invocation.events.plugin_event())?;
         Ok((runtime, operation))
     }
     /// Only the host dependency phase calls this; it never invokes hooks/models/OAuth.
     /// A competing preparation is an in-progress hold, not a fabricated cycle.
     pub(crate) async fn bootstrap(self: &Arc<Self>, invocation: &HookInvocation) -> Result<()> {
         let (runtime, operation) = self.invocation_owner(invocation)?;
+        let authority = TransportInvocation::capture(invocation)?;
+        let occurrence_deadline = Instant::now() + authority.validate_view(&self.revoked)?;
         if self.state() == ServiceState::Ready {
+            let waiting = self.connection.lock();
+            tokio::pin!(waiting);
+            let mut poll = tokio::time::interval(Duration::from_millis(20));
+            let slot = loop {
+                tokio::select! { biased;
+                    _ = poll.tick() => {
+                        authority.validate_owner()?;
+                        ensure!(!self.revoked.load(Ordering::Acquire) && Instant::now() < occurrence_deadline, "MCP preparation wait expired or revoked");
+                    }
+                    slot = &mut waiting => break slot,
+                }
+            };
+            let connection = slot.as_ref().context("MCP ready connection missing")?;
+            runtime.validate_plugin_service_invocation(
+                &connection.owner,
+                operation,
+                invocation.events.plugin_event(),
+            )?;
+            authority.validate_service(&connection.owner)?;
+            self.validate_snapshot(connection, invocation)?;
             return Ok(());
         }
         self.state
@@ -353,22 +397,31 @@ impl ManagedService {
             &self.identity,
         )?;
         cancellation.bootstrap = Some((runtime.downgrade(), startup));
+        authority.validate_view(&self.revoked)?;
+        runtime.validate_plugin_service_invocation(
+            &owner,
+            operation,
+            invocation.events.plugin_event(),
+        )?;
         let deadline = Instant::now()
             + runtime
                 .validate_plugin_service(&owner)?
-                .min(Duration::from_millis(self.config.timeout_ms));
+                .min(Duration::from_millis(self.config.timeout_ms))
+                .min(occurrence_deadline.saturating_duration_since(Instant::now()));
         let prepare = async {
             let mut slot = self.connection.lock().await;
             ensure!(slot.is_none(), "MCP dependency already owns a connection");
+            self.monitor(runtime.downgrade(), owner.clone());
             *slot = Some(
                 self.create_connection(invocation, runtime.clone(), owner, startup, deadline)
                     .await?,
             );
-            self.monitor();
             self.initialize(slot.as_mut().expect("stored connection"), deadline)
                 .await?;
             runtime.plugin_runner_owner(operation, invocation.events.plugin_event())?;
             runtime.complete_plugin_service(startup)?;
+            authority.validate_view(&self.revoked)?;
+            runtime.plugin_funded_remaining(operation, invocation.events.plugin_event())?;
             if let Transport::Stdio(pipe) = &slot.as_ref().expect("stored connection").transport {
                 pipe.lock()
                     .map_err(|_| anyhow::anyhow!("MCP pipe owner failed"))?
@@ -376,7 +429,13 @@ impl ManagedService {
             }
             slot.as_mut().expect("stored connection").lease.take();
             self.state
-                .store(ServiceState::Ready as u8, Ordering::Release);
+                .compare_exchange(
+                    ServiceState::Starting as u8,
+                    ServiceState::Ready as u8,
+                    Ordering::AcqRel,
+                    Ordering::Acquire,
+                )
+                .map_err(|_| anyhow::anyhow!("MCP startup revoked before readiness"))?;
             Ok(())
         };
         tokio::pin!(prepare);
@@ -384,7 +443,7 @@ impl ManagedService {
         let result = loop {
             tokio::select! {biased;
                 _ = poll.tick() => {
-                    ensure!(!self.revoked.load(Ordering::Acquire) && runtime.plugin_runner_owner(operation, invocation.events.plugin_event()).is_ok()
+                    ensure!(!self.revoked.load(Ordering::Acquire) && authority.validate_owner().is_ok()
                         && Instant::now() < deadline, "MCP dependency startup cancelled; reconciliation required");
                 }
                 result = &mut prepare => break result,
@@ -400,6 +459,7 @@ impl ManagedService {
         input: Value,
     ) -> Result<Value> {
         let (runtime, operation) = self.invocation_owner(invocation)?;
+        let authority = TransportInvocation::capture(invocation)?;
         ensure!(
             self.state() == ServiceState::Ready,
             "MCP dependency must be bootstrapped before hook dispatch"
@@ -409,7 +469,7 @@ impl ManagedService {
         protocol::encode(&input)?;
         let deadline = Instant::now()
             + runtime
-                .remaining()?
+                .plugin_funded_remaining(operation, invocation.events.plugin_event())?
                 .min(Duration::from_millis(self.config.timeout_ms));
         let mut cancellation = CallCancellation {
             service: self.clone(),
@@ -429,8 +489,16 @@ impl ManagedService {
                 !self.revoked.load(Ordering::Acquire),
                 "MCP queued call was revoked"
             );
-            runtime.plugin_runner_owner(operation, invocation.events.plugin_event())?;
+            runtime.plugin_funded_remaining(operation, invocation.events.plugin_event())?;
             let connection = slot.as_mut().context("MCP connection missing")?;
+            runtime.validate_plugin_service_invocation(
+                &connection.owner,
+                operation,
+                invocation.events.plugin_event(),
+            )?;
+            authority.validate_service(&connection.owner)?;
+            authority.validate_view(&self.revoked)?;
+            connection.invocation = authority.clone();
             connection.lease = Some(invocation.runner_lease.clone());
             connection
                 .runtime
@@ -440,12 +508,7 @@ impl ManagedService {
                 runtime.plugin_session()? == connection.runtime.upgrade()?.plugin_session()?,
                 "MCP service session changed"
             );
-            if let Some(snapshot) = &connection.snapshot {
-                ensure!(
-                    *snapshot == crate::plugins::admission::digest(&invocation.key.inputs)?,
-                    "MCP retained view changed; readmission required"
-                );
-            }
+            self.validate_snapshot(connection, invocation)?;
             ensure!(
                 connection.calls < self.config.max_calls,
                 "MCP call allowance exhausted"
@@ -462,6 +525,16 @@ impl ManagedService {
                     deadline,
                 )
                 .await?;
+            ensure!(
+                !self.revoked.load(Ordering::Acquire),
+                "MCP result revoked before delivery"
+            );
+            runtime.validate_plugin_service_invocation(
+                &connection.owner,
+                operation,
+                invocation.events.plugin_event(),
+            )?;
+            authority.validate_view(&self.revoked)?;
             if let Some(schema) = tool.metadata.get("outputSchema") {
                 let structured = result
                     .get("structuredContent")
@@ -476,7 +549,7 @@ impl ManagedService {
         let result = loop {
             tokio::select! {biased;
                 _ = poll.tick() => {
-                    if self.revoked.load(Ordering::Acquire) || runtime.plugin_runner_owner(operation, invocation.events.plugin_event()).is_err() || Instant::now() >= deadline {
+                    if self.revoked.load(Ordering::Acquire) || authority.validate_owner().is_err() || Instant::now() >= deadline {
                         break Err(anyhow::anyhow!("MCP call cancelled or owner expired; effects may be unknown"));
                     }
                 }
@@ -491,6 +564,19 @@ impl ManagedService {
         }
         cancellation.complete = true;
         result
+    }
+    fn validate_snapshot(
+        &self,
+        connection: &Connection,
+        invocation: &HookInvocation,
+    ) -> Result<()> {
+        if let Some(snapshot) = &connection.snapshot {
+            ensure!(
+                *snapshot == crate::plugins::admission::digest(&invocation.key.inputs)?,
+                "MCP retained view changed; readmission required"
+            );
+        }
+        Ok(())
     }
     async fn create_connection(
         &self,
@@ -525,6 +611,8 @@ impl ManagedService {
             runtime: runtime.downgrade(),
             owner,
             startup,
+            invocation: TransportInvocation::capture(invocation)?,
+            revoked: self.revoked.clone(),
             next_id: 1,
             calls: 0,
             lease: Some(invocation.runner_lease.clone()),
@@ -612,8 +700,9 @@ impl ManagedService {
         }
         Ok(())
     }
-    fn monitor(self: &Arc<Self>) {
+    fn monitor(self: &Arc<Self>, runtime: RuntimeReference, owner: ServiceOwner) {
         let service = self.clone();
+        self.monitoring.store(true, Ordering::Release);
         tokio::spawn(async move {
             loop {
                 tokio::select! {
@@ -621,6 +710,10 @@ impl ManagedService {
                     _ = tokio::time::sleep(Duration::from_millis(20)) => {}
                 }
                 let invalid = service.revoked.load(Ordering::Acquire)
+                    || runtime
+                        .upgrade()
+                        .and_then(|runtime| runtime.validate_plugin_service(&owner))
+                        .is_err()
                     || service
                         .connection
                         .try_lock()
@@ -647,10 +740,13 @@ impl ManagedService {
                         })
                         .unwrap_or(false);
                 if invalid {
-                    let _ = service.stop().await;
+                    service.revoke();
+                    let _ = service.close_connection().await;
                     break;
                 }
             }
+            drop(owner);
+            service.monitoring.store(false, Ordering::Release);
         });
     }
 }
@@ -661,18 +757,25 @@ impl Connection {
         expected: Option<u64>,
         deadline: Instant,
     ) -> Result<Value> {
-        self.runtime
-            .upgrade()?
-            .validate_plugin_service(&self.owner)?;
-        match &mut self.transport {
-            Transport::Http(http) => http.send(message, expected).await,
+        self.invocation.validate_service(&self.owner)?;
+        self.invocation.validate_view(&self.revoked)?;
+        let result = match &mut self.transport {
+            Transport::Http(http) => {
+                http.send(message, expected, &self.invocation, &self.revoked)
+                    .await
+            }
             Transport::Stdio(pipe) => {
-                let (pipe, message, lease) = (pipe.clone(), message.clone(), self.lease.clone());
+                let (pipe, message, lease, invocation) = (
+                    pipe.clone(),
+                    message.clone(),
+                    self.lease.clone(),
+                    self.invocation.clone(),
+                );
                 tokio::task::spawn_blocking(move || {
                     let mut pipe = pipe
                         .lock()
                         .map_err(|_| anyhow::anyhow!("MCP pipe owner failed"))?;
-                    let result = pipe.send(&message, expected, deadline);
+                    let result = pipe.send(&message, expected, deadline, invocation);
                     if result.is_err() {
                         pipe.hold_uncertain(lease);
                     }
@@ -681,7 +784,10 @@ impl Connection {
                 .await
                 .map_err(|_| anyhow::anyhow!("MCP pipe worker failed"))?
             }
-        }
+        };
+        self.invocation.validate_service(&self.owner)?;
+        self.invocation.validate_view(&self.revoked)?;
+        result
     }
     async fn request(&mut self, method: &str, params: Value, deadline: Instant) -> Result<Value> {
         let id = self.next_id;

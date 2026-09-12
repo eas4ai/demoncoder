@@ -25,6 +25,9 @@ use std::{
 };
 use tokio::sync::mpsc;
 
+#[path = "plugin_mcp_runners/session_transport.rs"]
+mod session_transport;
+
 static FIXTURES: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 struct Responses {
     calls: VecDeque<Vec<ToolCall>>,

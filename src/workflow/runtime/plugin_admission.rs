@@ -4,16 +4,59 @@ use crate::plugins::{hook_types::HookEvent, receipts::*};
 use anyhow::{Context, Result, ensure};
 use std::sync::Arc;
 
-/// Ephemeral capability derived from the existing task allocation, never a new allowance.
+mod transport;
+pub(crate) use transport::{TransportInvocation, TransportView};
+
+/// Ephemeral capability derived from the original task or session allowance.
 #[derive(Clone)]
 pub(crate) struct ServiceOwner {
     fingerprint: String,
+    budget: super::BudgetRef,
+    lifetime: Option<u64>,
     pub(crate) role: String,
     deadline: std::time::Instant,
     _capacity: Arc<tokio::sync::OwnedSemaphorePermit>,
+    _native_cleanup: Option<Arc<tokio::sync::OwnedSemaphorePermit>>,
+    cancelled: Arc<std::sync::atomic::AtomicBool>,
 }
 
-fn service_fingerprint(record: &Record, session: &std::path::Path, role: &str) -> Result<String> {
+fn service_fingerprint(
+    record: &Record,
+    session: &std::path::Path,
+    role: &str,
+    budget: &super::BudgetRef,
+    lifetime: Option<u64>,
+) -> Result<String> {
+    let session_id = crate::plugins::admission::digest(&session)?;
+    if let Some(id) = lifetime {
+        super::plugin_session::validate_live(record, id)?;
+        ensure!(
+            role == "native-session"
+                && matches!(budget, super::BudgetRef::SessionHooks { .. })
+                && super::budget_accounting::inherited(record, id)? == *budget,
+            "MCP native service requires its original session allowance"
+        );
+        let allocation = super::budget_accounting::active(record, &session_id, budget)?
+            .context("MCP session allowance missing")?;
+        let (_, owner) = super::plugin_session::lifetime(record, id)?;
+        return crate::plugins::admission::digest(&(
+            session,
+            &record.workspace,
+            &record.identity,
+            id,
+            owner.workspace,
+            budget,
+            allocation.started_ms,
+            allocation.deadline_ms,
+            &allocation.limits,
+            role,
+        ));
+    }
+    ensure!(
+        matches!(budget, super::BudgetRef::Task { .. }),
+        "MCP task service requires original task funding"
+    );
+    super::budget_accounting::active(record, &session_id, budget)?;
     let allocation = record
         .allocation
         .as_ref()
@@ -125,6 +168,16 @@ pub(super) fn validate_model_budget(
     event: HookEvent,
     budget: &super::BudgetRef,
 ) -> Result<()> {
+    validate_funded_budget(record, session, owner, event, budget)
+}
+
+pub(super) fn validate_funded_budget(
+    record: &Record,
+    session: &str,
+    owner: u64,
+    event: HookEvent,
+    budget: &super::BudgetRef,
+) -> Result<()> {
     if matches!(event, HookEvent::SessionStart | HookEvent::SessionEnd) {
         let receipt = super::plugin_non_tool::active(record, owner, event)?;
         let lifetime = receipt
@@ -144,7 +197,7 @@ pub(super) fn validate_model_budget(
     }
     ensure!(
         super::budget_accounting::active(record, session, budget)?.is_some(),
-        "model hook requires an owning task or explicitly configured session allowance"
+        "hook requires an owning allowance from its task or explicitly configured session"
     );
     Ok(())
 }
@@ -155,11 +208,18 @@ impl SharedRuntime {
         owner: u64,
         event: HookEvent,
     ) -> Result<std::time::Duration> {
+        self.plugin_funded_remaining(owner, event)
+    }
+    pub(crate) fn plugin_funded_remaining(
+        &self,
+        owner: u64,
+        event: HookEvent,
+    ) -> Result<std::time::Duration> {
         self.plugin_runner_owner(owner, event)?;
         let session = self.plugin_session()?;
         let record = self.record()?;
         let budget = super::budget_accounting::inherited(&record, owner)?;
-        validate_model_budget(&record, &session, owner, event, &budget)?;
+        validate_funded_budget(&record, &session, owner, event, &budget)?;
         Ok(self
             .budget_remaining(&budget)?
             .min(self.plugin_remaining(owner, event)?))
@@ -192,29 +252,63 @@ impl SharedRuntime {
         service: &str,
     ) -> Result<u64> {
         ensure!(
-            !matches!(event, HookEvent::SessionStart | HookEvent::SessionEnd),
-            "native session command lifetime grants no service allowance"
-        );
-        ensure!(
             service.len() == 64 && service.bytes().all(|b| b.is_ascii_hexdigit()),
             "MCP service operation identity is invalid"
         );
         let session = self.plugin_session()?;
-        self.admission(|record| {
-            active_for_event(record,owner,event)?;
+        let begin = |record: &mut Record| {
+            active_for_event(record, owner, event)?;
             let budget = super::budget_accounting::inherited(record, owner)?;
-            ensure!(super::budget_accounting::active(record, &session, &budget)?.is_some(), "MCP service requires its original owning allowance");
-            ensure!(record.operations.len() < 4096, "session operation history is full");
+            validate_funded_budget(record, &session, owner, event, &budget)?;
+            ensure!(
+                super::budget_accounting::active(record, &session, &budget)?.is_some(),
+                "MCP service requires its original owning allowance"
+            );
+            ensure!(
+                record.operations.len() < 4096,
+                "session operation history is full"
+            );
             ensure!(!record.operations.iter().any(|o| !o.complete && !o.reconciled && matches!(&o.host_invocation,
                 Some(super::HostInvocation::PluginService {service: existing,..}) if existing == service)), "MCP startup is unresolved; reconcile before readmission");
-            let phase = record.operations.iter().find(|o|o.id == owner).context("MCP owner missing")?.phase.clone();
+            let phase = record
+                .operations
+                .iter()
+                .find(|o| o.id == owner)
+                .context("MCP owner missing")?
+                .phase
+                .clone();
             let budget = super::budget_accounting::inherited(record, owner)?;
             let id = record.operations.len() as u64 + 1;
-            record.operations.push(super::Operation {budget:Some(budget),usage_receipt:None,id,phase,verification:None,call:None,result:None,tool_receipt:None,
-                host_invocation:Some(super::HostInvocation::PluginService {owner,service:service.into(),outcome:super::PluginServiceOutcome::Pending}),complete:false,reconciled:false,
-                usage_reported:true,identity:Some(record.identity.clone())});
+            record.operations.push(super::Operation {
+                budget: Some(budget),
+                usage_receipt: None,
+                id,
+                phase,
+                verification: None,
+                call: None,
+                result: None,
+                tool_receipt: None,
+                host_invocation: Some(super::HostInvocation::PluginService {
+                    owner,
+                    service: service.into(),
+                    outcome: super::PluginServiceOutcome::Pending,
+                }),
+                complete: false,
+                reconciled: false,
+                usage_reported: true,
+                identity: Some(record.identity.clone()),
+            });
             Ok(id)
-        })
+        };
+        if matches!(event, HookEvent::SessionStart | HookEvent::SessionEnd) {
+            let id = self.update(begin)?;
+            #[cfg(test)]
+            session_services::invalidate_startup_checkpoint(self);
+            self.plugin_funded_remaining(owner, event)?;
+            Ok(id)
+        } else {
+            self.admission(begin)
+        }
     }
     pub(crate) fn complete_plugin_service(&self, id: u64) -> Result<()> {
         self.update(|record| {
@@ -281,6 +375,7 @@ impl SharedRuntime {
         active_for_event(&runtime.record, operation, event)?;
         let session = crate::plugins::admission::digest(&runtime.store.directory())?;
         let budget = super::budget_accounting::inherited(&runtime.record, operation)?;
+        validate_funded_budget(&runtime.record, &session, operation, event, &budget)?;
         let allocation = super::budget_accounting::active(&runtime.record, &session, &budget)?
             .context("MCP service requires its original owning allowance")?;
         let role = runtime
@@ -291,7 +386,23 @@ impl SharedRuntime {
             .context("MCP operation missing")?
             .phase
             .clone();
-        let fingerprint = service_fingerprint(&runtime.record, runtime.store.directory(), &role)?;
+        let lifetime = if matches!(event, HookEvent::SessionStart | HookEvent::SessionEnd) {
+            Some(
+                super::plugin_non_tool::active(&runtime.record, operation, event)?
+                    .facts
+                    .native_session
+                    .context("MCP session lifetime missing")?,
+            )
+        } else {
+            None
+        };
+        let fingerprint = service_fingerprint(
+            &runtime.record,
+            runtime.store.directory(),
+            &role,
+            &budget,
+            lifetime,
+        )?;
         let remaining = allocation.remaining_ms()?;
         ensure!(remaining > 0, "MCP owner expired");
         let capacity = runtime
@@ -301,34 +412,59 @@ impl SharedRuntime {
             .map_err(|_| {
                 anyhow::anyhow!("MCP service capacity exhausted (8); stop an existing service")
             })?;
+        let cancelled = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let native_cleanup = lifetime
+            .map(|id| -> Result<_> {
+                let (_, owner) = super::plugin_session::lifetime(&runtime.record, id)?;
+                owner
+                    .authority
+                    .as_ref()
+                    .context("MCP host lifetime unavailable")?
+                    .own_service(&cancelled)
+            })
+            .transpose()?;
         Ok(ServiceOwner {
             fingerprint,
+            budget,
+            lifetime,
             role,
             deadline: std::time::Instant::now() + std::time::Duration::from_millis(remaining),
             _capacity: Arc::new(capacity),
+            _native_cleanup: native_cleanup,
+            cancelled,
         })
     }
     pub(crate) fn validate_plugin_service(
         &self,
         owner: &ServiceOwner,
     ) -> Result<std::time::Duration> {
+        ensure!(
+            !owner.cancelled.load(std::sync::atomic::Ordering::Acquire),
+            "MCP owning observation cancelled"
+        );
         let runtime = self
             .0
             .lock()
             .map_err(|_| anyhow::anyhow!("runtime lock failed"))?;
         ensure!(!runtime.failed, "session persistence failed");
         ensure!(
-            service_fingerprint(&runtime.record, runtime.store.directory(), &owner.role)?
-                == owner.fingerprint,
+            service_fingerprint(
+                &runtime.record,
+                runtime.store.directory(),
+                &owner.role,
+                &owner.budget,
+                owner.lifetime
+            )? == owner.fingerprint,
             "MCP service owner changed"
         );
         let remaining = std::time::Duration::from_millis(
-            runtime
-                .record
-                .allocation
-                .as_ref()
-                .context("MCP allocation missing")?
-                .remaining_ms()?,
+            super::budget_accounting::active(
+                &runtime.record,
+                &crate::plugins::admission::digest(&runtime.store.directory())?,
+                &owner.budget,
+            )?
+            .context("MCP allocation missing")?
+            .remaining_ms()?,
         )
         .min(
             owner
@@ -337,6 +473,36 @@ impl SharedRuntime {
         );
         ensure!(!remaining.is_zero(), "MCP service owner expired");
         Ok(remaining)
+    }
+    pub(crate) fn validate_plugin_service_invocation(
+        &self,
+        owner: &ServiceOwner,
+        operation: u64,
+        event: HookEvent,
+    ) -> Result<std::time::Duration> {
+        let remaining = self.plugin_funded_remaining(operation, event)?;
+        let record = self.record()?;
+        ensure!(
+            super::budget_accounting::inherited(&record, operation)? == owner.budget,
+            "MCP invoking budget differs from its connection"
+        );
+        let lifetime = if matches!(event, HookEvent::SessionStart | HookEvent::SessionEnd) {
+            super::plugin_non_tool::active(&record, operation, event)?
+                .facts
+                .native_session
+        } else {
+            None
+        };
+        ensure!(
+            lifetime == owner.lifetime
+                && record
+                    .operations
+                    .iter()
+                    .find(|o| o.id == operation)
+                    .is_some_and(|o| o.phase == owner.role),
+            "MCP invoking owner differs from its connection"
+        );
+        Ok(remaining.min(self.validate_plugin_service(owner)?))
     }
     pub(crate) fn settle_hook_models(&self, phase: &str) -> Result<()> {
         let session = self.plugin_session()?;
@@ -914,6 +1080,9 @@ impl SharedRuntime {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod session_services;
 
 #[cfg(test)]
 pub(super) mod session_models;

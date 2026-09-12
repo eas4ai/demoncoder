@@ -222,14 +222,15 @@ impl NonToolPlan {
                     || !match handler.registration.declaration.identity.runner {
                         super::hook_types::HandlerKind::Command => true,
                         super::hook_types::HandlerKind::Prompt
-                        | super::hook_types::HandlerKind::Agent => runtime
-                            .plugin_model_remaining(operation, event)
+                        | super::hook_types::HandlerKind::Agent
+                        | super::hook_types::HandlerKind::Http
+                        | super::hook_types::HandlerKind::McpTool => runtime
+                            .plugin_funded_remaining(operation, event)
                             .is_ok_and(|remaining| !remaining.is_zero()),
-                        _ => false,
                     }
                     || handler.registration.runner.observer_config().is_some())
             {
-                effects.diagnostics.push(format!("{} observation unavailable: this native lifetime prerequisite supports synchronous native commands only without original session model funding", handler.registration.declaration.identity.declaration));
+                effects.diagnostics.push(format!("{} observation unavailable: this native lifetime prerequisite supports synchronous native commands only without original session funding; model and transport hooks require that funding, and asynchronous hooks remain unavailable", handler.registration.declaration.identity.declaration));
                 continue;
             }
             if !handler.matches_non_tool(&facts.subject.occurrence) {

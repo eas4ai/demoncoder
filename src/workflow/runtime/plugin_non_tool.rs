@@ -526,12 +526,11 @@ impl SharedRuntime {
                         == crate::plugins::hook_types::HookDialect::Native
                         && match hook.declaration.runner {
                             crate::plugins::hook_types::HandlerKind::Command => true,
-                            crate::plugins::hook_types::HandlerKind::Prompt | crate::plugins::hook_types::HandlerKind::Agent => {
+                            crate::plugins::hook_types::HandlerKind::Prompt | crate::plugins::hook_types::HandlerKind::Agent | crate::plugins::hook_types::HandlerKind::Http | crate::plugins::hook_types::HandlerKind::McpTool => {
                                 let budget = super::budget_accounting::inherited(record, id)?;
-                                super::plugin_admission::validate_model_budget(record, &receipt.facts.session, id, event, &budget)?;
+                                super::plugin_admission::validate_funded_budget(record, &receipt.facts.session, id, event, &budget)?;
                                 true
                             }
-                            _ => false,
                         }
                         && !hook.required_gate),
                 "native lifetime authorizes only native synchronous observations with original funding"

@@ -292,7 +292,12 @@ impl HttpRunner {
             revalidation,
         })
     }
-    async fn exchange(&self, input: Vec<u8>) -> Result<RawOutcome> {
+    async fn exchange(
+        &self,
+        input: Vec<u8>,
+        authority: &crate::workflow::runtime::plugin_admission::TransportInvocation,
+        cancelled: &std::sync::atomic::AtomicBool,
+    ) -> Result<RawOutcome> {
         // A fresh client owns no cached connection or cookies from another hook.
         // Compression stays disabled even if another dependency enables a feature.
         let client = Client::builder()
@@ -307,6 +312,7 @@ impl HttpRunner {
             .timeout(Duration::from_millis(self.config.timeout_ms))
             .build()
             .map_err(|_| anyhow::anyhow!("HTTP hook client initialization failed"))?;
+        authority.validate_view(cancelled)?;
         let mut response = client
             .post(self.url.clone())
             .headers(self.headers.clone())
@@ -403,13 +409,14 @@ impl HookRunner for HttpRunner {
                 "HTTP declaration/configuration identity mismatch"
             );
             let (runtime, operation) = invocation.events.plugin_context()?;
+            let authority =
+                crate::workflow::runtime::plugin_admission::TransportInvocation::capture(
+                    invocation,
+                )?;
+            let cancelled = std::sync::atomic::AtomicBool::new(false);
             runtime.plugin_runner_owner(operation, self.event)?;
-            ensure!(
-                runtime.record()?.allocation.is_some(),
-                "HTTP hook requires an owning allowance"
-            );
             let available = runtime
-                .remaining()?
+                .plugin_funded_remaining(operation, self.event)?
                 .min(Duration::from_secs(30))
                 .saturating_sub(Duration::from_secs(3));
             ensure!(
@@ -429,7 +436,7 @@ impl HookRunner for HttpRunner {
             )
             .map_err(|_| anyhow::anyhow!("HTTP hook input is invalid or exceeds bound"))?;
             let _lease = invocation.runner_lease.clone();
-            let exchange = self.exchange(input);
+            let exchange = self.exchange(input, &authority, &cancelled);
             tokio::pin!(exchange);
             let mut owner = tokio::time::interval(Duration::from_millis(20));
             tokio::time::timeout(
@@ -439,10 +446,12 @@ impl HookRunner for HttpRunner {
                         tokio::select! {
                             biased;
                             _ = owner.tick() => {
-                                runtime.plugin_runner_owner(operation, self.event)?;
-                                ensure!(!runtime.remaining()?.is_zero(), "HTTP hook owner expired");
+                                authority.validate_owner()?;
                             }
-                            result = &mut exchange => return result,
+                            result = &mut exchange => {
+                                authority.validate_view(&cancelled)?;
+                                return result;
+                            },
                         }
                     }
                 },

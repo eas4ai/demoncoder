@@ -7,6 +7,10 @@ use crate::{
 use anyhow::{Context, Result, ensure};
 use std::{
     os::unix::fs::MetadataExt,
+    sync::{
+        Arc, Mutex, Weak,
+        atomic::{AtomicBool, Ordering},
+    },
     time::{Duration, Instant},
 };
 
@@ -23,6 +27,54 @@ pub struct NativeSessionLifetime {
     /// An on-disk record alone can never restore executable lifetime authority.
     #[serde(skip)]
     pub(crate) deadline: Option<Instant>,
+    #[serde(skip)]
+    pub(crate) authority: Option<Arc<NativeSessionAuthority>>,
+}
+
+/// Executable host ownership is never restored from the operation ledger.
+#[derive(Debug)]
+pub(crate) struct NativeSessionAuthority {
+    live: AtomicBool,
+    pub(crate) services: Arc<tokio::sync::Semaphore>,
+    cancellations: Mutex<Vec<Weak<AtomicBool>>>,
+}
+impl NativeSessionAuthority {
+    fn new() -> Self {
+        Self {
+            live: AtomicBool::new(true),
+            services: Arc::new(tokio::sync::Semaphore::new(8)),
+            cancellations: Mutex::new(Vec::new()),
+        }
+    }
+    pub(crate) fn own_service(
+        &self,
+        cancelled: &Arc<AtomicBool>,
+    ) -> Result<Arc<tokio::sync::OwnedSemaphorePermit>> {
+        let permit = self.services.clone().try_acquire_owned()?;
+        let mut owners = self
+            .cancellations
+            .lock()
+            .map_err(|_| anyhow::anyhow!("native service cancellation lock failed"))?;
+        owners.retain(|owner| owner.strong_count() > 0);
+        ensure!(owners.len() < 8, "native service ownership limit reached");
+        owners.push(Arc::downgrade(cancelled));
+        Ok(Arc::new(permit))
+    }
+    fn cancel_services(&self) -> Result<()> {
+        let mut owners = self
+            .cancellations
+            .lock()
+            .map_err(|_| anyhow::anyhow!("native service cancellation lock failed"))?;
+        owners.retain(|owner| {
+            if let Some(cancelled) = owner.upgrade() {
+                cancelled.store(true, Ordering::Release);
+                true
+            } else {
+                false
+            }
+        });
+        Ok(())
+    }
 }
 
 pub(super) fn lifetime(record: &Record, id: u64) -> Result<(&Operation, &NativeSessionLifetime)> {
@@ -37,11 +89,7 @@ pub(super) fn lifetime(record: &Record, id: u64) -> Result<(&Operation, &NativeS
     Ok((operation, lifetime))
 }
 
-pub(super) fn validate<'a>(
-    record: &'a Record,
-    id: u64,
-    occurrence: &NonToolOccurrence,
-) -> Result<(&'a Identity, (u64, u64))> {
+pub(super) fn validate_live(record: &Record, id: u64) -> Result<(&Identity, (u64, u64))> {
     let (operation, owner) = lifetime(record, id)?;
     ensure!(
         !record.recovery_pending && !operation.reconciled,
@@ -64,6 +112,28 @@ pub(super) fn validate<'a>(
         "native session lifetime replaced"
     );
     ensure!(
+        owner
+            .authority
+            .as_ref()
+            .is_some_and(|authority| authority.live.load(Ordering::Acquire)),
+        "native host lifetime is not live"
+    );
+    let metadata = std::fs::metadata(&record.workspace)?;
+    ensure!(
+        (metadata.dev(), metadata.ino()) == owner.workspace,
+        "native session workspace identity changed"
+    );
+    Ok((&record.identity, owner.workspace))
+}
+
+pub(super) fn validate<'a>(
+    record: &'a Record,
+    id: u64,
+    occurrence: &NonToolOccurrence,
+) -> Result<(&'a Identity, (u64, u64))> {
+    let identity = validate_live(record, id)?;
+    let (_, owner) = lifetime(record, id)?;
+    ensure!(
         match occurrence {
             NonToolOccurrence::SessionStart { source } =>
                 owner.end.is_none() && owner.source == *source,
@@ -78,15 +148,21 @@ pub(super) fn validate<'a>(
             .is_some_and(|deadline| deadline > Instant::now()),
         "native session observation deadline expired or not live"
     );
-    let metadata = std::fs::metadata(&record.workspace)?;
-    ensure!(
-        (metadata.dev(), metadata.ino()) == owner.workspace,
-        "native session workspace identity changed"
-    );
-    Ok((&record.identity, owner.workspace))
+    Ok(identity)
 }
 
 impl SharedRuntime {
+    pub(crate) fn cancel_native_session_services(&self, id: u64) -> Result<()> {
+        let runtime = self
+            .0
+            .lock()
+            .map_err(|_| anyhow::anyhow!("native session lock failed"))?;
+        let (_, owner) = lifetime(&runtime.record, id)?;
+        if let Some(authority) = &owner.authority {
+            authority.cancel_services()?;
+        }
+        Ok(())
+    }
     pub(crate) fn validate_native_end_policy(
         &self,
         id: u64,
@@ -152,6 +228,7 @@ impl SharedRuntime {
                     end: None,
                     diagnostics: vec![],
                     deadline: Some(Instant::now() + Duration::from_secs(30)),
+                    authority: Some(Arc::new(NativeSessionAuthority::new())),
                 })),
                 // An open host lifetime is not itself an unresolved effect.
                 complete: true,
@@ -181,6 +258,34 @@ impl SharedRuntime {
             owner.deadline = Some(Instant::now() + NATIVE_END_BUDGET);
             Ok(())
         })
+    }
+
+    /// Revoke before waiting for cleanup; an aborted host calls this from Drop too.
+    pub(crate) fn finalize_native_session(&self, id: u64) -> Result<()> {
+        let runtime = self
+            .0
+            .lock()
+            .map_err(|_| anyhow::anyhow!("native session lock failed"))?;
+        let (_, owner) = lifetime(&runtime.record, id)?;
+        if let Some(authority) = &owner.authority {
+            authority.live.store(false, Ordering::Release);
+        }
+        Ok(())
+    }
+
+    pub(crate) async fn drain_native_session_services(
+        &self,
+        id: u64,
+        deadline: tokio::time::Instant,
+    ) -> Result<()> {
+        let record = self.record()?;
+        let (_, owner) = lifetime(&record, id)?;
+        if let Some(authority) = &owner.authority {
+            let _drained = tokio::time::timeout_at(deadline, authority.services.acquire_many(8))
+                .await
+                .context("native service cleanup deadline exhausted")??;
+        }
+        Ok(())
     }
 
     pub(crate) fn native_session_diagnostic(&self, id: u64, message: String) -> Result<()> {

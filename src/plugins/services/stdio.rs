@@ -13,7 +13,10 @@ use crate::{
             snapshot::SnapshotMount,
         },
     },
-    workflow::runtime::{RuntimeReference, SharedRuntime, plugin_admission::ServiceOwner},
+    workflow::runtime::{
+        RuntimeReference, SharedRuntime,
+        plugin_admission::{ServiceOwner, TransportInvocation, TransportView},
+    },
 };
 use anyhow::{Context, Result, ensure};
 use serde_json::Value;
@@ -45,6 +48,8 @@ pub(super) struct Pipe {
     pending: Vec<u8>,
     stderr_bytes: usize,
     secrets: protocol::Secrets,
+    view: TransportView,
+    invocation: Option<TransportInvocation>,
 }
 pub(super) struct Start {
     runtime: SharedRuntime,
@@ -52,6 +57,7 @@ pub(super) struct Start {
     host: crate::plugins::runners::HookHost,
     snapshot: Arc<crate::plugins::gate_snapshot::GateSnapshot>,
     lease: Arc<tokio::sync::OwnedSemaphorePermit>,
+    invocation: Result<TransportInvocation>,
 }
 impl Start {
     pub(super) fn capture(
@@ -65,6 +71,7 @@ impl Start {
             host: invocation.host.clone(),
             snapshot: invocation.snapshot.clone(),
             lease: invocation.runner_lease.clone(),
+            invocation: TransportInvocation::capture(invocation),
         }
     }
 }
@@ -79,6 +86,8 @@ impl Pipe {
     ) -> Result<Self> {
         let runtime = start.runtime.clone();
         let owner = start.owner.clone();
+        let invocation = start.invocation?;
+        invocation.validate_view(&revoked)?;
         ensure!(
             !revoked.load(Ordering::Acquire),
             "MCP service revoked before launch"
@@ -136,6 +145,7 @@ impl Pipe {
             "MCP launch description exceeds bound"
         );
         runtime.validate_plugin_service(&owner)?;
+        invocation.validate_view(&revoked)?;
         ensure!(
             Instant::now() < deadline && !revoked.load(Ordering::Acquire),
             "MCP startup cancelled"
@@ -189,6 +199,8 @@ impl Pipe {
             pending: Vec::new(),
             stderr_bytes: 0,
             secrets,
+            view: invocation.retained_view(),
+            invocation: Some(invocation),
         };
         while !pipe.process.launch.admitted() {
             pipe.check(deadline)?;
@@ -249,6 +261,7 @@ impl Pipe {
     }
     pub(super) fn release_startup(&mut self) {
         self.startup_lease.take();
+        self.invocation.take();
     }
     pub(super) fn hold_uncertain(&mut self, lease: Option<Arc<tokio::sync::OwnedSemaphorePermit>>) {
         self.uncertain_lease = lease;
@@ -261,6 +274,9 @@ impl Pipe {
         self.runtime
             .upgrade()?
             .validate_plugin_service(&self.owner)?;
+        if let Some(invocation) = &self.invocation {
+            invocation.validate_service(&self.owner)?;
+        }
         self.process.observe()?;
         ensure!(
             self.process.status.is_none(),
@@ -286,6 +302,10 @@ impl Pipe {
         Ok(())
     }
     fn write(&mut self, message: &Value, deadline: Instant) -> Result<()> {
+        self.view.validate(&self.revoked)?;
+        if let Some(invocation) = &self.invocation {
+            invocation.validate_view(&self.revoked)?;
+        }
         let mut bytes = protocol::encode(message)?;
         bytes.push(b'\n');
         let mut at = 0;
@@ -344,6 +364,18 @@ impl Pipe {
         }
     }
     pub(super) fn send(
+        &mut self,
+        message: &Value,
+        expected: Option<u64>,
+        deadline: Instant,
+        invocation: TransportInvocation,
+    ) -> Result<Value> {
+        self.invocation = Some(invocation);
+        let result = self.exchange(message, expected, deadline);
+        self.invocation.take();
+        result
+    }
+    fn exchange(
         &mut self,
         message: &Value,
         expected: Option<u64>,
