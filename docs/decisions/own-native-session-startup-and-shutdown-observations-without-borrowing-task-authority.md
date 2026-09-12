@@ -29,4 +29,4 @@ is not an early end fact. Keep the original provider error unchanged.
 
 ## Realized by
 
-(none yet: recorded, not built)
+- 3653fb16794100e111e04411f05816f4589527b6 Own native session lifetime and bounded startup and shutdown commands
