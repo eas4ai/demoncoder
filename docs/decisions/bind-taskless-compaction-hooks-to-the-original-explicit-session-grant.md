@@ -18,4 +18,4 @@ Prove delivery from an explicit grant and refusal without one; task and child ow
 
 ## Realized by
 
-993d1a259574f0de8c7b15d9a11dbc8fafbf3915
+- 993d1a259574f0de8c7b15d9a11dbc8fafbf3915 Add owned tool batches and context compaction
