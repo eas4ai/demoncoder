@@ -12,4 +12,4 @@ Enable synchronous Prompt and Agent hooks at actual native SessionStart and Sess
 
 ## Realized by
 
-(none yet: recorded, not built)
+- 2750dbbb8afea28d87bf33147240a530e42bfa6a Fund native session model hooks from their original allowance
