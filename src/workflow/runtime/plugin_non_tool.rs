@@ -524,10 +524,17 @@ impl SharedRuntime {
                 !matches!(event, HookEvent::SessionStart | HookEvent::SessionEnd)
                     || (hook.declaration.dialect
                         == crate::plugins::hook_types::HookDialect::Native
-                        && hook.declaration.runner
-                            == crate::plugins::hook_types::HandlerKind::Command
+                        && match hook.declaration.runner {
+                            crate::plugins::hook_types::HandlerKind::Command => true,
+                            crate::plugins::hook_types::HandlerKind::Prompt | crate::plugins::hook_types::HandlerKind::Agent => {
+                                let budget = super::budget_accounting::inherited(record, id)?;
+                                super::plugin_admission::validate_model_budget(record, &receipt.facts.session, id, event, &budget)?;
+                                true
+                            }
+                            _ => false,
+                        }
                         && !hook.required_gate),
-                "native lifetime authorizes only native command observations"
+                "native lifetime authorizes only native synchronous observations with original funding"
             );
             ensure!(
                 receipt.hooks.len() + receipt.once_skips.len() < 32,

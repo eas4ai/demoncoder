@@ -97,18 +97,11 @@ pub(super) fn validate_model_owner(
         "model hook belongs to another session"
     );
     ensure!(
-        !matches!(hook.event, HookEvent::SessionStart | HookEvent::SessionEnd),
-        "native session command lifetime grants no model allowance"
-    );
-    ensure!(
         !hook.cancelled.load(std::sync::atomic::Ordering::Acquire),
         "model hook cancelled before admission"
     );
     let receipt = active_for_event(record, hook.owner, hook.event)?;
-    ensure!(
-        super::budget_accounting::active(record, &hook.key.session, &hook.budget)?.is_some(),
-        "model hook requires an owning task or explicitly configured session allowance"
-    );
+    validate_model_budget(record, session, hook.owner, hook.event, &hook.budget)?;
     ensure!(
         super::budget_accounting::inherited(record, hook.owner)? == hook.budget,
         "model hook budget differs from its original owner"
@@ -125,7 +118,52 @@ pub(super) fn validate_model_owner(
     Ok(())
 }
 
+pub(super) fn validate_model_budget(
+    record: &Record,
+    session: &str,
+    owner: u64,
+    event: HookEvent,
+    budget: &super::BudgetRef,
+) -> Result<()> {
+    if matches!(event, HookEvent::SessionStart | HookEvent::SessionEnd) {
+        let receipt = super::plugin_non_tool::active(record, owner, event)?;
+        let lifetime = receipt
+            .facts
+            .native_session
+            .context("session model lifetime missing")?;
+        ensure!(
+            matches!(budget, super::BudgetRef::SessionHooks { .. })
+                && super::budget_accounting::inherited(record, lifetime)? == *budget,
+            "session model requires its original explicit session allowance"
+        );
+    } else {
+        ensure!(
+            !matches!(budget, super::BudgetRef::SessionHooks { .. }),
+            "ordinary model hook cannot borrow session funding"
+        );
+    }
+    ensure!(
+        super::budget_accounting::active(record, session, budget)?.is_some(),
+        "model hook requires an owning task or explicitly configured session allowance"
+    );
+    Ok(())
+}
+
 impl SharedRuntime {
+    pub(crate) fn plugin_model_remaining(
+        &self,
+        owner: u64,
+        event: HookEvent,
+    ) -> Result<std::time::Duration> {
+        self.plugin_runner_owner(owner, event)?;
+        let session = self.plugin_session()?;
+        let record = self.record()?;
+        let budget = super::budget_accounting::inherited(&record, owner)?;
+        validate_model_budget(&record, &session, owner, event, &budget)?;
+        Ok(self
+            .budget_remaining(&budget)?
+            .min(self.plugin_remaining(owner, event)?))
+    }
     pub(crate) fn validate_hook_model_owner(&self, hook: &ModelAdmission) -> Result<()> {
         let session = self.plugin_session()?;
         let runtime = self
@@ -876,3 +914,6 @@ impl SharedRuntime {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+pub(super) mod session_models;

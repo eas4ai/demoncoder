@@ -219,11 +219,17 @@ impl NonToolPlan {
         for (index, handler) in self.plan.handlers.iter().enumerate() {
             if matches!(event, HookEvent::SessionStart | HookEvent::SessionEnd)
                 && (handler.registration.declaration.identity.dialect != HookDialect::Native
-                    || handler.registration.declaration.identity.runner
-                        != super::hook_types::HandlerKind::Command
+                    || !match handler.registration.declaration.identity.runner {
+                        super::hook_types::HandlerKind::Command => true,
+                        super::hook_types::HandlerKind::Prompt
+                        | super::hook_types::HandlerKind::Agent => runtime
+                            .plugin_model_remaining(operation, event)
+                            .is_ok_and(|remaining| !remaining.is_zero()),
+                        _ => false,
+                    }
                     || handler.registration.runner.observer_config().is_some())
             {
-                effects.diagnostics.push(format!("{} observation unavailable: this native lifetime prerequisite supports synchronous native commands only", handler.registration.declaration.identity.declaration));
+                effects.diagnostics.push(format!("{} observation unavailable: this native lifetime prerequisite supports synchronous native commands only without original session model funding", handler.registration.declaration.identity.declaration));
                 continue;
             }
             if !handler.matches_non_tool(&facts.subject.occurrence) {

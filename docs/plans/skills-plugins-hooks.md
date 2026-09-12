@@ -27,15 +27,17 @@ Complete lifecycle/package conformance remains open. See
 [the integration review](../reviews/plugin-codex-external-non-tool-runtime.md).
 
 Latest verified prerequisites add native provider-failure observations, original
-native session lifetime ownership, the application shutdown reservation, and
-explicit session-hook allowance persistence with atomic session directory creation,
-and exact operation budget/usage attribution including ordinary Oracle ownership.
-The current Rust candidate passes 919 tests (17 ignored), the separate terminal
-output-limit suite passes three cases, and fresh attribution specification and
-quality reviews pass. Earlier installed/live-source evidence retains its original
-candidate; it is not silently refreshed by these Rust checks. See the
-[attribution review](../reviews/plugin-operation-budget-attribution.md) for corrected
-Oracle findings, static non-passes and the prior unexplained crash.
+native session lifetime ownership, the application shutdown reservation, explicit
+session-hook allowance persistence with atomic session directory creation, exact
+operation budget/usage attribution including ordinary Oracle ownership, and native
+session Prompt/Agent execution from the original explicit grant. The current Rust
+candidate passes 938 tests (17 ignored), the separate terminal output-limit suite
+passes three cases, and fresh specification and quality reviews pass. Earlier
+installed/live-source evidence retains its original candidate; these Rust checks
+do not refresh it. See the [model allowance review](../reviews/plugin-session-model-allowance.md)
+for corrected authority findings, static non-passes and evidence-capture limits.
+The [attribution review](../reviews/plugin-operation-budget-attribution.md) retains
+the earlier Oracle findings and unexplained crash.
 
 Only the parent records Cairn decisions, changes declarations and commits evidence. Workers own bounded files; they do not change the selected scope or evidence. A test fixture may model a provider, but its report must say controlled transport. Source/type checks, successful parsing and test registration never establish runtime delivery.
 
@@ -414,6 +416,27 @@ session commands need session-owned lifetime policy and remain unavailable here;
 they are not silently converted to synchronous execution. Those behaviors,
 additional startup effects, Interrupt, outer timeout and actual source events
 remain in this same commitment.
+
+### Native session model allowance integration
+
+Decision: [fund models from the original session grant](../decisions/fund-native-session-model-hooks-from-their-original-explicit-grant.md).
+Implementation and verification pass. Actual native startup and shutdown run
+synchronous Prompt/Agent hooks only from their original explicit session grant.
+Preparation, request/delivery, model/backend admission and snapshot tool effects
+agree on the same live owner and budget reference. Final checks follow durable
+transitions before effects. Original cumulative time and counters remain shared
+across startup and end; existing occurrence boundaries and cleanup reserves apply.
+
+Session backend invocations have a separate durable count, independent of unrelated
+delegation counts. Ordinary task/delegation hooks retain their limits and cannot
+borrow session funding. Persisted references cannot recreate execution authority.
+The complete suite passes 938 tests with 17 ignored, Clippy and formatting pass,
+and the separate PTY suite passes three cases. Fresh specification and quality
+reviews pass after correcting post-persistence authority and legacy-shape findings.
+The [review](../reviews/plugin-session-model-allowance.md) records evidence identities,
+failed controls, static non-passes and the corrected evidence-capture process.
+HTTP/MCP and asynchronous session command lifetime integration remain pending;
+native host execution does not qualify external backend lifecycle sources.
 
 ### Exact operation budget and usage attribution prerequisite
 

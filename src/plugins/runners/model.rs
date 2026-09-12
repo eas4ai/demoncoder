@@ -185,13 +185,8 @@ impl ModelRunner {
             "model declaration/configuration identity mismatch"
         );
         let (runtime, owner) = invocation.events.plugin_context()?;
-        runtime.plugin_runner_owner(owner, self.event)?;
-        ensure!(
-            runtime.record()?.allocation.is_some(),
-            "model hook requires an owning task or explicitly configured session allowance"
-        );
         let available = runtime
-            .remaining()?
+            .plugin_model_remaining(owner, self.event)?
             .min(Duration::from_secs(30))
             .saturating_sub(Duration::from_secs(3));
         ensure!(
@@ -370,8 +365,9 @@ impl HookRunner for ModelRunner {
                 .and_then(|v| v);
             // No model or backend process remains after close (or session Drop).
             drop(session);
+            let delivery = sink.validate_hook_delivery();
             sink.settle_hook_models()?;
-            outcome.and_then(|value| closed.map(|()| value))
+            outcome.and_then(|value| closed.and(delivery).map(|()| value))
         });
         let value = match task.await {
             Ok(Ok(value)) => value,
@@ -441,6 +437,7 @@ async fn drive(
             }
         }
         while let Ok(envelope) = receiver.try_recv() { consume(envelope.event, &mut response, parent, kind)?; }
+        sink.validate_hook_delivery()?;
         crate::plugins::wire::parse_json(response.text.trim().as_bytes()).map_err(anyhow::Error::from)
     }).await.context("model hook timed out").and_then(|v| v)
 }

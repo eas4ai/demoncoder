@@ -124,6 +124,25 @@ fn overview(out: &mut Pager, record: &Record) -> fmt::Result {
             )?,
         }
     }
+    if let Some(grant) = &record.session_hook_allowance {
+        let allocation = &grant.allocation;
+        writeln!(
+            out,
+            "Session hook grant: model/backend slots {}/{} · host backend invocations {} · snapshot tools {}/{}",
+            allocation.model_calls,
+            allocation.limits.model_calls,
+            grant.backend_invocations,
+            allocation.tool_calls,
+            allocation.limits.tool_calls
+        )?;
+        match allocation.remaining_ms() {
+            Ok(ms) => writeln!(out, "Session hook time remaining: {}s", ms / 1000)?,
+            Err(_) => writeln!(
+                out,
+                "Session hook time unavailable: clock is uncertain; execution is held."
+            )?,
+        }
+    }
     if let Some(delegation) = &record.delegation {
         writeln!(
             out,

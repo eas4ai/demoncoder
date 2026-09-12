@@ -329,7 +329,7 @@ impl SharedRuntime {
 
     pub(crate) fn admit_tool(&self, id: u64, call: &ToolCall) -> Result<()> {
         let session = self.plugin_session()?;
-        self.admission(|record| {
+        self.operation_admission(id, |record| {
             let operation = record
                 .operations
                 .iter()
@@ -403,7 +403,7 @@ impl SharedRuntime {
 
     pub(crate) fn tool_effect(&self, id: u64) -> Result<()> {
         let session = self.plugin_session()?;
-        self.admission(|record| {
+        self.operation_admission(id, |record| {
             let operation = record
                 .operations
                 .iter()
@@ -609,7 +609,7 @@ impl SharedRuntime {
             Ok(())
         };
         if outcome.is_none() {
-            self.admission(transition)
+            self.operation_admission(id, transition)
         } else {
             self.update(transition)
         }

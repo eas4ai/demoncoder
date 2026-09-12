@@ -343,6 +343,32 @@ pub(crate) fn mark_missing(
 }
 
 impl SharedRuntime {
+    pub(super) fn operation_admission<T>(
+        &self,
+        id: u64,
+        transition: impl FnOnce(&mut Record) -> Result<T>,
+    ) -> Result<T> {
+        let result = self.update(transition)?;
+        self.validate_operation_deadline(id)?;
+        Ok(result)
+    }
+    pub(super) fn validate_operation_deadline(&self, id: u64) -> Result<()> {
+        // Persistence checkpoints both clocks. Recheck the original grant so a
+        // rollback withholds execution without borrowing a different deadline.
+        let budget = self.operation_budget(id)?;
+        let remaining = if budget == BudgetRef::Unallocated {
+            // Ordinary unfunded operations retain the existing host task-clock
+            // guard. This does not assign that task's budget or debit its calls.
+            self.remaining()?
+        } else {
+            self.budget_remaining(&budget)?
+        };
+        ensure!(
+            !remaining.is_zero(),
+            "original operation deadline exhausted"
+        );
+        Ok(())
+    }
     pub(crate) fn operation_budget(&self, source: u64) -> Result<BudgetRef> {
         let runtime = self
             .0

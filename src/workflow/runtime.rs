@@ -525,6 +525,8 @@ impl SharedRuntime {
         );
         guard(&runtime)?;
         let result = f(&mut runtime.record)?;
+        #[cfg(test)]
+        plugin_admission::session_models::invalidate_at_checkpoint(&mut runtime.record);
         if let Some(allocation) = &mut runtime.record.allocation {
             allocation.checkpoint_time();
         }
@@ -765,7 +767,7 @@ impl SharedRuntime {
         oracle: Option<&OracleSource>,
     ) -> Result<u64> {
         let session = self.plugin_session()?;
-        self.admission(|r| {
+        let id = self.update(|r| {
             delegation::ensure_agent_active(r, phase)?;
             ensure!(
                 !r.recovery_pending,
@@ -831,7 +833,12 @@ impl SharedRuntime {
                 identity: identity.cloned().or_else(|| Some(r.identity.clone())),
             });
             Ok(id)
-        })
+        })?;
+        self.validate_operation_deadline(id)?;
+        if let Some(hook) = hook {
+            self.validate_hook_model_owner(hook)?;
+        }
+        Ok(id)
     }
 
     pub fn finish_model(&self, id: u64) -> Result<()> {

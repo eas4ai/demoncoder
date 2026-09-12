@@ -1320,3 +1320,6 @@ async fn native_stop_failure_prompt_and_agent_spend_only_original_allowance() {
         );
     }
 }
+
+#[path = "plugin_model_runners/session_allowance.rs"]
+mod session_allowance;

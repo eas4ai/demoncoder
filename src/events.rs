@@ -646,13 +646,16 @@ impl EventSink {
             .invocation
             .context("durable tool execution requires a host invocation")?;
         match runtime.begin_tool_owned(&self.phase, invocation, call, self.hook_model.as_ref())? {
-            crate::workflow::runtime::ToolAdmission::Fresh(id) => Ok((
-                Self {
+            crate::workflow::runtime::ToolAdmission::Fresh(id) => {
+                let scoped = Self {
                     tool_operation: Some(id),
                     ..self.clone()
-                },
-                None,
-            )),
+                };
+                if scoped.hook_model.is_some() {
+                    scoped.validate_hook_delivery()?;
+                }
+                Ok((scoped, None))
+            }
             crate::workflow::runtime::ToolAdmission::Replay(result) => {
                 Ok((self.clone(), Some(result)))
             }
@@ -965,6 +968,9 @@ impl EventSink {
         if let (Some(runtime), Some(id)) = (&self.runtime, self.tool_operation) {
             runtime.admit_tool(id, call)?;
         }
+        if self.hook_model.is_some() {
+            self.validate_hook_delivery()?;
+        }
         Ok(())
     }
 
@@ -974,6 +980,9 @@ impl EventSink {
         }
         if let (Some(runtime), Some(id)) = (&self.runtime, self.tool_operation) {
             runtime.tool_effect(id)?;
+        }
+        if self.hook_model.is_some() {
+            self.validate_hook_delivery()?;
         }
         Ok(())
     }
@@ -1002,6 +1011,9 @@ impl EventSink {
         }
         if let (Some(runtime), Some(id)) = (&self.runtime, self.tool_operation) {
             runtime.tool_observer(id, index, outcome)?;
+        }
+        if outcome.is_none() && self.hook_model.is_some() {
+            self.validate_hook_delivery()?;
         }
         Ok(())
     }

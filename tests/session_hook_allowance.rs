@@ -64,8 +64,18 @@ fn session_grant_is_a_separate_durable_record_field() {
     let decoded: Record = serde_json::from_value(payload.clone()).unwrap();
     assert!(decoded.task.is_none() && decoded.allocation.is_none());
     assert_eq!(
+        decoded
+            .session_hook_allowance
+            .as_ref()
+            .unwrap()
+            .backend_invocations,
+        0
+    );
+    let mut current_grant = payload["session_hook_allowance"].clone();
+    current_grant["backend_invocations"] = json!(0);
+    assert_eq!(
         serde_json::to_value(decoded).unwrap()["session_hook_allowance"],
-        payload["session_hook_allowance"]
+        current_grant
     );
 }
 

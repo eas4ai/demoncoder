@@ -156,7 +156,7 @@ impl SharedRuntime {
         oracle: Option<&super::OracleSource>,
     ) -> Result<u64> {
         let session = self.plugin_session()?;
-        self.admission(|record| {
+        let id = self.update(|record| {
             if let Some(source) = oracle {
                 let budget = source.validate(record, &session, phase)?;
                 ensure!(
@@ -172,7 +172,12 @@ impl SharedRuntime {
                 hook,
                 oracle.map(|s| s.operation()),
             )
-        })
+        })?;
+        self.validate_operation_deadline(id)?;
+        if let Some(hook) = hook {
+            self.validate_hook_model_owner(hook)?;
+        }
+        Ok(id)
     }
 
     pub(crate) fn update_agent<T>(
@@ -271,12 +276,6 @@ pub(super) fn begin_backend_record(
         "uncertain work needs reconciliation before backend admission"
     );
     ensure_agent_active(record, phase)?;
-    if let Some(delegation) = &record.delegation {
-        ensure!(
-            record.backend_invocations < delegation.backend_limit,
-            "cumulative backend invocation allowance exhausted"
-        );
-    }
     ensure!(
         record.operations.len() < 4096,
         "session operation history is full"
@@ -287,10 +286,31 @@ pub(super) fn begin_backend_record(
         _ => super::budget_accounting::capture(record, session),
     };
     super::budget_accounting::active(record, session, &budget)?;
-    let next_backend = record
-        .backend_invocations
-        .checked_add(u64::from(record.delegation.is_some() || hook.is_some()))
-        .context("backend invocation count overflow")?;
+    let session_hook = matches!(budget, super::BudgetRef::SessionHooks { .. });
+    let next_backend = if session_hook {
+        ensure!(
+            hook.is_some(),
+            "session backend requires live model hook authority"
+        );
+        record
+            .session_hook_allowance
+            .as_ref()
+            .context("session hook allowance missing")?
+            .backend_invocations
+            .checked_add(1)
+            .context("session backend invocation count overflow")?
+    } else {
+        if let Some(delegation) = &record.delegation {
+            ensure!(
+                record.backend_invocations < delegation.backend_limit,
+                "cumulative backend invocation allowance exhausted"
+            );
+        }
+        record
+            .backend_invocations
+            .checked_add(u64::from(record.delegation.is_some() || hook.is_some()))
+            .context("backend invocation count overflow")?
+    };
     if let Some(hook) = hook {
         ensure!(
             hook.key.session == session,
@@ -299,7 +319,13 @@ pub(super) fn begin_backend_record(
         super::plugin_admission::validate_model_admission(record, phase, hook)?;
         super::budget_accounting::admit(record, session, &budget, true)?;
     }
-    if record.delegation.is_some() || hook.is_some() {
+    if session_hook {
+        record
+            .session_hook_allowance
+            .as_mut()
+            .expect("validated session allowance")
+            .backend_invocations = next_backend;
+    } else if record.delegation.is_some() || hook.is_some() {
         record.backend_invocations = next_backend;
     }
     let id = record.operations.len() as u64 + 1;

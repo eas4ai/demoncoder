@@ -8,6 +8,9 @@ use crate::workflow::allocation::{Allocation, Limits};
 #[serde(deny_unknown_fields)]
 pub struct SessionHookAllowance {
     pub allocation: Allocation,
+    /// Host-admitted external hook invocations, not backend-internal model calls.
+    #[serde(default)]
+    pub backend_invocations: u64,
 }
 
 impl SessionHookAllowance {
@@ -15,6 +18,7 @@ impl SessionHookAllowance {
         limits.validate_session_hooks()?;
         Ok(Self {
             allocation: Allocation::from_validated(limits)?,
+            backend_invocations: 0,
         })
     }
 }
