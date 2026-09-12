@@ -11,4 +11,4 @@ Add an optional session-hook allowance to the existing durable runtime. Require 
 
 ## Realized by
 
-(none yet: recorded, not built)
+- 46122703dc052b0801f3be424382c4cb34eb0f12 Persist session hook allowances and prevent session name collisions
