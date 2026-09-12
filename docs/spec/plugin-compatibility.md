@@ -125,7 +125,8 @@ a neighboring event is permitted. A missing cell fails inventory validation.
 
 Claude's model-capable events use all five runners; its service-only group uses
 command, HTTP and MCP; SessionStart and Setup use command and MCP only. Codex's
-12 recorded events use command/MCP; its model tags are nonexecuting source forms.
+12 recorded events use command/MCP except SessionEnd, where MCP declarations are
+accepted but skipped by the pinned source. Its model tags are nonexecuting source forms.
 Native declarations support every listed type, with effects constrained by the
 event. The inventory enumerates membership, including events absent from each
 source profile. It also specifies the activation and negative tests for every cell.
@@ -366,3 +367,18 @@ still authorized; changed endpoints or requested access require a new binding
 decision. Plugin code cannot enumerate unrelated account tokens. Configured apps
 therefore work on every connection through the shared service layer without
 pretending that subscription login grants access to an unrelated provider.
+
+## Profile v1 revision 3 correction
+
+Developer approved on 2026-09-11 in `.cairn/escalations/pcomp-002-pcomp-004.md`.
+Only Codex SessionEnd/mcp_tool changes from `run` to `source-nonexecuting`.
+Command hooks remain executable; native MCP shutdown hooks remain required
+through explicit native conversion. All 510 cells and all feature families remain.
+
+The pinned [Codex discovery implementation](https://github.com/openai/codex/blob/3d2ee51ca2d5db578f328aa75e20aa22c0197c9a/codex-rs/hooks/src/engine/discovery.rs#L582)
+skips SessionEnd MCP handlers with a warning. Its test at lines 1048–1081
+asserts no executable handlers and a warning. The original file and managed copy
+match byte-for-byte, SHA-256
+`fd05ee932079df2b5128f170beaf0d8e5c8630a56eadbcf9de9f25806e772b04`.
+Source retrieval and byte comparison were executed; the upstream test was
+inspected, not executed. This corrects the inventory, not the pinned source.

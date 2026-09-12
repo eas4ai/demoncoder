@@ -1,0 +1,440 @@
+{
+  "binary_sha256": "80315a32acf1b625129a46b0bd75537cf76ef09701ae986154159076cc0b6aff",
+  "capability": {
+    "protocol": "demoncoder-compaction-v1",
+    "source_version": "0.153.4",
+    "patch_version": 1
+  },
+  "startup": [
+    {
+      "case": "valid",
+      "passed": true
+    },
+    {
+      "case": "malformed",
+      "passed": true
+    },
+    {
+      "case": "null",
+      "passed": true
+    },
+    {
+      "case": "empty",
+      "passed": true
+    },
+    {
+      "case": "wrong-hash",
+      "passed": true
+    },
+    {
+      "case": "wrong-command",
+      "passed": true
+    },
+    {
+      "case": "wrong-protocol",
+      "passed": true
+    },
+    {
+      "case": "missing-source",
+      "passed": true
+    },
+    {
+      "case": "relative-source",
+      "passed": true
+    },
+    {
+      "case": "disabled-requirement",
+      "passed": true
+    },
+    {
+      "case": "missing-hash",
+      "passed": true
+    },
+    {
+      "case": "fifo",
+      "passed": true
+    },
+    {
+      "case": "directory",
+      "passed": true
+    },
+    {
+      "case": "symlink",
+      "passed": true
+    },
+    {
+      "case": "missing-boundary",
+      "passed": true
+    },
+    {
+      "case": "async",
+      "passed": true
+    },
+    {
+      "case": "duplicate",
+      "passed": true
+    }
+  ],
+  "cases": [
+    {
+      "automatic": false,
+      "event": "PreCompact",
+      "fault": "allow",
+      "compactions": 1,
+      "ordinary_requests": 1,
+      "owner_alive": true,
+      "backend_alive": true,
+      "passed": true
+    },
+    {
+      "automatic": false,
+      "event": "PreCompact",
+      "fault": "deny",
+      "compactions": 0,
+      "ordinary_requests": 1,
+      "owner_alive": true,
+      "backend_alive": true,
+      "passed": true
+    },
+    {
+      "automatic": false,
+      "event": "PreCompact",
+      "fault": "crash",
+      "compactions": 0,
+      "ordinary_requests": 1,
+      "owner_alive": true,
+      "backend_alive": true,
+      "passed": true
+    },
+    {
+      "automatic": false,
+      "event": "PreCompact",
+      "fault": "timeout",
+      "compactions": 0,
+      "ordinary_requests": 1,
+      "owner_alive": true,
+      "backend_alive": true,
+      "passed": true
+    },
+    {
+      "automatic": false,
+      "event": "PreCompact",
+      "fault": "stale",
+      "compactions": 0,
+      "ordinary_requests": 1,
+      "owner_alive": true,
+      "backend_alive": true,
+      "passed": true
+    },
+    {
+      "automatic": false,
+      "event": "PreCompact",
+      "fault": "empty",
+      "compactions": 0,
+      "ordinary_requests": 1,
+      "owner_alive": true,
+      "backend_alive": true,
+      "passed": true
+    },
+    {
+      "automatic": false,
+      "event": "PreCompact",
+      "fault": "plain",
+      "compactions": 0,
+      "ordinary_requests": 1,
+      "owner_alive": true,
+      "backend_alive": true,
+      "passed": true
+    },
+    {
+      "automatic": false,
+      "event": "PreCompact",
+      "fault": "malformed",
+      "compactions": 0,
+      "ordinary_requests": 1,
+      "owner_alive": true,
+      "backend_alive": true,
+      "passed": true
+    },
+    {
+      "automatic": false,
+      "event": "PreCompact",
+      "fault": "nonzero",
+      "compactions": 0,
+      "ordinary_requests": 1,
+      "owner_alive": true,
+      "backend_alive": true,
+      "passed": true
+    },
+    {
+      "automatic": false,
+      "event": "PostCompact",
+      "fault": "allow",
+      "compactions": 1,
+      "ordinary_requests": 1,
+      "owner_alive": true,
+      "backend_alive": true,
+      "passed": true
+    },
+    {
+      "automatic": false,
+      "event": "PostCompact",
+      "fault": "deny",
+      "compactions": 1,
+      "ordinary_requests": 1,
+      "owner_alive": true,
+      "backend_alive": true,
+      "passed": true
+    },
+    {
+      "automatic": false,
+      "event": "PostCompact",
+      "fault": "crash",
+      "compactions": 1,
+      "ordinary_requests": 1,
+      "owner_alive": true,
+      "backend_alive": true,
+      "passed": true
+    },
+    {
+      "automatic": false,
+      "event": "PostCompact",
+      "fault": "timeout",
+      "compactions": 1,
+      "ordinary_requests": 1,
+      "owner_alive": true,
+      "backend_alive": true,
+      "passed": true
+    },
+    {
+      "automatic": false,
+      "event": "PostCompact",
+      "fault": "stale",
+      "compactions": 1,
+      "ordinary_requests": 1,
+      "owner_alive": true,
+      "backend_alive": true,
+      "passed": true
+    },
+    {
+      "automatic": false,
+      "event": "PostCompact",
+      "fault": "empty",
+      "compactions": 1,
+      "ordinary_requests": 1,
+      "owner_alive": true,
+      "backend_alive": true,
+      "passed": true
+    },
+    {
+      "automatic": false,
+      "event": "PostCompact",
+      "fault": "plain",
+      "compactions": 1,
+      "ordinary_requests": 1,
+      "owner_alive": true,
+      "backend_alive": true,
+      "passed": true
+    },
+    {
+      "automatic": false,
+      "event": "PostCompact",
+      "fault": "malformed",
+      "compactions": 1,
+      "ordinary_requests": 1,
+      "owner_alive": true,
+      "backend_alive": true,
+      "passed": true
+    },
+    {
+      "automatic": false,
+      "event": "PostCompact",
+      "fault": "nonzero",
+      "compactions": 1,
+      "ordinary_requests": 1,
+      "owner_alive": true,
+      "backend_alive": true,
+      "passed": true
+    },
+    {
+      "automatic": true,
+      "event": "PreCompact",
+      "fault": "allow",
+      "compactions": 1,
+      "ordinary_requests": 2,
+      "owner_alive": true,
+      "backend_alive": true,
+      "passed": true
+    },
+    {
+      "automatic": true,
+      "event": "PreCompact",
+      "fault": "deny",
+      "compactions": 0,
+      "ordinary_requests": 1,
+      "owner_alive": true,
+      "backend_alive": true,
+      "passed": true
+    },
+    {
+      "automatic": true,
+      "event": "PreCompact",
+      "fault": "crash",
+      "compactions": 0,
+      "ordinary_requests": 1,
+      "owner_alive": true,
+      "backend_alive": true,
+      "passed": true
+    },
+    {
+      "automatic": true,
+      "event": "PreCompact",
+      "fault": "timeout",
+      "compactions": 0,
+      "ordinary_requests": 1,
+      "owner_alive": true,
+      "backend_alive": true,
+      "passed": true
+    },
+    {
+      "automatic": true,
+      "event": "PreCompact",
+      "fault": "stale",
+      "compactions": 0,
+      "ordinary_requests": 1,
+      "owner_alive": true,
+      "backend_alive": true,
+      "passed": true
+    },
+    {
+      "automatic": true,
+      "event": "PreCompact",
+      "fault": "empty",
+      "compactions": 0,
+      "ordinary_requests": 1,
+      "owner_alive": true,
+      "backend_alive": true,
+      "passed": true
+    },
+    {
+      "automatic": true,
+      "event": "PreCompact",
+      "fault": "plain",
+      "compactions": 0,
+      "ordinary_requests": 1,
+      "owner_alive": true,
+      "backend_alive": true,
+      "passed": true
+    },
+    {
+      "automatic": true,
+      "event": "PreCompact",
+      "fault": "malformed",
+      "compactions": 0,
+      "ordinary_requests": 1,
+      "owner_alive": true,
+      "backend_alive": true,
+      "passed": true
+    },
+    {
+      "automatic": true,
+      "event": "PreCompact",
+      "fault": "nonzero",
+      "compactions": 0,
+      "ordinary_requests": 1,
+      "owner_alive": true,
+      "backend_alive": true,
+      "passed": true
+    },
+    {
+      "automatic": true,
+      "event": "PostCompact",
+      "fault": "allow",
+      "compactions": 1,
+      "ordinary_requests": 2,
+      "owner_alive": true,
+      "backend_alive": true,
+      "passed": true
+    },
+    {
+      "automatic": true,
+      "event": "PostCompact",
+      "fault": "deny",
+      "compactions": 1,
+      "ordinary_requests": 1,
+      "owner_alive": true,
+      "backend_alive": true,
+      "passed": true
+    },
+    {
+      "automatic": true,
+      "event": "PostCompact",
+      "fault": "crash",
+      "compactions": 1,
+      "ordinary_requests": 1,
+      "owner_alive": true,
+      "backend_alive": true,
+      "passed": true
+    },
+    {
+      "automatic": true,
+      "event": "PostCompact",
+      "fault": "timeout",
+      "compactions": 1,
+      "ordinary_requests": 1,
+      "owner_alive": true,
+      "backend_alive": true,
+      "passed": true
+    },
+    {
+      "automatic": true,
+      "event": "PostCompact",
+      "fault": "stale",
+      "compactions": 1,
+      "ordinary_requests": 1,
+      "owner_alive": true,
+      "backend_alive": true,
+      "passed": true
+    },
+    {
+      "automatic": true,
+      "event": "PostCompact",
+      "fault": "empty",
+      "compactions": 1,
+      "ordinary_requests": 1,
+      "owner_alive": true,
+      "backend_alive": true,
+      "passed": true
+    },
+    {
+      "automatic": true,
+      "event": "PostCompact",
+      "fault": "plain",
+      "compactions": 1,
+      "ordinary_requests": 1,
+      "owner_alive": true,
+      "backend_alive": true,
+      "passed": true
+    },
+    {
+      "automatic": true,
+      "event": "PostCompact",
+      "fault": "malformed",
+      "compactions": 1,
+      "ordinary_requests": 1,
+      "owner_alive": true,
+      "backend_alive": true,
+      "passed": true
+    },
+    {
+      "automatic": true,
+      "event": "PostCompact",
+      "fault": "nonzero",
+      "compactions": 1,
+      "ordinary_requests": 1,
+      "owner_alive": true,
+      "backend_alive": true,
+      "passed": true
+    }
+  ]
+}

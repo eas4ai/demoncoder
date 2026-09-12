@@ -1,0 +1,4850 @@
+[
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/interrupt.command.input.schema.json",
+      "definition": null
+    },
+    "value": {
+      "cwd": "fixture",
+      "hook_event_name": "Interrupt",
+      "model": "fixture",
+      "permission_mode": "default",
+      "session_id": "fixture",
+      "transcript_path": "fixture",
+      "turn_id": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/interrupt.command.input.schema.json",
+      "definition": null
+    },
+    "value": {
+      "cwd": "fixture",
+      "hook_event_name": "Interrupt",
+      "model": "fixture",
+      "permission_mode": "acceptEdits",
+      "session_id": "fixture",
+      "transcript_path": "fixture",
+      "turn_id": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/interrupt.command.input.schema.json",
+      "definition": null
+    },
+    "value": {
+      "cwd": "fixture",
+      "hook_event_name": "Interrupt",
+      "model": "fixture",
+      "permission_mode": "plan",
+      "session_id": "fixture",
+      "transcript_path": "fixture",
+      "turn_id": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/interrupt.command.input.schema.json",
+      "definition": null
+    },
+    "value": {
+      "cwd": "fixture",
+      "hook_event_name": "Interrupt",
+      "model": "fixture",
+      "permission_mode": "dontAsk",
+      "session_id": "fixture",
+      "transcript_path": "fixture",
+      "turn_id": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/interrupt.command.input.schema.json",
+      "definition": null
+    },
+    "value": {
+      "cwd": "fixture",
+      "hook_event_name": "Interrupt",
+      "model": "fixture",
+      "permission_mode": "bypassPermissions",
+      "session_id": "fixture",
+      "transcript_path": "fixture",
+      "turn_id": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/interrupt.command.input.schema.json",
+      "definition": null
+    },
+    "value": {
+      "cwd": "fixture",
+      "hook_event_name": "Interrupt",
+      "model": "fixture",
+      "permission_mode": "default",
+      "session_id": "fixture",
+      "transcript_path": null,
+      "turn_id": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/interrupt.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "systemMessage": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/interrupt.command.output.schema.json",
+      "definition": null
+    },
+    "value": {}
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/permission-request.command.input.schema.json",
+      "definition": null
+    },
+    "value": {
+      "agent_id": "fixture",
+      "agent_type": "fixture",
+      "cwd": "fixture",
+      "hook_event_name": "PermissionRequest",
+      "model": "fixture",
+      "permission_mode": "default",
+      "session_id": "fixture",
+      "tool_input": null,
+      "tool_name": "fixture",
+      "transcript_path": "fixture",
+      "turn_id": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/permission-request.command.input.schema.json",
+      "definition": null
+    },
+    "value": {
+      "agent_type": "fixture",
+      "cwd": "fixture",
+      "hook_event_name": "PermissionRequest",
+      "model": "fixture",
+      "permission_mode": "default",
+      "session_id": "fixture",
+      "tool_input": null,
+      "tool_name": "fixture",
+      "transcript_path": "fixture",
+      "turn_id": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/permission-request.command.input.schema.json",
+      "definition": null
+    },
+    "value": {
+      "agent_id": "fixture",
+      "cwd": "fixture",
+      "hook_event_name": "PermissionRequest",
+      "model": "fixture",
+      "permission_mode": "default",
+      "session_id": "fixture",
+      "tool_input": null,
+      "tool_name": "fixture",
+      "transcript_path": "fixture",
+      "turn_id": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/permission-request.command.input.schema.json",
+      "definition": null
+    },
+    "value": {
+      "agent_id": "fixture",
+      "agent_type": "fixture",
+      "cwd": "fixture",
+      "hook_event_name": "PermissionRequest",
+      "model": "fixture",
+      "permission_mode": "acceptEdits",
+      "session_id": "fixture",
+      "tool_input": null,
+      "tool_name": "fixture",
+      "transcript_path": "fixture",
+      "turn_id": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/permission-request.command.input.schema.json",
+      "definition": null
+    },
+    "value": {
+      "agent_id": "fixture",
+      "agent_type": "fixture",
+      "cwd": "fixture",
+      "hook_event_name": "PermissionRequest",
+      "model": "fixture",
+      "permission_mode": "plan",
+      "session_id": "fixture",
+      "tool_input": null,
+      "tool_name": "fixture",
+      "transcript_path": "fixture",
+      "turn_id": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/permission-request.command.input.schema.json",
+      "definition": null
+    },
+    "value": {
+      "agent_id": "fixture",
+      "agent_type": "fixture",
+      "cwd": "fixture",
+      "hook_event_name": "PermissionRequest",
+      "model": "fixture",
+      "permission_mode": "dontAsk",
+      "session_id": "fixture",
+      "tool_input": null,
+      "tool_name": "fixture",
+      "transcript_path": "fixture",
+      "turn_id": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/permission-request.command.input.schema.json",
+      "definition": null
+    },
+    "value": {
+      "agent_id": "fixture",
+      "agent_type": "fixture",
+      "cwd": "fixture",
+      "hook_event_name": "PermissionRequest",
+      "model": "fixture",
+      "permission_mode": "bypassPermissions",
+      "session_id": "fixture",
+      "tool_input": null,
+      "tool_name": "fixture",
+      "transcript_path": "fixture",
+      "turn_id": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/permission-request.command.input.schema.json",
+      "definition": null
+    },
+    "value": {
+      "agent_id": "fixture",
+      "agent_type": "fixture",
+      "cwd": "fixture",
+      "hook_event_name": "PermissionRequest",
+      "model": "fixture",
+      "permission_mode": "default",
+      "session_id": "fixture",
+      "tool_input": null,
+      "tool_name": "fixture",
+      "transcript_path": null,
+      "turn_id": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/permission-request.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "continue": false,
+      "hookSpecificOutput": {
+        "decision": {
+          "behavior": "allow",
+          "interrupt": false,
+          "message": "fixture",
+          "updatedInput": null,
+          "updatedPermissions": null
+        },
+        "hookEventName": "PermissionRequest"
+      },
+      "stopReason": "fixture",
+      "suppressOutput": false,
+      "systemMessage": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/permission-request.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "hookSpecificOutput": {
+        "decision": {
+          "behavior": "allow",
+          "interrupt": false,
+          "message": "fixture",
+          "updatedInput": null,
+          "updatedPermissions": null
+        },
+        "hookEventName": "PermissionRequest"
+      },
+      "stopReason": "fixture",
+      "suppressOutput": false,
+      "systemMessage": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/permission-request.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "continue": true,
+      "hookSpecificOutput": {
+        "decision": {
+          "behavior": "allow",
+          "interrupt": false,
+          "message": "fixture",
+          "updatedInput": null,
+          "updatedPermissions": null
+        },
+        "hookEventName": "PermissionRequest"
+      },
+      "stopReason": "fixture",
+      "suppressOutput": false,
+      "systemMessage": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/permission-request.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "continue": false,
+      "stopReason": "fixture",
+      "suppressOutput": false,
+      "systemMessage": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/permission-request.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "continue": false,
+      "hookSpecificOutput": {
+        "hookEventName": "PermissionRequest"
+      },
+      "stopReason": "fixture",
+      "suppressOutput": false,
+      "systemMessage": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/permission-request.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "continue": false,
+      "hookSpecificOutput": {
+        "decision": {
+          "behavior": "deny",
+          "interrupt": false,
+          "message": "fixture",
+          "updatedInput": null,
+          "updatedPermissions": null
+        },
+        "hookEventName": "PermissionRequest"
+      },
+      "stopReason": "fixture",
+      "suppressOutput": false,
+      "systemMessage": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/permission-request.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "continue": false,
+      "hookSpecificOutput": {
+        "decision": {
+          "behavior": "allow",
+          "message": "fixture",
+          "updatedInput": null,
+          "updatedPermissions": null
+        },
+        "hookEventName": "PermissionRequest"
+      },
+      "stopReason": "fixture",
+      "suppressOutput": false,
+      "systemMessage": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/permission-request.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "continue": false,
+      "hookSpecificOutput": {
+        "decision": {
+          "behavior": "allow",
+          "interrupt": true,
+          "message": "fixture",
+          "updatedInput": null,
+          "updatedPermissions": null
+        },
+        "hookEventName": "PermissionRequest"
+      },
+      "stopReason": "fixture",
+      "suppressOutput": false,
+      "systemMessage": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/permission-request.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "continue": false,
+      "hookSpecificOutput": {
+        "decision": {
+          "behavior": "allow",
+          "interrupt": false,
+          "updatedInput": null,
+          "updatedPermissions": null
+        },
+        "hookEventName": "PermissionRequest"
+      },
+      "stopReason": "fixture",
+      "suppressOutput": false,
+      "systemMessage": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/permission-request.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "continue": false,
+      "hookSpecificOutput": {
+        "decision": {
+          "behavior": "allow",
+          "interrupt": false,
+          "message": "fixture",
+          "updatedPermissions": null
+        },
+        "hookEventName": "PermissionRequest"
+      },
+      "stopReason": "fixture",
+      "suppressOutput": false,
+      "systemMessage": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/permission-request.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "continue": false,
+      "hookSpecificOutput": {
+        "decision": {
+          "behavior": "allow",
+          "interrupt": false,
+          "message": "fixture",
+          "updatedInput": {
+            "bounded": "data"
+          },
+          "updatedPermissions": null
+        },
+        "hookEventName": "PermissionRequest"
+      },
+      "stopReason": "fixture",
+      "suppressOutput": false,
+      "systemMessage": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/permission-request.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "continue": false,
+      "hookSpecificOutput": {
+        "decision": {
+          "behavior": "allow",
+          "interrupt": false,
+          "message": "fixture",
+          "updatedInput": null
+        },
+        "hookEventName": "PermissionRequest"
+      },
+      "stopReason": "fixture",
+      "suppressOutput": false,
+      "systemMessage": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/permission-request.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "continue": false,
+      "hookSpecificOutput": {
+        "decision": {
+          "behavior": "allow",
+          "interrupt": false,
+          "message": "fixture",
+          "updatedInput": null,
+          "updatedPermissions": {
+            "bounded": "data"
+          }
+        },
+        "hookEventName": "PermissionRequest"
+      },
+      "stopReason": "fixture",
+      "suppressOutput": false,
+      "systemMessage": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/permission-request.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "continue": false,
+      "hookSpecificOutput": {
+        "decision": {
+          "behavior": "allow",
+          "interrupt": false,
+          "message": "fixture",
+          "updatedInput": null,
+          "updatedPermissions": null
+        },
+        "hookEventName": "PermissionRequest"
+      },
+      "suppressOutput": false,
+      "systemMessage": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/permission-request.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "continue": false,
+      "hookSpecificOutput": {
+        "decision": {
+          "behavior": "allow",
+          "interrupt": false,
+          "message": "fixture",
+          "updatedInput": null,
+          "updatedPermissions": null
+        },
+        "hookEventName": "PermissionRequest"
+      },
+      "stopReason": "fixture",
+      "systemMessage": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/permission-request.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "continue": false,
+      "hookSpecificOutput": {
+        "decision": {
+          "behavior": "allow",
+          "interrupt": false,
+          "message": "fixture",
+          "updatedInput": null,
+          "updatedPermissions": null
+        },
+        "hookEventName": "PermissionRequest"
+      },
+      "stopReason": "fixture",
+      "suppressOutput": true,
+      "systemMessage": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/permission-request.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "continue": false,
+      "hookSpecificOutput": {
+        "decision": {
+          "behavior": "allow",
+          "interrupt": false,
+          "message": "fixture",
+          "updatedInput": null,
+          "updatedPermissions": null
+        },
+        "hookEventName": "PermissionRequest"
+      },
+      "stopReason": "fixture",
+      "suppressOutput": false
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/post-compact.command.input.schema.json",
+      "definition": null
+    },
+    "value": {
+      "agent_id": "fixture",
+      "agent_type": "fixture",
+      "cwd": "fixture",
+      "hook_event_name": "PostCompact",
+      "model": "fixture",
+      "session_id": "fixture",
+      "transcript_path": "fixture",
+      "trigger": "manual",
+      "turn_id": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/post-compact.command.input.schema.json",
+      "definition": null
+    },
+    "value": {
+      "agent_type": "fixture",
+      "cwd": "fixture",
+      "hook_event_name": "PostCompact",
+      "model": "fixture",
+      "session_id": "fixture",
+      "transcript_path": "fixture",
+      "trigger": "manual",
+      "turn_id": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/post-compact.command.input.schema.json",
+      "definition": null
+    },
+    "value": {
+      "agent_id": "fixture",
+      "cwd": "fixture",
+      "hook_event_name": "PostCompact",
+      "model": "fixture",
+      "session_id": "fixture",
+      "transcript_path": "fixture",
+      "trigger": "manual",
+      "turn_id": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/post-compact.command.input.schema.json",
+      "definition": null
+    },
+    "value": {
+      "agent_id": "fixture",
+      "agent_type": "fixture",
+      "cwd": "fixture",
+      "hook_event_name": "PostCompact",
+      "model": "fixture",
+      "session_id": "fixture",
+      "transcript_path": null,
+      "trigger": "manual",
+      "turn_id": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/post-compact.command.input.schema.json",
+      "definition": null
+    },
+    "value": {
+      "agent_id": "fixture",
+      "agent_type": "fixture",
+      "cwd": "fixture",
+      "hook_event_name": "PostCompact",
+      "model": "fixture",
+      "session_id": "fixture",
+      "transcript_path": "fixture",
+      "trigger": "auto",
+      "turn_id": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/post-compact.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "continue": false,
+      "stopReason": "fixture",
+      "suppressOutput": false,
+      "systemMessage": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/post-compact.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "stopReason": "fixture",
+      "suppressOutput": false,
+      "systemMessage": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/post-compact.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "continue": true,
+      "stopReason": "fixture",
+      "suppressOutput": false,
+      "systemMessage": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/post-compact.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "continue": false,
+      "suppressOutput": false,
+      "systemMessage": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/post-compact.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "continue": false,
+      "stopReason": "fixture",
+      "systemMessage": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/post-compact.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "continue": false,
+      "stopReason": "fixture",
+      "suppressOutput": true,
+      "systemMessage": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/post-compact.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "continue": false,
+      "stopReason": "fixture",
+      "suppressOutput": false
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/post-tool-use.command.input.schema.json",
+      "definition": null
+    },
+    "value": {
+      "agent_id": "fixture",
+      "agent_type": "fixture",
+      "cwd": "fixture",
+      "hook_event_name": "PostToolUse",
+      "model": "fixture",
+      "permission_mode": "default",
+      "session_id": "fixture",
+      "tool_input": null,
+      "tool_name": "fixture",
+      "tool_response": null,
+      "tool_use_id": "fixture",
+      "transcript_path": "fixture",
+      "turn_id": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/post-tool-use.command.input.schema.json",
+      "definition": null
+    },
+    "value": {
+      "agent_type": "fixture",
+      "cwd": "fixture",
+      "hook_event_name": "PostToolUse",
+      "model": "fixture",
+      "permission_mode": "default",
+      "session_id": "fixture",
+      "tool_input": null,
+      "tool_name": "fixture",
+      "tool_response": null,
+      "tool_use_id": "fixture",
+      "transcript_path": "fixture",
+      "turn_id": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/post-tool-use.command.input.schema.json",
+      "definition": null
+    },
+    "value": {
+      "agent_id": "fixture",
+      "cwd": "fixture",
+      "hook_event_name": "PostToolUse",
+      "model": "fixture",
+      "permission_mode": "default",
+      "session_id": "fixture",
+      "tool_input": null,
+      "tool_name": "fixture",
+      "tool_response": null,
+      "tool_use_id": "fixture",
+      "transcript_path": "fixture",
+      "turn_id": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/post-tool-use.command.input.schema.json",
+      "definition": null
+    },
+    "value": {
+      "agent_id": "fixture",
+      "agent_type": "fixture",
+      "cwd": "fixture",
+      "hook_event_name": "PostToolUse",
+      "model": "fixture",
+      "permission_mode": "acceptEdits",
+      "session_id": "fixture",
+      "tool_input": null,
+      "tool_name": "fixture",
+      "tool_response": null,
+      "tool_use_id": "fixture",
+      "transcript_path": "fixture",
+      "turn_id": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/post-tool-use.command.input.schema.json",
+      "definition": null
+    },
+    "value": {
+      "agent_id": "fixture",
+      "agent_type": "fixture",
+      "cwd": "fixture",
+      "hook_event_name": "PostToolUse",
+      "model": "fixture",
+      "permission_mode": "plan",
+      "session_id": "fixture",
+      "tool_input": null,
+      "tool_name": "fixture",
+      "tool_response": null,
+      "tool_use_id": "fixture",
+      "transcript_path": "fixture",
+      "turn_id": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/post-tool-use.command.input.schema.json",
+      "definition": null
+    },
+    "value": {
+      "agent_id": "fixture",
+      "agent_type": "fixture",
+      "cwd": "fixture",
+      "hook_event_name": "PostToolUse",
+      "model": "fixture",
+      "permission_mode": "dontAsk",
+      "session_id": "fixture",
+      "tool_input": null,
+      "tool_name": "fixture",
+      "tool_response": null,
+      "tool_use_id": "fixture",
+      "transcript_path": "fixture",
+      "turn_id": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/post-tool-use.command.input.schema.json",
+      "definition": null
+    },
+    "value": {
+      "agent_id": "fixture",
+      "agent_type": "fixture",
+      "cwd": "fixture",
+      "hook_event_name": "PostToolUse",
+      "model": "fixture",
+      "permission_mode": "bypassPermissions",
+      "session_id": "fixture",
+      "tool_input": null,
+      "tool_name": "fixture",
+      "tool_response": null,
+      "tool_use_id": "fixture",
+      "transcript_path": "fixture",
+      "turn_id": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/post-tool-use.command.input.schema.json",
+      "definition": null
+    },
+    "value": {
+      "agent_id": "fixture",
+      "agent_type": "fixture",
+      "cwd": "fixture",
+      "hook_event_name": "PostToolUse",
+      "model": "fixture",
+      "permission_mode": "default",
+      "session_id": "fixture",
+      "tool_input": null,
+      "tool_name": "fixture",
+      "tool_response": null,
+      "tool_use_id": "fixture",
+      "transcript_path": null,
+      "turn_id": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/post-tool-use.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "continue": false,
+      "decision": "block",
+      "hookSpecificOutput": {
+        "additionalContext": "fixture",
+        "hookEventName": "PostToolUse",
+        "updatedMCPToolOutput": null
+      },
+      "reason": "fixture",
+      "stopReason": "fixture",
+      "suppressOutput": false,
+      "systemMessage": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/post-tool-use.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "decision": "block",
+      "hookSpecificOutput": {
+        "additionalContext": "fixture",
+        "hookEventName": "PostToolUse",
+        "updatedMCPToolOutput": null
+      },
+      "reason": "fixture",
+      "stopReason": "fixture",
+      "suppressOutput": false,
+      "systemMessage": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/post-tool-use.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "continue": true,
+      "decision": "block",
+      "hookSpecificOutput": {
+        "additionalContext": "fixture",
+        "hookEventName": "PostToolUse",
+        "updatedMCPToolOutput": null
+      },
+      "reason": "fixture",
+      "stopReason": "fixture",
+      "suppressOutput": false,
+      "systemMessage": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/post-tool-use.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "continue": false,
+      "hookSpecificOutput": {
+        "additionalContext": "fixture",
+        "hookEventName": "PostToolUse",
+        "updatedMCPToolOutput": null
+      },
+      "reason": "fixture",
+      "stopReason": "fixture",
+      "suppressOutput": false,
+      "systemMessage": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/post-tool-use.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "continue": false,
+      "decision": "block",
+      "reason": "fixture",
+      "stopReason": "fixture",
+      "suppressOutput": false,
+      "systemMessage": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/post-tool-use.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "continue": false,
+      "decision": "block",
+      "hookSpecificOutput": {
+        "hookEventName": "PostToolUse",
+        "updatedMCPToolOutput": null
+      },
+      "reason": "fixture",
+      "stopReason": "fixture",
+      "suppressOutput": false,
+      "systemMessage": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/post-tool-use.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "continue": false,
+      "decision": "block",
+      "hookSpecificOutput": {
+        "additionalContext": "fixture",
+        "hookEventName": "PostToolUse"
+      },
+      "reason": "fixture",
+      "stopReason": "fixture",
+      "suppressOutput": false,
+      "systemMessage": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/post-tool-use.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "continue": false,
+      "decision": "block",
+      "hookSpecificOutput": {
+        "additionalContext": "fixture",
+        "hookEventName": "PostToolUse",
+        "updatedMCPToolOutput": {
+          "bounded": "data"
+        }
+      },
+      "reason": "fixture",
+      "stopReason": "fixture",
+      "suppressOutput": false,
+      "systemMessage": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/post-tool-use.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "continue": false,
+      "decision": "block",
+      "hookSpecificOutput": {
+        "additionalContext": "fixture",
+        "hookEventName": "PostToolUse",
+        "updatedMCPToolOutput": null
+      },
+      "stopReason": "fixture",
+      "suppressOutput": false,
+      "systemMessage": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/post-tool-use.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "continue": false,
+      "decision": "block",
+      "hookSpecificOutput": {
+        "additionalContext": "fixture",
+        "hookEventName": "PostToolUse",
+        "updatedMCPToolOutput": null
+      },
+      "reason": "fixture",
+      "suppressOutput": false,
+      "systemMessage": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/post-tool-use.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "continue": false,
+      "decision": "block",
+      "hookSpecificOutput": {
+        "additionalContext": "fixture",
+        "hookEventName": "PostToolUse",
+        "updatedMCPToolOutput": null
+      },
+      "reason": "fixture",
+      "stopReason": "fixture",
+      "systemMessage": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/post-tool-use.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "continue": false,
+      "decision": "block",
+      "hookSpecificOutput": {
+        "additionalContext": "fixture",
+        "hookEventName": "PostToolUse",
+        "updatedMCPToolOutput": null
+      },
+      "reason": "fixture",
+      "stopReason": "fixture",
+      "suppressOutput": true,
+      "systemMessage": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/post-tool-use.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "continue": false,
+      "decision": "block",
+      "hookSpecificOutput": {
+        "additionalContext": "fixture",
+        "hookEventName": "PostToolUse",
+        "updatedMCPToolOutput": null
+      },
+      "reason": "fixture",
+      "stopReason": "fixture",
+      "suppressOutput": false
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/pre-compact.command.input.schema.json",
+      "definition": null
+    },
+    "value": {
+      "agent_id": "fixture",
+      "agent_type": "fixture",
+      "cwd": "fixture",
+      "hook_event_name": "PreCompact",
+      "model": "fixture",
+      "session_id": "fixture",
+      "transcript_path": "fixture",
+      "trigger": "manual",
+      "turn_id": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/pre-compact.command.input.schema.json",
+      "definition": null
+    },
+    "value": {
+      "agent_type": "fixture",
+      "cwd": "fixture",
+      "hook_event_name": "PreCompact",
+      "model": "fixture",
+      "session_id": "fixture",
+      "transcript_path": "fixture",
+      "trigger": "manual",
+      "turn_id": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/pre-compact.command.input.schema.json",
+      "definition": null
+    },
+    "value": {
+      "agent_id": "fixture",
+      "cwd": "fixture",
+      "hook_event_name": "PreCompact",
+      "model": "fixture",
+      "session_id": "fixture",
+      "transcript_path": "fixture",
+      "trigger": "manual",
+      "turn_id": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/pre-compact.command.input.schema.json",
+      "definition": null
+    },
+    "value": {
+      "agent_id": "fixture",
+      "agent_type": "fixture",
+      "cwd": "fixture",
+      "hook_event_name": "PreCompact",
+      "model": "fixture",
+      "session_id": "fixture",
+      "transcript_path": null,
+      "trigger": "manual",
+      "turn_id": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/pre-compact.command.input.schema.json",
+      "definition": null
+    },
+    "value": {
+      "agent_id": "fixture",
+      "agent_type": "fixture",
+      "cwd": "fixture",
+      "hook_event_name": "PreCompact",
+      "model": "fixture",
+      "session_id": "fixture",
+      "transcript_path": "fixture",
+      "trigger": "auto",
+      "turn_id": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/pre-compact.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "continue": false,
+      "stopReason": "fixture",
+      "suppressOutput": false,
+      "systemMessage": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/pre-compact.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "stopReason": "fixture",
+      "suppressOutput": false,
+      "systemMessage": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/pre-compact.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "continue": true,
+      "stopReason": "fixture",
+      "suppressOutput": false,
+      "systemMessage": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/pre-compact.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "continue": false,
+      "suppressOutput": false,
+      "systemMessage": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/pre-compact.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "continue": false,
+      "stopReason": "fixture",
+      "systemMessage": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/pre-compact.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "continue": false,
+      "stopReason": "fixture",
+      "suppressOutput": true,
+      "systemMessage": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/pre-compact.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "continue": false,
+      "stopReason": "fixture",
+      "suppressOutput": false
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/pre-tool-use.command.input.schema.json",
+      "definition": null
+    },
+    "value": {
+      "agent_id": "fixture",
+      "agent_type": "fixture",
+      "cwd": "fixture",
+      "hook_event_name": "PreToolUse",
+      "model": "fixture",
+      "permission_mode": "default",
+      "session_id": "fixture",
+      "tool_input": null,
+      "tool_name": "fixture",
+      "tool_use_id": "fixture",
+      "transcript_path": "fixture",
+      "turn_id": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/pre-tool-use.command.input.schema.json",
+      "definition": null
+    },
+    "value": {
+      "agent_type": "fixture",
+      "cwd": "fixture",
+      "hook_event_name": "PreToolUse",
+      "model": "fixture",
+      "permission_mode": "default",
+      "session_id": "fixture",
+      "tool_input": null,
+      "tool_name": "fixture",
+      "tool_use_id": "fixture",
+      "transcript_path": "fixture",
+      "turn_id": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/pre-tool-use.command.input.schema.json",
+      "definition": null
+    },
+    "value": {
+      "agent_id": "fixture",
+      "cwd": "fixture",
+      "hook_event_name": "PreToolUse",
+      "model": "fixture",
+      "permission_mode": "default",
+      "session_id": "fixture",
+      "tool_input": null,
+      "tool_name": "fixture",
+      "tool_use_id": "fixture",
+      "transcript_path": "fixture",
+      "turn_id": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/pre-tool-use.command.input.schema.json",
+      "definition": null
+    },
+    "value": {
+      "agent_id": "fixture",
+      "agent_type": "fixture",
+      "cwd": "fixture",
+      "hook_event_name": "PreToolUse",
+      "model": "fixture",
+      "permission_mode": "acceptEdits",
+      "session_id": "fixture",
+      "tool_input": null,
+      "tool_name": "fixture",
+      "tool_use_id": "fixture",
+      "transcript_path": "fixture",
+      "turn_id": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/pre-tool-use.command.input.schema.json",
+      "definition": null
+    },
+    "value": {
+      "agent_id": "fixture",
+      "agent_type": "fixture",
+      "cwd": "fixture",
+      "hook_event_name": "PreToolUse",
+      "model": "fixture",
+      "permission_mode": "plan",
+      "session_id": "fixture",
+      "tool_input": null,
+      "tool_name": "fixture",
+      "tool_use_id": "fixture",
+      "transcript_path": "fixture",
+      "turn_id": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/pre-tool-use.command.input.schema.json",
+      "definition": null
+    },
+    "value": {
+      "agent_id": "fixture",
+      "agent_type": "fixture",
+      "cwd": "fixture",
+      "hook_event_name": "PreToolUse",
+      "model": "fixture",
+      "permission_mode": "dontAsk",
+      "session_id": "fixture",
+      "tool_input": null,
+      "tool_name": "fixture",
+      "tool_use_id": "fixture",
+      "transcript_path": "fixture",
+      "turn_id": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/pre-tool-use.command.input.schema.json",
+      "definition": null
+    },
+    "value": {
+      "agent_id": "fixture",
+      "agent_type": "fixture",
+      "cwd": "fixture",
+      "hook_event_name": "PreToolUse",
+      "model": "fixture",
+      "permission_mode": "bypassPermissions",
+      "session_id": "fixture",
+      "tool_input": null,
+      "tool_name": "fixture",
+      "tool_use_id": "fixture",
+      "transcript_path": "fixture",
+      "turn_id": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/pre-tool-use.command.input.schema.json",
+      "definition": null
+    },
+    "value": {
+      "agent_id": "fixture",
+      "agent_type": "fixture",
+      "cwd": "fixture",
+      "hook_event_name": "PreToolUse",
+      "model": "fixture",
+      "permission_mode": "default",
+      "session_id": "fixture",
+      "tool_input": null,
+      "tool_name": "fixture",
+      "tool_use_id": "fixture",
+      "transcript_path": null,
+      "turn_id": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/pre-tool-use.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "continue": false,
+      "decision": "approve",
+      "hookSpecificOutput": {
+        "additionalContext": "fixture",
+        "hookEventName": "PreToolUse",
+        "permissionDecision": "allow",
+        "permissionDecisionReason": "fixture",
+        "updatedInput": null
+      },
+      "reason": "fixture",
+      "stopReason": "fixture",
+      "suppressOutput": false,
+      "systemMessage": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/pre-tool-use.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "decision": "approve",
+      "hookSpecificOutput": {
+        "additionalContext": "fixture",
+        "hookEventName": "PreToolUse",
+        "permissionDecision": "allow",
+        "permissionDecisionReason": "fixture",
+        "updatedInput": null
+      },
+      "reason": "fixture",
+      "stopReason": "fixture",
+      "suppressOutput": false,
+      "systemMessage": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/pre-tool-use.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "continue": true,
+      "decision": "approve",
+      "hookSpecificOutput": {
+        "additionalContext": "fixture",
+        "hookEventName": "PreToolUse",
+        "permissionDecision": "allow",
+        "permissionDecisionReason": "fixture",
+        "updatedInput": null
+      },
+      "reason": "fixture",
+      "stopReason": "fixture",
+      "suppressOutput": false,
+      "systemMessage": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/pre-tool-use.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "continue": false,
+      "hookSpecificOutput": {
+        "additionalContext": "fixture",
+        "hookEventName": "PreToolUse",
+        "permissionDecision": "allow",
+        "permissionDecisionReason": "fixture",
+        "updatedInput": null
+      },
+      "reason": "fixture",
+      "stopReason": "fixture",
+      "suppressOutput": false,
+      "systemMessage": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/pre-tool-use.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "continue": false,
+      "decision": "block",
+      "hookSpecificOutput": {
+        "additionalContext": "fixture",
+        "hookEventName": "PreToolUse",
+        "permissionDecision": "allow",
+        "permissionDecisionReason": "fixture",
+        "updatedInput": null
+      },
+      "reason": "fixture",
+      "stopReason": "fixture",
+      "suppressOutput": false,
+      "systemMessage": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/pre-tool-use.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "continue": false,
+      "decision": "approve",
+      "reason": "fixture",
+      "stopReason": "fixture",
+      "suppressOutput": false,
+      "systemMessage": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/pre-tool-use.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "continue": false,
+      "decision": "approve",
+      "hookSpecificOutput": {
+        "hookEventName": "PreToolUse",
+        "permissionDecision": "allow",
+        "permissionDecisionReason": "fixture",
+        "updatedInput": null
+      },
+      "reason": "fixture",
+      "stopReason": "fixture",
+      "suppressOutput": false,
+      "systemMessage": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/pre-tool-use.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "continue": false,
+      "decision": "approve",
+      "hookSpecificOutput": {
+        "additionalContext": "fixture",
+        "hookEventName": "PreToolUse",
+        "permissionDecisionReason": "fixture",
+        "updatedInput": null
+      },
+      "reason": "fixture",
+      "stopReason": "fixture",
+      "suppressOutput": false,
+      "systemMessage": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/pre-tool-use.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "continue": false,
+      "decision": "approve",
+      "hookSpecificOutput": {
+        "additionalContext": "fixture",
+        "hookEventName": "PreToolUse",
+        "permissionDecision": "deny",
+        "permissionDecisionReason": "fixture",
+        "updatedInput": null
+      },
+      "reason": "fixture",
+      "stopReason": "fixture",
+      "suppressOutput": false,
+      "systemMessage": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/pre-tool-use.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "continue": false,
+      "decision": "approve",
+      "hookSpecificOutput": {
+        "additionalContext": "fixture",
+        "hookEventName": "PreToolUse",
+        "permissionDecision": "ask",
+        "permissionDecisionReason": "fixture",
+        "updatedInput": null
+      },
+      "reason": "fixture",
+      "stopReason": "fixture",
+      "suppressOutput": false,
+      "systemMessage": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/pre-tool-use.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "continue": false,
+      "decision": "approve",
+      "hookSpecificOutput": {
+        "additionalContext": "fixture",
+        "hookEventName": "PreToolUse",
+        "permissionDecision": "allow",
+        "updatedInput": null
+      },
+      "reason": "fixture",
+      "stopReason": "fixture",
+      "suppressOutput": false,
+      "systemMessage": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/pre-tool-use.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "continue": false,
+      "decision": "approve",
+      "hookSpecificOutput": {
+        "additionalContext": "fixture",
+        "hookEventName": "PreToolUse",
+        "permissionDecision": "allow",
+        "permissionDecisionReason": "fixture"
+      },
+      "reason": "fixture",
+      "stopReason": "fixture",
+      "suppressOutput": false,
+      "systemMessage": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/pre-tool-use.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "continue": false,
+      "decision": "approve",
+      "hookSpecificOutput": {
+        "additionalContext": "fixture",
+        "hookEventName": "PreToolUse",
+        "permissionDecision": "allow",
+        "permissionDecisionReason": "fixture",
+        "updatedInput": {
+          "bounded": "data"
+        }
+      },
+      "reason": "fixture",
+      "stopReason": "fixture",
+      "suppressOutput": false,
+      "systemMessage": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/pre-tool-use.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "continue": false,
+      "decision": "approve",
+      "hookSpecificOutput": {
+        "additionalContext": "fixture",
+        "hookEventName": "PreToolUse",
+        "permissionDecision": "allow",
+        "permissionDecisionReason": "fixture",
+        "updatedInput": null
+      },
+      "stopReason": "fixture",
+      "suppressOutput": false,
+      "systemMessage": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/pre-tool-use.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "continue": false,
+      "decision": "approve",
+      "hookSpecificOutput": {
+        "additionalContext": "fixture",
+        "hookEventName": "PreToolUse",
+        "permissionDecision": "allow",
+        "permissionDecisionReason": "fixture",
+        "updatedInput": null
+      },
+      "reason": "fixture",
+      "suppressOutput": false,
+      "systemMessage": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/pre-tool-use.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "continue": false,
+      "decision": "approve",
+      "hookSpecificOutput": {
+        "additionalContext": "fixture",
+        "hookEventName": "PreToolUse",
+        "permissionDecision": "allow",
+        "permissionDecisionReason": "fixture",
+        "updatedInput": null
+      },
+      "reason": "fixture",
+      "stopReason": "fixture",
+      "systemMessage": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/pre-tool-use.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "continue": false,
+      "decision": "approve",
+      "hookSpecificOutput": {
+        "additionalContext": "fixture",
+        "hookEventName": "PreToolUse",
+        "permissionDecision": "allow",
+        "permissionDecisionReason": "fixture",
+        "updatedInput": null
+      },
+      "reason": "fixture",
+      "stopReason": "fixture",
+      "suppressOutput": true,
+      "systemMessage": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/pre-tool-use.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "continue": false,
+      "decision": "approve",
+      "hookSpecificOutput": {
+        "additionalContext": "fixture",
+        "hookEventName": "PreToolUse",
+        "permissionDecision": "allow",
+        "permissionDecisionReason": "fixture",
+        "updatedInput": null
+      },
+      "reason": "fixture",
+      "stopReason": "fixture",
+      "suppressOutput": false
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/session-end.command.input.schema.json",
+      "definition": null
+    },
+    "value": {
+      "cwd": "fixture",
+      "hook_event_name": "SessionEnd",
+      "reason": "other",
+      "session_id": "fixture",
+      "transcript_path": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/session-end.command.input.schema.json",
+      "definition": null
+    },
+    "value": {
+      "cwd": "fixture",
+      "hook_event_name": "SessionEnd",
+      "reason": "other",
+      "session_id": "fixture",
+      "transcript_path": null
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/session-start.command.input.schema.json",
+      "definition": null
+    },
+    "value": {
+      "cwd": "fixture",
+      "hook_event_name": "SessionStart",
+      "model": "fixture",
+      "permission_mode": "default",
+      "session_id": "fixture",
+      "source": "startup",
+      "transcript_path": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/session-start.command.input.schema.json",
+      "definition": null
+    },
+    "value": {
+      "cwd": "fixture",
+      "hook_event_name": "SessionStart",
+      "model": "fixture",
+      "permission_mode": "acceptEdits",
+      "session_id": "fixture",
+      "source": "startup",
+      "transcript_path": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/session-start.command.input.schema.json",
+      "definition": null
+    },
+    "value": {
+      "cwd": "fixture",
+      "hook_event_name": "SessionStart",
+      "model": "fixture",
+      "permission_mode": "plan",
+      "session_id": "fixture",
+      "source": "startup",
+      "transcript_path": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/session-start.command.input.schema.json",
+      "definition": null
+    },
+    "value": {
+      "cwd": "fixture",
+      "hook_event_name": "SessionStart",
+      "model": "fixture",
+      "permission_mode": "dontAsk",
+      "session_id": "fixture",
+      "source": "startup",
+      "transcript_path": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/session-start.command.input.schema.json",
+      "definition": null
+    },
+    "value": {
+      "cwd": "fixture",
+      "hook_event_name": "SessionStart",
+      "model": "fixture",
+      "permission_mode": "bypassPermissions",
+      "session_id": "fixture",
+      "source": "startup",
+      "transcript_path": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/session-start.command.input.schema.json",
+      "definition": null
+    },
+    "value": {
+      "cwd": "fixture",
+      "hook_event_name": "SessionStart",
+      "model": "fixture",
+      "permission_mode": "default",
+      "session_id": "fixture",
+      "source": "resume",
+      "transcript_path": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/session-start.command.input.schema.json",
+      "definition": null
+    },
+    "value": {
+      "cwd": "fixture",
+      "hook_event_name": "SessionStart",
+      "model": "fixture",
+      "permission_mode": "default",
+      "session_id": "fixture",
+      "source": "clear",
+      "transcript_path": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/session-start.command.input.schema.json",
+      "definition": null
+    },
+    "value": {
+      "cwd": "fixture",
+      "hook_event_name": "SessionStart",
+      "model": "fixture",
+      "permission_mode": "default",
+      "session_id": "fixture",
+      "source": "compact",
+      "transcript_path": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/session-start.command.input.schema.json",
+      "definition": null
+    },
+    "value": {
+      "cwd": "fixture",
+      "hook_event_name": "SessionStart",
+      "model": "fixture",
+      "permission_mode": "default",
+      "session_id": "fixture",
+      "source": "startup",
+      "transcript_path": null
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/session-start.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "continue": false,
+      "hookSpecificOutput": {
+        "additionalContext": "fixture",
+        "hookEventName": "SessionStart"
+      },
+      "stopReason": "fixture",
+      "suppressOutput": false,
+      "systemMessage": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/session-start.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "hookSpecificOutput": {
+        "additionalContext": "fixture",
+        "hookEventName": "SessionStart"
+      },
+      "stopReason": "fixture",
+      "suppressOutput": false,
+      "systemMessage": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/session-start.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "continue": true,
+      "hookSpecificOutput": {
+        "additionalContext": "fixture",
+        "hookEventName": "SessionStart"
+      },
+      "stopReason": "fixture",
+      "suppressOutput": false,
+      "systemMessage": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/session-start.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "continue": false,
+      "stopReason": "fixture",
+      "suppressOutput": false,
+      "systemMessage": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/session-start.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "continue": false,
+      "hookSpecificOutput": {
+        "hookEventName": "SessionStart"
+      },
+      "stopReason": "fixture",
+      "suppressOutput": false,
+      "systemMessage": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/session-start.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "continue": false,
+      "hookSpecificOutput": {
+        "additionalContext": "fixture",
+        "hookEventName": "SessionStart"
+      },
+      "suppressOutput": false,
+      "systemMessage": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/session-start.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "continue": false,
+      "hookSpecificOutput": {
+        "additionalContext": "fixture",
+        "hookEventName": "SessionStart"
+      },
+      "stopReason": "fixture",
+      "systemMessage": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/session-start.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "continue": false,
+      "hookSpecificOutput": {
+        "additionalContext": "fixture",
+        "hookEventName": "SessionStart"
+      },
+      "stopReason": "fixture",
+      "suppressOutput": true,
+      "systemMessage": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/session-start.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "continue": false,
+      "hookSpecificOutput": {
+        "additionalContext": "fixture",
+        "hookEventName": "SessionStart"
+      },
+      "stopReason": "fixture",
+      "suppressOutput": false
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/stop.command.input.schema.json",
+      "definition": null
+    },
+    "value": {
+      "cwd": "fixture",
+      "hook_event_name": "Stop",
+      "last_assistant_message": "fixture",
+      "model": "fixture",
+      "permission_mode": "default",
+      "session_id": "fixture",
+      "stop_hook_active": false,
+      "transcript_path": "fixture",
+      "turn_id": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/stop.command.input.schema.json",
+      "definition": null
+    },
+    "value": {
+      "cwd": "fixture",
+      "hook_event_name": "Stop",
+      "last_assistant_message": null,
+      "model": "fixture",
+      "permission_mode": "default",
+      "session_id": "fixture",
+      "stop_hook_active": false,
+      "transcript_path": "fixture",
+      "turn_id": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/stop.command.input.schema.json",
+      "definition": null
+    },
+    "value": {
+      "cwd": "fixture",
+      "hook_event_name": "Stop",
+      "last_assistant_message": "fixture",
+      "model": "fixture",
+      "permission_mode": "acceptEdits",
+      "session_id": "fixture",
+      "stop_hook_active": false,
+      "transcript_path": "fixture",
+      "turn_id": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/stop.command.input.schema.json",
+      "definition": null
+    },
+    "value": {
+      "cwd": "fixture",
+      "hook_event_name": "Stop",
+      "last_assistant_message": "fixture",
+      "model": "fixture",
+      "permission_mode": "plan",
+      "session_id": "fixture",
+      "stop_hook_active": false,
+      "transcript_path": "fixture",
+      "turn_id": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/stop.command.input.schema.json",
+      "definition": null
+    },
+    "value": {
+      "cwd": "fixture",
+      "hook_event_name": "Stop",
+      "last_assistant_message": "fixture",
+      "model": "fixture",
+      "permission_mode": "dontAsk",
+      "session_id": "fixture",
+      "stop_hook_active": false,
+      "transcript_path": "fixture",
+      "turn_id": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/stop.command.input.schema.json",
+      "definition": null
+    },
+    "value": {
+      "cwd": "fixture",
+      "hook_event_name": "Stop",
+      "last_assistant_message": "fixture",
+      "model": "fixture",
+      "permission_mode": "bypassPermissions",
+      "session_id": "fixture",
+      "stop_hook_active": false,
+      "transcript_path": "fixture",
+      "turn_id": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/stop.command.input.schema.json",
+      "definition": null
+    },
+    "value": {
+      "cwd": "fixture",
+      "hook_event_name": "Stop",
+      "last_assistant_message": "fixture",
+      "model": "fixture",
+      "permission_mode": "default",
+      "session_id": "fixture",
+      "stop_hook_active": true,
+      "transcript_path": "fixture",
+      "turn_id": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/stop.command.input.schema.json",
+      "definition": null
+    },
+    "value": {
+      "cwd": "fixture",
+      "hook_event_name": "Stop",
+      "last_assistant_message": "fixture",
+      "model": "fixture",
+      "permission_mode": "default",
+      "session_id": "fixture",
+      "stop_hook_active": false,
+      "transcript_path": null,
+      "turn_id": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/stop.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "continue": false,
+      "decision": "block",
+      "reason": "fixture",
+      "stopReason": "fixture",
+      "suppressOutput": false,
+      "systemMessage": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/stop.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "decision": "block",
+      "reason": "fixture",
+      "stopReason": "fixture",
+      "suppressOutput": false,
+      "systemMessage": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/stop.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "continue": true,
+      "decision": "block",
+      "reason": "fixture",
+      "stopReason": "fixture",
+      "suppressOutput": false,
+      "systemMessage": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/stop.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "continue": false,
+      "reason": "fixture",
+      "stopReason": "fixture",
+      "suppressOutput": false,
+      "systemMessage": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/stop.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "continue": false,
+      "decision": "block",
+      "stopReason": "fixture",
+      "suppressOutput": false,
+      "systemMessage": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/stop.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "continue": false,
+      "decision": "block",
+      "reason": "fixture",
+      "suppressOutput": false,
+      "systemMessage": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/stop.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "continue": false,
+      "decision": "block",
+      "reason": "fixture",
+      "stopReason": "fixture",
+      "systemMessage": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/stop.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "continue": false,
+      "decision": "block",
+      "reason": "fixture",
+      "stopReason": "fixture",
+      "suppressOutput": true,
+      "systemMessage": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/stop.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "continue": false,
+      "decision": "block",
+      "reason": "fixture",
+      "stopReason": "fixture",
+      "suppressOutput": false
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/subagent-start.command.input.schema.json",
+      "definition": null
+    },
+    "value": {
+      "agent_id": "fixture",
+      "agent_type": "fixture",
+      "cwd": "fixture",
+      "hook_event_name": "SubagentStart",
+      "model": "fixture",
+      "permission_mode": "default",
+      "session_id": "fixture",
+      "transcript_path": "fixture",
+      "turn_id": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/subagent-start.command.input.schema.json",
+      "definition": null
+    },
+    "value": {
+      "agent_id": "fixture",
+      "agent_type": "fixture",
+      "cwd": "fixture",
+      "hook_event_name": "SubagentStart",
+      "model": "fixture",
+      "permission_mode": "acceptEdits",
+      "session_id": "fixture",
+      "transcript_path": "fixture",
+      "turn_id": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/subagent-start.command.input.schema.json",
+      "definition": null
+    },
+    "value": {
+      "agent_id": "fixture",
+      "agent_type": "fixture",
+      "cwd": "fixture",
+      "hook_event_name": "SubagentStart",
+      "model": "fixture",
+      "permission_mode": "plan",
+      "session_id": "fixture",
+      "transcript_path": "fixture",
+      "turn_id": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/subagent-start.command.input.schema.json",
+      "definition": null
+    },
+    "value": {
+      "agent_id": "fixture",
+      "agent_type": "fixture",
+      "cwd": "fixture",
+      "hook_event_name": "SubagentStart",
+      "model": "fixture",
+      "permission_mode": "dontAsk",
+      "session_id": "fixture",
+      "transcript_path": "fixture",
+      "turn_id": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/subagent-start.command.input.schema.json",
+      "definition": null
+    },
+    "value": {
+      "agent_id": "fixture",
+      "agent_type": "fixture",
+      "cwd": "fixture",
+      "hook_event_name": "SubagentStart",
+      "model": "fixture",
+      "permission_mode": "bypassPermissions",
+      "session_id": "fixture",
+      "transcript_path": "fixture",
+      "turn_id": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/subagent-start.command.input.schema.json",
+      "definition": null
+    },
+    "value": {
+      "agent_id": "fixture",
+      "agent_type": "fixture",
+      "cwd": "fixture",
+      "hook_event_name": "SubagentStart",
+      "model": "fixture",
+      "permission_mode": "default",
+      "session_id": "fixture",
+      "transcript_path": null,
+      "turn_id": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/subagent-start.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "continue": false,
+      "hookSpecificOutput": {
+        "additionalContext": "fixture",
+        "hookEventName": "SubagentStart"
+      },
+      "stopReason": "fixture",
+      "suppressOutput": false,
+      "systemMessage": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/subagent-start.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "hookSpecificOutput": {
+        "additionalContext": "fixture",
+        "hookEventName": "SubagentStart"
+      },
+      "stopReason": "fixture",
+      "suppressOutput": false,
+      "systemMessage": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/subagent-start.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "continue": true,
+      "hookSpecificOutput": {
+        "additionalContext": "fixture",
+        "hookEventName": "SubagentStart"
+      },
+      "stopReason": "fixture",
+      "suppressOutput": false,
+      "systemMessage": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/subagent-start.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "continue": false,
+      "stopReason": "fixture",
+      "suppressOutput": false,
+      "systemMessage": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/subagent-start.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "continue": false,
+      "hookSpecificOutput": {
+        "hookEventName": "SubagentStart"
+      },
+      "stopReason": "fixture",
+      "suppressOutput": false,
+      "systemMessage": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/subagent-start.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "continue": false,
+      "hookSpecificOutput": {
+        "additionalContext": "fixture",
+        "hookEventName": "SubagentStart"
+      },
+      "suppressOutput": false,
+      "systemMessage": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/subagent-start.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "continue": false,
+      "hookSpecificOutput": {
+        "additionalContext": "fixture",
+        "hookEventName": "SubagentStart"
+      },
+      "stopReason": "fixture",
+      "systemMessage": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/subagent-start.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "continue": false,
+      "hookSpecificOutput": {
+        "additionalContext": "fixture",
+        "hookEventName": "SubagentStart"
+      },
+      "stopReason": "fixture",
+      "suppressOutput": true,
+      "systemMessage": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/subagent-start.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "continue": false,
+      "hookSpecificOutput": {
+        "additionalContext": "fixture",
+        "hookEventName": "SubagentStart"
+      },
+      "stopReason": "fixture",
+      "suppressOutput": false
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/subagent-stop.command.input.schema.json",
+      "definition": null
+    },
+    "value": {
+      "agent_id": "fixture",
+      "agent_transcript_path": "fixture",
+      "agent_type": "fixture",
+      "cwd": "fixture",
+      "hook_event_name": "SubagentStop",
+      "last_assistant_message": "fixture",
+      "model": "fixture",
+      "permission_mode": "default",
+      "session_id": "fixture",
+      "stop_hook_active": false,
+      "transcript_path": "fixture",
+      "turn_id": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/subagent-stop.command.input.schema.json",
+      "definition": null
+    },
+    "value": {
+      "agent_id": "fixture",
+      "agent_transcript_path": null,
+      "agent_type": "fixture",
+      "cwd": "fixture",
+      "hook_event_name": "SubagentStop",
+      "last_assistant_message": "fixture",
+      "model": "fixture",
+      "permission_mode": "default",
+      "session_id": "fixture",
+      "stop_hook_active": false,
+      "transcript_path": "fixture",
+      "turn_id": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/subagent-stop.command.input.schema.json",
+      "definition": null
+    },
+    "value": {
+      "agent_id": "fixture",
+      "agent_transcript_path": "fixture",
+      "agent_type": "fixture",
+      "cwd": "fixture",
+      "hook_event_name": "SubagentStop",
+      "last_assistant_message": null,
+      "model": "fixture",
+      "permission_mode": "default",
+      "session_id": "fixture",
+      "stop_hook_active": false,
+      "transcript_path": "fixture",
+      "turn_id": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/subagent-stop.command.input.schema.json",
+      "definition": null
+    },
+    "value": {
+      "agent_id": "fixture",
+      "agent_transcript_path": "fixture",
+      "agent_type": "fixture",
+      "cwd": "fixture",
+      "hook_event_name": "SubagentStop",
+      "last_assistant_message": "fixture",
+      "model": "fixture",
+      "permission_mode": "acceptEdits",
+      "session_id": "fixture",
+      "stop_hook_active": false,
+      "transcript_path": "fixture",
+      "turn_id": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/subagent-stop.command.input.schema.json",
+      "definition": null
+    },
+    "value": {
+      "agent_id": "fixture",
+      "agent_transcript_path": "fixture",
+      "agent_type": "fixture",
+      "cwd": "fixture",
+      "hook_event_name": "SubagentStop",
+      "last_assistant_message": "fixture",
+      "model": "fixture",
+      "permission_mode": "plan",
+      "session_id": "fixture",
+      "stop_hook_active": false,
+      "transcript_path": "fixture",
+      "turn_id": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/subagent-stop.command.input.schema.json",
+      "definition": null
+    },
+    "value": {
+      "agent_id": "fixture",
+      "agent_transcript_path": "fixture",
+      "agent_type": "fixture",
+      "cwd": "fixture",
+      "hook_event_name": "SubagentStop",
+      "last_assistant_message": "fixture",
+      "model": "fixture",
+      "permission_mode": "dontAsk",
+      "session_id": "fixture",
+      "stop_hook_active": false,
+      "transcript_path": "fixture",
+      "turn_id": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/subagent-stop.command.input.schema.json",
+      "definition": null
+    },
+    "value": {
+      "agent_id": "fixture",
+      "agent_transcript_path": "fixture",
+      "agent_type": "fixture",
+      "cwd": "fixture",
+      "hook_event_name": "SubagentStop",
+      "last_assistant_message": "fixture",
+      "model": "fixture",
+      "permission_mode": "bypassPermissions",
+      "session_id": "fixture",
+      "stop_hook_active": false,
+      "transcript_path": "fixture",
+      "turn_id": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/subagent-stop.command.input.schema.json",
+      "definition": null
+    },
+    "value": {
+      "agent_id": "fixture",
+      "agent_transcript_path": "fixture",
+      "agent_type": "fixture",
+      "cwd": "fixture",
+      "hook_event_name": "SubagentStop",
+      "last_assistant_message": "fixture",
+      "model": "fixture",
+      "permission_mode": "default",
+      "session_id": "fixture",
+      "stop_hook_active": true,
+      "transcript_path": "fixture",
+      "turn_id": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/subagent-stop.command.input.schema.json",
+      "definition": null
+    },
+    "value": {
+      "agent_id": "fixture",
+      "agent_transcript_path": "fixture",
+      "agent_type": "fixture",
+      "cwd": "fixture",
+      "hook_event_name": "SubagentStop",
+      "last_assistant_message": "fixture",
+      "model": "fixture",
+      "permission_mode": "default",
+      "session_id": "fixture",
+      "stop_hook_active": false,
+      "transcript_path": null,
+      "turn_id": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/subagent-stop.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "continue": false,
+      "decision": "block",
+      "reason": "fixture",
+      "stopReason": "fixture",
+      "suppressOutput": false,
+      "systemMessage": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/subagent-stop.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "decision": "block",
+      "reason": "fixture",
+      "stopReason": "fixture",
+      "suppressOutput": false,
+      "systemMessage": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/subagent-stop.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "continue": true,
+      "decision": "block",
+      "reason": "fixture",
+      "stopReason": "fixture",
+      "suppressOutput": false,
+      "systemMessage": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/subagent-stop.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "continue": false,
+      "reason": "fixture",
+      "stopReason": "fixture",
+      "suppressOutput": false,
+      "systemMessage": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/subagent-stop.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "continue": false,
+      "decision": "block",
+      "stopReason": "fixture",
+      "suppressOutput": false,
+      "systemMessage": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/subagent-stop.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "continue": false,
+      "decision": "block",
+      "reason": "fixture",
+      "suppressOutput": false,
+      "systemMessage": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/subagent-stop.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "continue": false,
+      "decision": "block",
+      "reason": "fixture",
+      "stopReason": "fixture",
+      "systemMessage": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/subagent-stop.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "continue": false,
+      "decision": "block",
+      "reason": "fixture",
+      "stopReason": "fixture",
+      "suppressOutput": true,
+      "systemMessage": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/subagent-stop.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "continue": false,
+      "decision": "block",
+      "reason": "fixture",
+      "stopReason": "fixture",
+      "suppressOutput": false
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/user-prompt-submit.command.input.schema.json",
+      "definition": null
+    },
+    "value": {
+      "agent_id": "fixture",
+      "agent_type": "fixture",
+      "cwd": "fixture",
+      "hook_event_name": "UserPromptSubmit",
+      "model": "fixture",
+      "permission_mode": "default",
+      "prompt": "fixture",
+      "session_id": "fixture",
+      "transcript_path": "fixture",
+      "turn_id": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/user-prompt-submit.command.input.schema.json",
+      "definition": null
+    },
+    "value": {
+      "agent_type": "fixture",
+      "cwd": "fixture",
+      "hook_event_name": "UserPromptSubmit",
+      "model": "fixture",
+      "permission_mode": "default",
+      "prompt": "fixture",
+      "session_id": "fixture",
+      "transcript_path": "fixture",
+      "turn_id": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/user-prompt-submit.command.input.schema.json",
+      "definition": null
+    },
+    "value": {
+      "agent_id": "fixture",
+      "cwd": "fixture",
+      "hook_event_name": "UserPromptSubmit",
+      "model": "fixture",
+      "permission_mode": "default",
+      "prompt": "fixture",
+      "session_id": "fixture",
+      "transcript_path": "fixture",
+      "turn_id": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/user-prompt-submit.command.input.schema.json",
+      "definition": null
+    },
+    "value": {
+      "agent_id": "fixture",
+      "agent_type": "fixture",
+      "cwd": "fixture",
+      "hook_event_name": "UserPromptSubmit",
+      "model": "fixture",
+      "permission_mode": "acceptEdits",
+      "prompt": "fixture",
+      "session_id": "fixture",
+      "transcript_path": "fixture",
+      "turn_id": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/user-prompt-submit.command.input.schema.json",
+      "definition": null
+    },
+    "value": {
+      "agent_id": "fixture",
+      "agent_type": "fixture",
+      "cwd": "fixture",
+      "hook_event_name": "UserPromptSubmit",
+      "model": "fixture",
+      "permission_mode": "plan",
+      "prompt": "fixture",
+      "session_id": "fixture",
+      "transcript_path": "fixture",
+      "turn_id": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/user-prompt-submit.command.input.schema.json",
+      "definition": null
+    },
+    "value": {
+      "agent_id": "fixture",
+      "agent_type": "fixture",
+      "cwd": "fixture",
+      "hook_event_name": "UserPromptSubmit",
+      "model": "fixture",
+      "permission_mode": "dontAsk",
+      "prompt": "fixture",
+      "session_id": "fixture",
+      "transcript_path": "fixture",
+      "turn_id": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/user-prompt-submit.command.input.schema.json",
+      "definition": null
+    },
+    "value": {
+      "agent_id": "fixture",
+      "agent_type": "fixture",
+      "cwd": "fixture",
+      "hook_event_name": "UserPromptSubmit",
+      "model": "fixture",
+      "permission_mode": "bypassPermissions",
+      "prompt": "fixture",
+      "session_id": "fixture",
+      "transcript_path": "fixture",
+      "turn_id": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/user-prompt-submit.command.input.schema.json",
+      "definition": null
+    },
+    "value": {
+      "agent_id": "fixture",
+      "agent_type": "fixture",
+      "cwd": "fixture",
+      "hook_event_name": "UserPromptSubmit",
+      "model": "fixture",
+      "permission_mode": "default",
+      "prompt": "fixture",
+      "session_id": "fixture",
+      "transcript_path": null,
+      "turn_id": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/user-prompt-submit.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "continue": false,
+      "decision": "block",
+      "hookSpecificOutput": {
+        "additionalContext": "fixture",
+        "hookEventName": "UserPromptSubmit"
+      },
+      "reason": "fixture",
+      "stopReason": "fixture",
+      "suppressOutput": false,
+      "systemMessage": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/user-prompt-submit.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "decision": "block",
+      "hookSpecificOutput": {
+        "additionalContext": "fixture",
+        "hookEventName": "UserPromptSubmit"
+      },
+      "reason": "fixture",
+      "stopReason": "fixture",
+      "suppressOutput": false,
+      "systemMessage": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/user-prompt-submit.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "continue": true,
+      "decision": "block",
+      "hookSpecificOutput": {
+        "additionalContext": "fixture",
+        "hookEventName": "UserPromptSubmit"
+      },
+      "reason": "fixture",
+      "stopReason": "fixture",
+      "suppressOutput": false,
+      "systemMessage": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/user-prompt-submit.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "continue": false,
+      "hookSpecificOutput": {
+        "additionalContext": "fixture",
+        "hookEventName": "UserPromptSubmit"
+      },
+      "reason": "fixture",
+      "stopReason": "fixture",
+      "suppressOutput": false,
+      "systemMessage": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/user-prompt-submit.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "continue": false,
+      "decision": "block",
+      "reason": "fixture",
+      "stopReason": "fixture",
+      "suppressOutput": false,
+      "systemMessage": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/user-prompt-submit.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "continue": false,
+      "decision": "block",
+      "hookSpecificOutput": {
+        "hookEventName": "UserPromptSubmit"
+      },
+      "reason": "fixture",
+      "stopReason": "fixture",
+      "suppressOutput": false,
+      "systemMessage": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/user-prompt-submit.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "continue": false,
+      "decision": "block",
+      "hookSpecificOutput": {
+        "additionalContext": "fixture",
+        "hookEventName": "UserPromptSubmit"
+      },
+      "stopReason": "fixture",
+      "suppressOutput": false,
+      "systemMessage": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/user-prompt-submit.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "continue": false,
+      "decision": "block",
+      "hookSpecificOutput": {
+        "additionalContext": "fixture",
+        "hookEventName": "UserPromptSubmit"
+      },
+      "reason": "fixture",
+      "suppressOutput": false,
+      "systemMessage": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/user-prompt-submit.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "continue": false,
+      "decision": "block",
+      "hookSpecificOutput": {
+        "additionalContext": "fixture",
+        "hookEventName": "UserPromptSubmit"
+      },
+      "reason": "fixture",
+      "stopReason": "fixture",
+      "systemMessage": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/user-prompt-submit.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "continue": false,
+      "decision": "block",
+      "hookSpecificOutput": {
+        "additionalContext": "fixture",
+        "hookEventName": "UserPromptSubmit"
+      },
+      "reason": "fixture",
+      "stopReason": "fixture",
+      "suppressOutput": true,
+      "systemMessage": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/hooks/schema/generated/user-prompt-submit.command.output.schema.json",
+      "definition": null
+    },
+    "value": {
+      "continue": false,
+      "decision": "block",
+      "hookSpecificOutput": {
+        "additionalContext": "fixture",
+        "hookEventName": "UserPromptSubmit"
+      },
+      "reason": "fixture",
+      "stopReason": "fixture",
+      "suppressOutput": false
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/core/config.schema.json",
+      "definition": "HookHandlerConfig"
+    },
+    "value": {
+      "additionalContextLimit": 1,
+      "async": false,
+      "command": "fixture",
+      "commandWindows": "fixture",
+      "statusMessage": "fixture",
+      "timeout": 1,
+      "type": "command"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/core/config.schema.json",
+      "definition": "HookHandlerConfig"
+    },
+    "value": {
+      "async": false,
+      "command": "fixture",
+      "commandWindows": "fixture",
+      "statusMessage": "fixture",
+      "timeout": 1,
+      "type": "command"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/core/config.schema.json",
+      "definition": "HookHandlerConfig"
+    },
+    "value": {
+      "additionalContextLimit": 1,
+      "command": "fixture",
+      "commandWindows": "fixture",
+      "statusMessage": "fixture",
+      "timeout": 1,
+      "type": "command"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/core/config.schema.json",
+      "definition": "HookHandlerConfig"
+    },
+    "value": {
+      "additionalContextLimit": 1,
+      "async": true,
+      "command": "fixture",
+      "commandWindows": "fixture",
+      "statusMessage": "fixture",
+      "timeout": 1,
+      "type": "command"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/core/config.schema.json",
+      "definition": "HookHandlerConfig"
+    },
+    "value": {
+      "additionalContextLimit": 1,
+      "async": false,
+      "command": "fixture",
+      "statusMessage": "fixture",
+      "timeout": 1,
+      "type": "command"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/core/config.schema.json",
+      "definition": "HookHandlerConfig"
+    },
+    "value": {
+      "additionalContextLimit": 1,
+      "async": false,
+      "command": "fixture",
+      "commandWindows": "fixture",
+      "timeout": 1,
+      "type": "command"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/core/config.schema.json",
+      "definition": "HookHandlerConfig"
+    },
+    "value": {
+      "additionalContextLimit": 1,
+      "async": false,
+      "command": "fixture",
+      "commandWindows": "fixture",
+      "statusMessage": "fixture",
+      "type": "command"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/core/config.schema.json",
+      "definition": "HookHandlerConfig"
+    },
+    "value": {
+      "input": {},
+      "server": "fixture",
+      "statusMessage": "fixture",
+      "timeout": 1,
+      "tool": "fixture",
+      "type": "mcp_tool"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/core/config.schema.json",
+      "definition": "HookHandlerConfig"
+    },
+    "value": {
+      "server": "fixture",
+      "statusMessage": "fixture",
+      "timeout": 1,
+      "tool": "fixture",
+      "type": "mcp_tool"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/core/config.schema.json",
+      "definition": "HookHandlerConfig"
+    },
+    "value": {
+      "input": {},
+      "server": "fixture",
+      "timeout": 1,
+      "tool": "fixture",
+      "type": "mcp_tool"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/core/config.schema.json",
+      "definition": "HookHandlerConfig"
+    },
+    "value": {
+      "input": {},
+      "server": "fixture",
+      "statusMessage": "fixture",
+      "tool": "fixture",
+      "type": "mcp_tool"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/core/config.schema.json",
+      "definition": "HookHandlerConfig"
+    },
+    "value": {
+      "type": "prompt"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/core/config.schema.json",
+      "definition": "HookHandlerConfig"
+    },
+    "value": {
+      "type": "agent"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/core/config.schema.json",
+      "definition": "MatcherGroup"
+    },
+    "value": {
+      "hooks": [],
+      "matcher": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/core/config.schema.json",
+      "definition": "MatcherGroup"
+    },
+    "value": {
+      "matcher": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/core/config.schema.json",
+      "definition": "MatcherGroup"
+    },
+    "value": {
+      "hooks": [
+        {
+          "additionalContextLimit": 1,
+          "async": false,
+          "command": "fixture",
+          "commandWindows": "fixture",
+          "statusMessage": "fixture",
+          "timeout": 1,
+          "type": "command"
+        }
+      ],
+      "matcher": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/core/config.schema.json",
+      "definition": "MatcherGroup"
+    },
+    "value": {
+      "hooks": [
+        {
+          "async": false,
+          "command": "fixture",
+          "commandWindows": "fixture",
+          "statusMessage": "fixture",
+          "timeout": 1,
+          "type": "command"
+        }
+      ],
+      "matcher": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/core/config.schema.json",
+      "definition": "MatcherGroup"
+    },
+    "value": {
+      "hooks": [
+        {
+          "additionalContextLimit": 1,
+          "command": "fixture",
+          "commandWindows": "fixture",
+          "statusMessage": "fixture",
+          "timeout": 1,
+          "type": "command"
+        }
+      ],
+      "matcher": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/core/config.schema.json",
+      "definition": "MatcherGroup"
+    },
+    "value": {
+      "hooks": [
+        {
+          "additionalContextLimit": 1,
+          "async": true,
+          "command": "fixture",
+          "commandWindows": "fixture",
+          "statusMessage": "fixture",
+          "timeout": 1,
+          "type": "command"
+        }
+      ],
+      "matcher": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/core/config.schema.json",
+      "definition": "MatcherGroup"
+    },
+    "value": {
+      "hooks": [
+        {
+          "additionalContextLimit": 1,
+          "async": false,
+          "command": "fixture",
+          "statusMessage": "fixture",
+          "timeout": 1,
+          "type": "command"
+        }
+      ],
+      "matcher": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/core/config.schema.json",
+      "definition": "MatcherGroup"
+    },
+    "value": {
+      "hooks": [
+        {
+          "additionalContextLimit": 1,
+          "async": false,
+          "command": "fixture",
+          "commandWindows": "fixture",
+          "timeout": 1,
+          "type": "command"
+        }
+      ],
+      "matcher": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/core/config.schema.json",
+      "definition": "MatcherGroup"
+    },
+    "value": {
+      "hooks": [
+        {
+          "additionalContextLimit": 1,
+          "async": false,
+          "command": "fixture",
+          "commandWindows": "fixture",
+          "statusMessage": "fixture",
+          "type": "command"
+        }
+      ],
+      "matcher": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/core/config.schema.json",
+      "definition": "MatcherGroup"
+    },
+    "value": {
+      "hooks": [
+        {
+          "input": {},
+          "server": "fixture",
+          "statusMessage": "fixture",
+          "timeout": 1,
+          "tool": "fixture",
+          "type": "mcp_tool"
+        }
+      ],
+      "matcher": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/core/config.schema.json",
+      "definition": "MatcherGroup"
+    },
+    "value": {
+      "hooks": [
+        {
+          "server": "fixture",
+          "statusMessage": "fixture",
+          "timeout": 1,
+          "tool": "fixture",
+          "type": "mcp_tool"
+        }
+      ],
+      "matcher": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/core/config.schema.json",
+      "definition": "MatcherGroup"
+    },
+    "value": {
+      "hooks": [
+        {
+          "input": {},
+          "server": "fixture",
+          "timeout": 1,
+          "tool": "fixture",
+          "type": "mcp_tool"
+        }
+      ],
+      "matcher": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/core/config.schema.json",
+      "definition": "MatcherGroup"
+    },
+    "value": {
+      "hooks": [
+        {
+          "input": {},
+          "server": "fixture",
+          "statusMessage": "fixture",
+          "tool": "fixture",
+          "type": "mcp_tool"
+        }
+      ],
+      "matcher": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/core/config.schema.json",
+      "definition": "MatcherGroup"
+    },
+    "value": {
+      "hooks": [
+        {
+          "type": "prompt"
+        }
+      ],
+      "matcher": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/core/config.schema.json",
+      "definition": "MatcherGroup"
+    },
+    "value": {
+      "hooks": [
+        {
+          "type": "agent"
+        }
+      ],
+      "matcher": "fixture"
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/core/config.schema.json",
+      "definition": "MatcherGroup"
+    },
+    "value": {
+      "hooks": []
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/core/config.schema.json",
+      "definition": "PluginConfig"
+    },
+    "value": {
+      "enabled": false,
+      "mcp_servers": {}
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/core/config.schema.json",
+      "definition": "PluginConfig"
+    },
+    "value": {
+      "mcp_servers": {}
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/core/config.schema.json",
+      "definition": "PluginConfig"
+    },
+    "value": {
+      "enabled": true,
+      "mcp_servers": {}
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/core/config.schema.json",
+      "definition": "PluginConfig"
+    },
+    "value": {
+      "enabled": false
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/core/config.schema.json",
+      "definition": "PluginConfig"
+    },
+    "value": {
+      "enabled": false,
+      "mcp_servers": {
+        "sample": {
+          "default_tools_approval_mode": "auto",
+          "disabled_tools": [],
+          "enabled": false,
+          "enabled_tools": [],
+          "tools": {}
+        }
+      }
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/core/config.schema.json",
+      "definition": "PluginConfig"
+    },
+    "value": {
+      "enabled": false,
+      "mcp_servers": {
+        "sample": {
+          "disabled_tools": [],
+          "enabled": false,
+          "enabled_tools": [],
+          "tools": {}
+        }
+      }
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/core/config.schema.json",
+      "definition": "PluginConfig"
+    },
+    "value": {
+      "enabled": false,
+      "mcp_servers": {
+        "sample": {
+          "default_tools_approval_mode": "prompt",
+          "disabled_tools": [],
+          "enabled": false,
+          "enabled_tools": [],
+          "tools": {}
+        }
+      }
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/core/config.schema.json",
+      "definition": "PluginConfig"
+    },
+    "value": {
+      "enabled": false,
+      "mcp_servers": {
+        "sample": {
+          "default_tools_approval_mode": "writes",
+          "disabled_tools": [],
+          "enabled": false,
+          "enabled_tools": [],
+          "tools": {}
+        }
+      }
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/core/config.schema.json",
+      "definition": "PluginConfig"
+    },
+    "value": {
+      "enabled": false,
+      "mcp_servers": {
+        "sample": {
+          "default_tools_approval_mode": "approve",
+          "disabled_tools": [],
+          "enabled": false,
+          "enabled_tools": [],
+          "tools": {}
+        }
+      }
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/core/config.schema.json",
+      "definition": "PluginConfig"
+    },
+    "value": {
+      "enabled": false,
+      "mcp_servers": {
+        "sample": {
+          "default_tools_approval_mode": "auto",
+          "enabled": false,
+          "enabled_tools": [],
+          "tools": {}
+        }
+      }
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/core/config.schema.json",
+      "definition": "PluginConfig"
+    },
+    "value": {
+      "enabled": false,
+      "mcp_servers": {
+        "sample": {
+          "default_tools_approval_mode": "auto",
+          "disabled_tools": [
+            "fixture"
+          ],
+          "enabled": false,
+          "enabled_tools": [],
+          "tools": {}
+        }
+      }
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/core/config.schema.json",
+      "definition": "PluginConfig"
+    },
+    "value": {
+      "enabled": false,
+      "mcp_servers": {
+        "sample": {
+          "default_tools_approval_mode": "auto",
+          "disabled_tools": [],
+          "enabled_tools": [],
+          "tools": {}
+        }
+      }
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/core/config.schema.json",
+      "definition": "PluginConfig"
+    },
+    "value": {
+      "enabled": false,
+      "mcp_servers": {
+        "sample": {
+          "default_tools_approval_mode": "auto",
+          "disabled_tools": [],
+          "enabled": true,
+          "enabled_tools": [],
+          "tools": {}
+        }
+      }
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/core/config.schema.json",
+      "definition": "PluginConfig"
+    },
+    "value": {
+      "enabled": false,
+      "mcp_servers": {
+        "sample": {
+          "default_tools_approval_mode": "auto",
+          "disabled_tools": [],
+          "enabled": false,
+          "tools": {}
+        }
+      }
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/core/config.schema.json",
+      "definition": "PluginConfig"
+    },
+    "value": {
+      "enabled": false,
+      "mcp_servers": {
+        "sample": {
+          "default_tools_approval_mode": "auto",
+          "disabled_tools": [],
+          "enabled": false,
+          "enabled_tools": [
+            "fixture"
+          ],
+          "tools": {}
+        }
+      }
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/core/config.schema.json",
+      "definition": "PluginConfig"
+    },
+    "value": {
+      "enabled": false,
+      "mcp_servers": {
+        "sample": {
+          "default_tools_approval_mode": "auto",
+          "disabled_tools": [],
+          "enabled": false,
+          "enabled_tools": []
+        }
+      }
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/core/config.schema.json",
+      "definition": "PluginConfig"
+    },
+    "value": {
+      "enabled": false,
+      "mcp_servers": {
+        "sample": {
+          "default_tools_approval_mode": "auto",
+          "disabled_tools": [],
+          "enabled": false,
+          "enabled_tools": [],
+          "tools": {
+            "sample": {
+              "approval_mode": "auto",
+              "output_token_limit": 1
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/core/config.schema.json",
+      "definition": "PluginConfig"
+    },
+    "value": {
+      "enabled": false,
+      "mcp_servers": {
+        "sample": {
+          "default_tools_approval_mode": "auto",
+          "disabled_tools": [],
+          "enabled": false,
+          "enabled_tools": [],
+          "tools": {
+            "sample": {
+              "output_token_limit": 1
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/core/config.schema.json",
+      "definition": "PluginConfig"
+    },
+    "value": {
+      "enabled": false,
+      "mcp_servers": {
+        "sample": {
+          "default_tools_approval_mode": "auto",
+          "disabled_tools": [],
+          "enabled": false,
+          "enabled_tools": [],
+          "tools": {
+            "sample": {
+              "approval_mode": "prompt",
+              "output_token_limit": 1
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/core/config.schema.json",
+      "definition": "PluginConfig"
+    },
+    "value": {
+      "enabled": false,
+      "mcp_servers": {
+        "sample": {
+          "default_tools_approval_mode": "auto",
+          "disabled_tools": [],
+          "enabled": false,
+          "enabled_tools": [],
+          "tools": {
+            "sample": {
+              "approval_mode": "writes",
+              "output_token_limit": 1
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/core/config.schema.json",
+      "definition": "PluginConfig"
+    },
+    "value": {
+      "enabled": false,
+      "mcp_servers": {
+        "sample": {
+          "default_tools_approval_mode": "auto",
+          "disabled_tools": [],
+          "enabled": false,
+          "enabled_tools": [],
+          "tools": {
+            "sample": {
+              "approval_mode": "approve",
+              "output_token_limit": 1
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/core/config.schema.json",
+      "definition": "PluginConfig"
+    },
+    "value": {
+      "enabled": false,
+      "mcp_servers": {
+        "sample": {
+          "default_tools_approval_mode": "auto",
+          "disabled_tools": [],
+          "enabled": false,
+          "enabled_tools": [],
+          "tools": {
+            "sample": {
+              "approval_mode": "auto"
+            }
+          }
+        }
+      }
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/core/config.schema.json",
+      "definition": "PluginMcpServerConfig"
+    },
+    "value": {
+      "default_tools_approval_mode": "auto",
+      "disabled_tools": [],
+      "enabled": false,
+      "enabled_tools": [],
+      "tools": {}
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/core/config.schema.json",
+      "definition": "PluginMcpServerConfig"
+    },
+    "value": {
+      "disabled_tools": [],
+      "enabled": false,
+      "enabled_tools": [],
+      "tools": {}
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/core/config.schema.json",
+      "definition": "PluginMcpServerConfig"
+    },
+    "value": {
+      "default_tools_approval_mode": "prompt",
+      "disabled_tools": [],
+      "enabled": false,
+      "enabled_tools": [],
+      "tools": {}
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/core/config.schema.json",
+      "definition": "PluginMcpServerConfig"
+    },
+    "value": {
+      "default_tools_approval_mode": "writes",
+      "disabled_tools": [],
+      "enabled": false,
+      "enabled_tools": [],
+      "tools": {}
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/core/config.schema.json",
+      "definition": "PluginMcpServerConfig"
+    },
+    "value": {
+      "default_tools_approval_mode": "approve",
+      "disabled_tools": [],
+      "enabled": false,
+      "enabled_tools": [],
+      "tools": {}
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/core/config.schema.json",
+      "definition": "PluginMcpServerConfig"
+    },
+    "value": {
+      "default_tools_approval_mode": "auto",
+      "enabled": false,
+      "enabled_tools": [],
+      "tools": {}
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/core/config.schema.json",
+      "definition": "PluginMcpServerConfig"
+    },
+    "value": {
+      "default_tools_approval_mode": "auto",
+      "disabled_tools": [
+        "fixture"
+      ],
+      "enabled": false,
+      "enabled_tools": [],
+      "tools": {}
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/core/config.schema.json",
+      "definition": "PluginMcpServerConfig"
+    },
+    "value": {
+      "default_tools_approval_mode": "auto",
+      "disabled_tools": [],
+      "enabled_tools": [],
+      "tools": {}
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/core/config.schema.json",
+      "definition": "PluginMcpServerConfig"
+    },
+    "value": {
+      "default_tools_approval_mode": "auto",
+      "disabled_tools": [],
+      "enabled": true,
+      "enabled_tools": [],
+      "tools": {}
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/core/config.schema.json",
+      "definition": "PluginMcpServerConfig"
+    },
+    "value": {
+      "default_tools_approval_mode": "auto",
+      "disabled_tools": [],
+      "enabled": false,
+      "tools": {}
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/core/config.schema.json",
+      "definition": "PluginMcpServerConfig"
+    },
+    "value": {
+      "default_tools_approval_mode": "auto",
+      "disabled_tools": [],
+      "enabled": false,
+      "enabled_tools": [
+        "fixture"
+      ],
+      "tools": {}
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/core/config.schema.json",
+      "definition": "PluginMcpServerConfig"
+    },
+    "value": {
+      "default_tools_approval_mode": "auto",
+      "disabled_tools": [],
+      "enabled": false,
+      "enabled_tools": []
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/core/config.schema.json",
+      "definition": "PluginMcpServerConfig"
+    },
+    "value": {
+      "default_tools_approval_mode": "auto",
+      "disabled_tools": [],
+      "enabled": false,
+      "enabled_tools": [],
+      "tools": {
+        "sample": {
+          "approval_mode": "auto",
+          "output_token_limit": 1
+        }
+      }
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/core/config.schema.json",
+      "definition": "PluginMcpServerConfig"
+    },
+    "value": {
+      "default_tools_approval_mode": "auto",
+      "disabled_tools": [],
+      "enabled": false,
+      "enabled_tools": [],
+      "tools": {
+        "sample": {
+          "output_token_limit": 1
+        }
+      }
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/core/config.schema.json",
+      "definition": "PluginMcpServerConfig"
+    },
+    "value": {
+      "default_tools_approval_mode": "auto",
+      "disabled_tools": [],
+      "enabled": false,
+      "enabled_tools": [],
+      "tools": {
+        "sample": {
+          "approval_mode": "prompt",
+          "output_token_limit": 1
+        }
+      }
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/core/config.schema.json",
+      "definition": "PluginMcpServerConfig"
+    },
+    "value": {
+      "default_tools_approval_mode": "auto",
+      "disabled_tools": [],
+      "enabled": false,
+      "enabled_tools": [],
+      "tools": {
+        "sample": {
+          "approval_mode": "writes",
+          "output_token_limit": 1
+        }
+      }
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/core/config.schema.json",
+      "definition": "PluginMcpServerConfig"
+    },
+    "value": {
+      "default_tools_approval_mode": "auto",
+      "disabled_tools": [],
+      "enabled": false,
+      "enabled_tools": [],
+      "tools": {
+        "sample": {
+          "approval_mode": "approve",
+          "output_token_limit": 1
+        }
+      }
+    }
+  },
+  {
+    "key": {
+      "codex": "codex-rs/core/config.schema.json",
+      "definition": "PluginMcpServerConfig"
+    },
+    "value": {
+      "default_tools_approval_mode": "auto",
+      "disabled_tools": [],
+      "enabled": false,
+      "enabled_tools": [],
+      "tools": {
+        "sample": {
+          "approval_mode": "auto"
+        }
+      }
+    }
+  },
+  {
+    "key": {
+      "portable": "plugin"
+    },
+    "value": {
+      "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+      "name": "fixture",
+      "version": "fixture",
+      "description": "fixture",
+      "author": {
+        "name": "fixture",
+        "email": "fixture",
+        "url": "fixture"
+      },
+      "homepage": "fixture",
+      "repository": "fixture",
+      "license": "fixture",
+      "keywords": [],
+      "extensions": {}
+    }
+  },
+  {
+    "key": {
+      "portable": "plugin"
+    },
+    "value": {
+      "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+      "name": "fixture",
+      "description": "fixture",
+      "author": {
+        "name": "fixture",
+        "email": "fixture",
+        "url": "fixture"
+      },
+      "homepage": "fixture",
+      "repository": "fixture",
+      "license": "fixture",
+      "keywords": [],
+      "extensions": {}
+    }
+  },
+  {
+    "key": {
+      "portable": "plugin"
+    },
+    "value": {
+      "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+      "name": "fixture",
+      "version": "fixture",
+      "author": {
+        "name": "fixture",
+        "email": "fixture",
+        "url": "fixture"
+      },
+      "homepage": "fixture",
+      "repository": "fixture",
+      "license": "fixture",
+      "keywords": [],
+      "extensions": {}
+    }
+  },
+  {
+    "key": {
+      "portable": "plugin"
+    },
+    "value": {
+      "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+      "name": "fixture",
+      "version": "fixture",
+      "description": "fixture",
+      "homepage": "fixture",
+      "repository": "fixture",
+      "license": "fixture",
+      "keywords": [],
+      "extensions": {}
+    }
+  },
+  {
+    "key": {
+      "portable": "plugin"
+    },
+    "value": {
+      "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+      "name": "fixture",
+      "version": "fixture",
+      "description": "fixture",
+      "author": {
+        "email": "fixture",
+        "url": "fixture"
+      },
+      "homepage": "fixture",
+      "repository": "fixture",
+      "license": "fixture",
+      "keywords": [],
+      "extensions": {}
+    }
+  },
+  {
+    "key": {
+      "portable": "plugin"
+    },
+    "value": {
+      "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+      "name": "fixture",
+      "version": "fixture",
+      "description": "fixture",
+      "author": {
+        "name": "fixture",
+        "url": "fixture"
+      },
+      "homepage": "fixture",
+      "repository": "fixture",
+      "license": "fixture",
+      "keywords": [],
+      "extensions": {}
+    }
+  },
+  {
+    "key": {
+      "portable": "plugin"
+    },
+    "value": {
+      "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+      "name": "fixture",
+      "version": "fixture",
+      "description": "fixture",
+      "author": {
+        "name": "fixture",
+        "email": "fixture"
+      },
+      "homepage": "fixture",
+      "repository": "fixture",
+      "license": "fixture",
+      "keywords": [],
+      "extensions": {}
+    }
+  },
+  {
+    "key": {
+      "portable": "plugin"
+    },
+    "value": {
+      "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+      "name": "fixture",
+      "version": "fixture",
+      "description": "fixture",
+      "author": {
+        "name": "fixture",
+        "email": "fixture",
+        "url": "fixture"
+      },
+      "repository": "fixture",
+      "license": "fixture",
+      "keywords": [],
+      "extensions": {}
+    }
+  },
+  {
+    "key": {
+      "portable": "plugin"
+    },
+    "value": {
+      "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+      "name": "fixture",
+      "version": "fixture",
+      "description": "fixture",
+      "author": {
+        "name": "fixture",
+        "email": "fixture",
+        "url": "fixture"
+      },
+      "homepage": "fixture",
+      "license": "fixture",
+      "keywords": [],
+      "extensions": {}
+    }
+  },
+  {
+    "key": {
+      "portable": "plugin"
+    },
+    "value": {
+      "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+      "name": "fixture",
+      "version": "fixture",
+      "description": "fixture",
+      "author": {
+        "name": "fixture",
+        "email": "fixture",
+        "url": "fixture"
+      },
+      "homepage": "fixture",
+      "repository": "fixture",
+      "keywords": [],
+      "extensions": {}
+    }
+  },
+  {
+    "key": {
+      "portable": "plugin"
+    },
+    "value": {
+      "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+      "name": "fixture",
+      "version": "fixture",
+      "description": "fixture",
+      "author": {
+        "name": "fixture",
+        "email": "fixture",
+        "url": "fixture"
+      },
+      "homepage": "fixture",
+      "repository": "fixture",
+      "license": "fixture",
+      "extensions": {}
+    }
+  },
+  {
+    "key": {
+      "portable": "plugin"
+    },
+    "value": {
+      "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+      "name": "fixture",
+      "version": "fixture",
+      "description": "fixture",
+      "author": {
+        "name": "fixture",
+        "email": "fixture",
+        "url": "fixture"
+      },
+      "homepage": "fixture",
+      "repository": "fixture",
+      "license": "fixture",
+      "keywords": [
+        "fixture"
+      ],
+      "extensions": {}
+    }
+  },
+  {
+    "key": {
+      "portable": "plugin"
+    },
+    "value": {
+      "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+      "name": "fixture",
+      "version": "fixture",
+      "description": "fixture",
+      "author": {
+        "name": "fixture",
+        "email": "fixture",
+        "url": "fixture"
+      },
+      "homepage": "fixture",
+      "repository": "fixture",
+      "license": "fixture",
+      "keywords": []
+    }
+  },
+  {
+    "key": {
+      "portable": "plugin"
+    },
+    "value": {
+      "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+      "name": "fixture",
+      "version": "fixture",
+      "description": "fixture",
+      "author": {
+        "name": "fixture",
+        "email": "fixture",
+        "url": "fixture"
+      },
+      "homepage": "fixture",
+      "repository": "fixture",
+      "license": "fixture",
+      "keywords": [],
+      "extensions": {
+        "sample": {}
+      }
+    }
+  },
+  {
+    "key": {
+      "portable": "mcp"
+    },
+    "value": {
+      "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+      "mcpServers": {}
+    }
+  },
+  {
+    "key": {
+      "portable": "mcp"
+    },
+    "value": {
+      "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+      "mcpServers": {
+        "sample": {
+          "type": "stdio",
+          "command": "fixture",
+          "args": [],
+          "env": {},
+          "cwd": "./fixture"
+        }
+      }
+    }
+  },
+  {
+    "key": {
+      "portable": "mcp"
+    },
+    "value": {
+      "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+      "mcpServers": {
+        "sample": {
+          "type": "stdio",
+          "command": "fixture",
+          "env": {},
+          "cwd": "./fixture"
+        }
+      }
+    }
+  },
+  {
+    "key": {
+      "portable": "mcp"
+    },
+    "value": {
+      "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+      "mcpServers": {
+        "sample": {
+          "type": "stdio",
+          "command": "fixture",
+          "args": [
+            "fixture"
+          ],
+          "env": {},
+          "cwd": "./fixture"
+        }
+      }
+    }
+  },
+  {
+    "key": {
+      "portable": "mcp"
+    },
+    "value": {
+      "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+      "mcpServers": {
+        "sample": {
+          "type": "stdio",
+          "command": "fixture",
+          "args": [],
+          "cwd": "./fixture"
+        }
+      }
+    }
+  },
+  {
+    "key": {
+      "portable": "mcp"
+    },
+    "value": {
+      "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+      "mcpServers": {
+        "sample": {
+          "type": "stdio",
+          "command": "fixture",
+          "args": [],
+          "env": {
+            "sample": "fixture"
+          },
+          "cwd": "./fixture"
+        }
+      }
+    }
+  },
+  {
+    "key": {
+      "portable": "mcp"
+    },
+    "value": {
+      "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+      "mcpServers": {
+        "sample": {
+          "type": "stdio",
+          "command": "fixture",
+          "args": [],
+          "env": {}
+        }
+      }
+    }
+  },
+  {
+    "key": {
+      "portable": "mcp"
+    },
+    "value": {
+      "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+      "mcpServers": {
+        "sample": {
+          "type": "streamable-http",
+          "url": "fixture",
+          "headers": {}
+        }
+      }
+    }
+  },
+  {
+    "key": {
+      "portable": "mcp"
+    },
+    "value": {
+      "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+      "mcpServers": {
+        "sample": {
+          "type": "streamable-http",
+          "url": "fixture"
+        }
+      }
+    }
+  },
+  {
+    "key": {
+      "portable": "mcp"
+    },
+    "value": {
+      "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+      "mcpServers": {
+        "sample": {
+          "type": "streamable-http",
+          "url": "fixture",
+          "headers": {
+            "sample": "fixture"
+          }
+        }
+      }
+    }
+  },
+  {
+    "key": {
+      "portable": "mcp"
+    },
+    "value": {
+      "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+      "mcpServers": {
+        "sample": {
+          "type": "sse",
+          "url": "fixture",
+          "headers": {}
+        }
+      }
+    }
+  },
+  {
+    "key": {
+      "portable": "mcp"
+    },
+    "value": {
+      "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+      "mcpServers": {
+        "sample": {
+          "type": "sse",
+          "url": "fixture"
+        }
+      }
+    }
+  },
+  {
+    "key": {
+      "portable": "mcp"
+    },
+    "value": {
+      "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+      "mcpServers": {
+        "sample": {
+          "type": "sse",
+          "url": "fixture",
+          "headers": {
+            "sample": "fixture"
+          }
+        }
+      }
+    }
+  }
+]

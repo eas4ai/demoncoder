@@ -1,0 +1,15 @@
+# Pin operation budgets and settle usage by exact invocation
+
+Level: Judged
+Decided by: agent
+Rests on: HOOK-007,HOOK-008,VERIFY-005,VERIFY-006
+Would be wrong if: A late report charges a replacement allowance, an unfunded operation acquires task funding after creation, retired accounting grants execution, ambiguous old records select the current grant, or failed accounting partially changes counters.
+History: The private-source reversals reinforce preserving original evidence and explicit ownership instead of inferring authority from current state. This remains Judged: the change stays within the existing runtime, retains historical snapshots and existing execution checks, and adds no runner or source access. Missing legacy ownership is recorded as unresolved rather than reassigned.
+
+## Decision
+
+First add exact budget attribution and usage settlement to existing task, delegation and unallocated execution, before enabling session-funded model or service runners. Persist explicit Task references using the existing session identity plus a monotonic allocation epoch, a SessionHooks reference for the configured session grant, and Unallocated for newly unfunded operations. Missing operation references mean legacy ambiguity, never implicit session authority. Increment the task epoch only when constructing a new task/delegation allocation, including equal-limit replacements; preserve it through resume and reuse. Capture funding at original causal owner creation and inherit it through model/backend/tool operations; do not select a later current allocation. Forward the existing EventSink invocation ID into usage persistence and validate exact operation, phase and host kind before accounting. Retain one canonical copy of a retiring task allocation only when retained operations reference its epoch, with a 32-entry bound and checked epoch increments. Refuse replacement or clearing before mutation if that bound or epoch range is exhausted. Archived task allocation values remain historical snapshots linked by optional epoch. Known or missing usage may settle into the exact active or retired allocation after execution authority ends; settlement never admits work or checks an expired allowance as permission. Preserve original reports and visible unresolved attribution when a legacy or missing target cannot be proved, without charging any current or session grant. Stage checked arithmetic and receipt changes so failure cannot partially alter counters. Route finish, hook settlement, recovery and child cancellation/reconciliation through exact model/backend ownership; unknown fields remain unknown and reconciliation replenishes nothing. Preserve current adapter usage aggregation and explicitly avoid a new duplicate-safe or backend-internal usage claim, because repeated Codex notifications need separate source qualification. Keep all session model/HTTP/MCP lifetime denials and existing live-owner/cancellation/gate checks in place for this prerequisite.
+
+## Realized by
+
+- b9c748cd9989dc86cfeee5751d7c16d281be179b Pin operation budgets and settle usage by original invocation

@@ -1,0 +1,75 @@
+{
+  "kind": "controlled-pinned-source-observation",
+  "backend": "Claude Code 2.1.267",
+  "executable_sha256": "0399c793ff571d5946ef923d80b4f330d05ac4b6842a6b0775468f5d389403c0",
+  "cases": {
+    "control": {
+      "once": false,
+      "exit_code": 0,
+      "async": false,
+      "hook_steps": [
+        1,
+        2,
+        4
+      ]
+    },
+    "success": {
+      "once": true,
+      "exit_code": 0,
+      "async": false,
+      "hook_steps": [
+        1,
+        4
+      ]
+    },
+    "failure": {
+      "once": true,
+      "exit_code": 1,
+      "async": false,
+      "hook_steps": [
+        1,
+        2,
+        4
+      ]
+    },
+    "async-failure": {
+      "once": true,
+      "exit_code": 1,
+      "async": true,
+      "hook_steps": [
+        1,
+        4
+      ]
+    },
+    "async-pending": {
+      "once": true,
+      "exit_code": 1,
+      "async": true,
+      "hook_steps": [
+        1,
+        4
+      ]
+    },
+    "success-no-reactivate": {
+      "once": true,
+      "exit_code": 0,
+      "async": false,
+      "hook_steps": [
+        1
+      ]
+    },
+    "no-load": {
+      "once": true,
+      "exit_code": 0,
+      "async": false,
+      "hook_steps": []
+    }
+  },
+  "limits": [
+    "Actual pinned SDK transport and project skill loading with a synthetic local model peer. No live provider or DemonCoder production path is exercised.",
+    "No restart/resume behavior tested. Explicit same-session slash skill reinvocation is the only reactivation tested.",
+    "The capture end marker precedes deterministic sys.exit(0 or 1); independent OS exit-status telemetry is not retained.",
+    "Async ordering compares the second actual SDK tool call with the first command completion marker. It does not identify exact internal callback timing.",
+    "Claude async one-shot consumption occurs at launch. The agreed DemonCoder contract instead requires actual success; this probe does not weaken that requirement."
+  ]
+}

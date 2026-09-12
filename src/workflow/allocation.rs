@@ -1,14 +1,32 @@
-//! One task allocation, including auxiliary calls and time spent between turns.
+//! Cumulative clocks and counters, including time spent between turns.
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub struct Limits {
     pub seconds: u64,
     pub model_calls: u64,
     pub tool_calls: u64,
+}
+
+impl Limits {
+    pub(crate) fn validate_session_hooks(&self) -> Result<()> {
+        ensure!(
+            (1..=86400).contains(&self.seconds),
+            "session-hook deadline must be 1 to 86400 seconds"
+        );
+        ensure!(
+            self.model_calls <= 4096,
+            "session-hook model-call limit must be 0 to 4096"
+        );
+        ensure!(
+            self.tool_calls <= 4096,
+            "session-hook tool-call limit must be 0 to 4096"
+        );
+        Ok(())
+    }
 }
 
 impl Default for Limits {
@@ -35,6 +53,19 @@ pub struct Usage {
 
 impl Usage {
     pub fn add(
+        &mut self,
+        input: Option<u64>,
+        output: Option<u64>,
+        cached: Option<u64>,
+        cost: Option<f64>,
+    ) -> Result<()> {
+        let mut staged = self.clone();
+        staged.add_staged(input, output, cached, cost)?;
+        *self = staged;
+        Ok(())
+    }
+
+    fn add_staged(
         &mut self,
         input: Option<u64>,
         output: Option<u64>,
@@ -113,6 +144,11 @@ impl Allocation {
             limits.tool_calls > 0 && limits.tool_calls <= 4096,
             "task tool-call limit must be 1 to 4096"
         );
+        Self::from_validated(limits)
+    }
+
+    /// Call only after the owning allowance has validated its limits.
+    pub(super) fn from_validated(limits: Limits) -> Result<Self> {
         let started_ms = now_ms()?;
         let deadline_ms = started_ms
             .checked_add(limits.seconds * 1000)

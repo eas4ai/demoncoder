@@ -41,6 +41,11 @@ fn executor(path: &Path) -> ToolExecutor {
             credential_paths: Vec::new(),
             supervisor: Some(env!("CARGO_BIN_EXE_demoncoder").into()),
             extension: None,
+            lifecycle: None,
+            snapshot: None,
+            post_tools: Vec::new(),
+            pre_tool: None,
+            non_tools: Vec::new(),
             language_servers: Default::default(),
         },
     )

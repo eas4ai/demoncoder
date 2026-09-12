@@ -1,0 +1,90 @@
+{
+  "kind": "controlled-pinned-source-observation",
+  "backend": "Claude Code 2.1.267",
+  "executable_sha256": "0399c793ff571d5946ef923d80b4f330d05ac4b6842a6b0775468f5d389403c0",
+  "source_manifest_sha256": "9e42fc22127c3eac90c3ce477e43d225cd1437465d6c2e1c462f45c729ae1f17",
+  "limits": "Captured source semantics, not a DemonCoder production run. Input event contains only referenced fields. Ordinary JSON key order follows the captured event; host event order may differ.",
+  "event": {
+    "tool_name": "mcp__probe__capture",
+    "tool_input": {
+      "count": 3,
+      "optional": null,
+      "flag": false,
+      "items": [
+        "zero",
+        2
+      ],
+      "metadata": {
+        "x": true
+      },
+      "content": "literal ${session_id} $HOME",
+      "one": 1,
+      "small": 1e-07,
+      "large": 9007199254740992
+    }
+  },
+  "template": {
+    "whole": "${tool_input}",
+    "embedded": "prefix ${tool_input}",
+    "path": "${tool_input.file_path}",
+    "no_reexpand": "${tool_input.content}",
+    "nested": [
+      "${tool_input}",
+      {
+        "name": "${tool_name}"
+      }
+    ],
+    "missing": "${tool_input.missing}",
+    "malformed": "${tool_input.-}",
+    "${tool_name}": "literal-key",
+    "count": "${tool_input.count}",
+    "optional": "${tool_input.optional}",
+    "flag": "${tool_input.flag}",
+    "items": "${tool_input.items}",
+    "first": "${tool_input.items.0}",
+    "metadata": "${tool_input.metadata}",
+    "literal_number": 7,
+    "literal_null": null,
+    "empty_path": "${}",
+    "nested_bad": "${tool_input..count}",
+    "leading_index": "${tool_input.items.00}",
+    "array_length": "${tool_input.items.length}",
+    "string_length": "${tool_input.content.length}",
+    "string_index": "${tool_input.content.0}",
+    "one": "${tool_input.one}",
+    "small": "${tool_input.small}",
+    "large": "${tool_input.large}"
+  },
+  "observed_arguments": {
+    "whole": "{\"count\":3,\"optional\":null,\"flag\":false,\"items\":[\"zero\",2],\"metadata\":{\"x\":true},\"content\":\"literal ${session_id} $HOME\",\"one\":1,\"small\":1e-7,\"large\":9007199254740992}",
+    "embedded": "prefix {\"count\":3,\"optional\":null,\"flag\":false,\"items\":[\"zero\",2],\"metadata\":{\"x\":true},\"content\":\"literal ${session_id} $HOME\",\"one\":1,\"small\":1e-7,\"large\":9007199254740992}",
+    "path": "",
+    "no_reexpand": "literal ${session_id} $HOME",
+    "nested": [
+      "{\"count\":3,\"optional\":null,\"flag\":false,\"items\":[\"zero\",2],\"metadata\":{\"x\":true},\"content\":\"literal ${session_id} $HOME\",\"one\":1,\"small\":1e-7,\"large\":9007199254740992}",
+      {
+        "name": "mcp__probe__capture"
+      }
+    ],
+    "missing": "",
+    "malformed": "${tool_input.-}",
+    "${tool_name}": "literal-key",
+    "count": "3",
+    "optional": "",
+    "flag": "false",
+    "items": "[\"zero\",2]",
+    "first": "zero",
+    "metadata": "{\"x\":true}",
+    "literal_number": 7,
+    "literal_null": null,
+    "empty_path": "${}",
+    "nested_bad": "",
+    "leading_index": "",
+    "array_length": "2",
+    "string_length": "",
+    "string_index": "",
+    "one": "1",
+    "small": "1e-7",
+    "large": "9007199254740992"
+  }
+}

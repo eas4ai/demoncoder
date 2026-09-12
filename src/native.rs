@@ -9,6 +9,31 @@ use async_trait::async_trait;
 use std::{collections::VecDeque, path::Path};
 use tokio::sync::mpsc;
 
+/// Explicit origin marker for errors returned by a provider transport or protocol boundary.
+/// Adapters must leave local configuration, event delivery and persistence errors unmarked.
+#[derive(Debug)]
+pub struct ProviderResponseFailure(anyhow::Error);
+impl std::fmt::Display for ProviderResponseFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(&self.0, f)
+    }
+}
+impl std::error::Error for ProviderResponseFailure {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(self.0.as_ref())
+    }
+}
+pub fn provider_response_failure(error: impl Into<anyhow::Error>) -> anyhow::Error {
+    anyhow::Error::new(ProviderResponseFailure(error.into()))
+}
+/// Add adapter guidance inside the origin marker, retaining the original cause.
+pub(crate) fn provider_failure_context(error: anyhow::Error, guidance: String) -> anyhow::Error {
+    match error.downcast::<ProviderResponseFailure>() {
+        Ok(failure) => provider_response_failure(failure.0.context(guidance)),
+        Err(error) => error.context(guidance),
+    }
+}
+
 #[async_trait]
 pub trait Model: Send {
     fn checkpoint(&self) -> Option<serde_json::Value> {
@@ -23,6 +48,7 @@ pub trait Model: Send {
 }
 
 pub struct NativeSession {
+    observer_owner: crate::events::ObserverOwner,
     model: Box<dyn Model>,
     tools: ToolExecutor,
     pending: VecDeque<ToolCall>,
@@ -35,6 +61,7 @@ impl NativeSession {
 
     pub fn with_tools(model: Box<dyn Model>, tools: ToolExecutor) -> Self {
         Self {
+            observer_owner: Default::default(),
             model,
             tools,
             pending: VecDeque::new(),
@@ -44,6 +71,46 @@ impl NativeSession {
 
 #[async_trait]
 impl Session for NativeSession {
+    fn native_lifetime(&self) -> bool {
+        true
+    }
+    fn open_lifetime(
+        &mut self,
+        source: crate::session::SessionStart,
+        events: &EventSink,
+    ) -> Result<()> {
+        events.begin_host_lifetime(source, self.tools.native_lifetime_plans())?;
+        Ok(())
+    }
+    async fn session_start(
+        &mut self,
+        source: crate::session::SessionStart,
+        events: &EventSink,
+    ) -> Result<()> {
+        if let Some(events) = events.host_lifetime_events()? {
+            self.tools
+                .dispatch_non_tool(
+                    crate::plugins::receipts::NonToolOccurrence::SessionStart { source },
+                    &events,
+                )
+                .await?;
+        }
+        Ok(())
+    }
+    async fn session_end(
+        &mut self,
+        reason: crate::session::SessionEnd,
+        events: &EventSink,
+    ) -> Result<()> {
+        events.validate_end_policy(reason, &self.tools.native_lifetime_plans())?;
+        self.tools
+            .dispatch_non_tool(
+                crate::plugins::receipts::NonToolOccurrence::SessionEnd { reason },
+                events,
+            )
+            .await?;
+        Ok(())
+    }
     fn owner(&self) -> &'static str {
         "demoncoder"
     }
@@ -98,35 +165,214 @@ impl Session for NativeSession {
         commands: &mut mpsc::Receiver<Command>,
         events: &EventSink,
     ) -> Result<TurnEnd> {
-        let outcome = self.run_turn(prompt, commands, events).await;
-        self.settle_interruption()?;
+        self.observer_owner.capture(events);
+        let mut provider_failed = false;
+        let turn = events.begin_native_turn();
+        let failure_events = turn.as_ref().unwrap_or(events).clone();
+        let outcome = match turn {
+            Ok(turn_events) => {
+                let outcome = self
+                    .run_turn(prompt, commands, &turn_events, &mut provider_failed)
+                    .await;
+                use crate::plugins::receipts::NativeTurnEnd;
+                let end = match &outcome {
+                    Ok(TurnEnd::Complete) => NativeTurnEnd::Complete,
+                    Ok(TurnEnd::Cancelled) => NativeTurnEnd::Cancelled,
+                    Ok(TurnEnd::Shutdown | TurnEnd::CommandsClosed) => NativeTurnEnd::Shutdown,
+                    Err(_) => NativeTurnEnd::Failed,
+                };
+                let finished = turn_events.finish_native_turn(end);
+                preserve_provider_failure(finished, provider_failed, &turn_events).and(outcome)
+            }
+            Err(error) => Err(error),
+        };
+        preserve_provider_failure(self.settle_interruption(), provider_failed, &failure_events)?;
         if !matches!(outcome, Ok(TurnEnd::Complete)) {
-            self.tools.stop_language_services().await?;
+            preserve_provider_failure(self.close().await, provider_failed, &failure_events)?;
         }
-        events.checkpoint(self.checkpoint())?;
+        preserve_provider_failure(
+            events.checkpoint(self.checkpoint()),
+            provider_failed,
+            &failure_events,
+        )?;
         outcome
     }
 
+    async fn cancel_background(&mut self) -> Result<()> {
+        self.observer_owner.stop().await
+    }
+
     async fn close(&mut self) -> Result<()> {
-        self.tools.stop_language_services().await
+        let observers = self.observer_owner.stop().await;
+        let services = self.tools.stop_language_services().await;
+        observers.and(services)
     }
 }
 
 impl NativeSession {
+    async fn observe_provider_failure(
+        &mut self,
+        error: &anyhow::Error,
+        commands: &mut mpsc::Receiver<Command>,
+        events: &EventSink,
+        response_events: &EventSink,
+    ) -> Result<()> {
+        use crate::plugins::{hook_types::HookEvent, receipts::NonToolOccurrence};
+        if !self.tools.has_non_tool_plan(HookEvent::StopFailure) {
+            return Ok(());
+        }
+        let occurrence = NonToolOccurrence::StopFailure {
+            error: "unknown".into(),
+            error_details: format!("{error:#}"),
+            last_assistant_message: response_events.assistant_text()?,
+        };
+        // Failure is already decided. Controls may cancel observation, but neither
+        // plugin output nor newly submitted text can start a correction or retry.
+        while let Ok(command) = commands.try_recv() {
+            failure_control(Some(command), commands, events)?;
+        }
+        let dispatch = self.tools.dispatch_non_tool(occurrence, events);
+        tokio::pin!(dispatch);
+        loop {
+            tokio::select! {
+                biased;
+                command = commands.recv() => failure_control(command, commands, events)?,
+                result = &mut dispatch => return result.map(|_| ()),
+            }
+        }
+    }
+    async fn lifecycle(
+        &mut self,
+        occurrence: crate::plugins::receipts::NonToolOccurrence,
+        commands: &mut mpsc::Receiver<Command>,
+        corrections: &mut Vec<String>,
+        events: &EventSink,
+    ) -> Result<std::result::Result<Option<crate::plugins::non_tool::NonToolOutcome>, TurnEnd>>
+    {
+        // Controls queued before entry win even if the hook future is immediately ready.
+        while let Ok(command) = commands.try_recv() {
+            if let Some(end) = control(Some(command), corrections, events)? {
+                return Ok(Err(end));
+            }
+        }
+        let dispatch = self.tools.dispatch_non_tool(occurrence, events);
+        tokio::pin!(dispatch);
+        loop {
+            tokio::select! {
+                biased;
+                command = commands.recv() => if let Some(end) = control(command, corrections, events)? { return Ok(Err(end)); },
+                result = &mut dispatch => return result.map(Ok),
+            }
+        }
+    }
+    async fn submit_prompt(
+        &mut self,
+        prompt: String,
+        correction: bool,
+        commands: &mut mpsc::Receiver<Command>,
+        corrections: &mut Vec<String>,
+        events: &EventSink,
+    ) -> Result<Option<TurnEnd>> {
+        let submitted = if correction {
+            prompt.clone()
+        } else {
+            events.submitted_prompt(&prompt).to_owned()
+        };
+        let outcome = match self
+            .lifecycle(
+                crate::plugins::receipts::NonToolOccurrence::UserPromptSubmit {
+                    prompt: submitted,
+                    correction,
+                },
+                commands,
+                corrections,
+                events,
+            )
+            .await?
+        {
+            Ok(outcome) => outcome,
+            Err(end) => return Ok(Some(end)),
+        };
+        if let Some(reason) = outcome.as_ref().and_then(|o| o.hold.as_ref()) {
+            anyhow::bail!("UserPromptSubmit blocked: {reason}");
+        }
+        self.tools.set_intent(&prompt);
+        self.model.prompt(prompt);
+        if let Some(outcome) = outcome
+            && !outcome.context.is_empty()
+        {
+            self.model.prompt(outcome.context);
+        }
+        Ok(None)
+    }
     async fn run_turn(
         &mut self,
         prompt: String,
         commands: &mut mpsc::Receiver<Command>,
         events: &EventSink,
+        provider_failed: &mut bool,
     ) -> Result<TurnEnd> {
-        self.tools.set_intent(&prompt);
-        self.model.prompt(prompt);
+        let mut corrections = Vec::new();
+        if events.is_plugin_prompt() {
+            self.model.prompt(prompt);
+        } else if let Some(end) = self
+            .submit_prompt(prompt, false, commands, &mut corrections, events)
+            .await?
+        {
+            return Ok(end);
+        }
+        let mut stop_hook_active = false;
         events.checkpoint(self.checkpoint())?;
         loop {
-            let mut corrections = Vec::new();
+            while let Ok(command) = commands.try_recv() {
+                if let Some(end) = control(Some(command), &mut corrections, events)? {
+                    return Ok(end);
+                }
+            }
+            while !corrections.is_empty() {
+                for correction in std::mem::take(&mut corrections) {
+                    if let Some(end) = self
+                        .submit_prompt(correction, true, commands, &mut corrections, events)
+                        .await?
+                    {
+                        return Ok(end);
+                    }
+                    stop_hook_active = false;
+                }
+            }
+            if let Some(delivery) = events.observer_context()? {
+                self.model.prompt(delivery.text.clone());
+                events.checkpoint(self.checkpoint())?;
+                events.complete_observer_context(&delivery)?;
+            }
             let admission = events.begin_model()?;
+            let invocation_events = events.for_invocation(admission);
+            let mut session_context = invocation_events.native_observer_context()?;
+            if let Some(delivery) = &session_context
+                && !invocation_events.prepare_native_observer_context(delivery)?
+            {
+                session_context = None;
+            }
+            if let Some(delivery) = &session_context {
+                self.model.prompt(delivery.text.clone());
+                events.checkpoint(self.checkpoint())?;
+            }
+            let response_events = if self
+                .tools
+                .has_non_tool_plan(crate::plugins::hook_types::HookEvent::Stop)
+                || self
+                    .tools
+                    .has_non_tool_plan(crate::plugins::hook_types::HookEvent::StopFailure)
+            {
+                invocation_events.capture_assistant_text()
+            } else {
+                invocation_events.clone()
+            };
             let calls = {
-                let response = self.model.response(events);
+                if let Some(delivery) = &session_context {
+                    invocation_events.validate_native_observer_context(delivery)?;
+                }
+                let response = self.model.response(&response_events);
                 tokio::pin!(response);
                 loop {
                     tokio::select! {
@@ -136,11 +382,32 @@ impl NativeSession {
                     }
                 }
             };
-            events.finish_model(admission)?;
+            let settled = events.finish_model(admission);
             // A returned provider error has no pending native tool effects. Keep
             // the error, but settle its admission; cancellation exits above and
             // deliberately leaves the interrupted request uncertain.
-            let calls = calls?;
+            let calls = match calls {
+                Ok(calls) => {
+                    settled?;
+                    if let Some(delivery) = &session_context {
+                        invocation_events.complete_native_observer_context(delivery)?;
+                    }
+                    calls
+                }
+                Err(error) => {
+                    let error = match error.downcast::<ProviderResponseFailure>() {
+                        Ok(failure) => failure.0,
+                        Err(error) => return Err(error),
+                    };
+                    *provider_failed = true;
+                    let observation = match settled {
+                        Ok(()) => self.observe_provider_failure(&error, commands, events, &response_events).await,
+                        Err(error) => Err(error.context("provider admission could not be settled; StopFailure was not dispatched")),
+                    };
+                    preserve_provider_failure(observation, true, events)?;
+                    return Err(error);
+                }
+            };
             let finished = calls.is_empty();
             anyhow::ensure!(
                 finished || self.tools.tools_enabled(),
@@ -165,7 +432,7 @@ impl NativeSession {
                     self.pending.pop_front();
                     continue;
                 }
-                let operation = self.tools.execute(call, events);
+                let operation = self.tools.execute(call, &invocation_events);
                 tokio::pin!(operation);
                 let result = loop {
                     tokio::select! {
@@ -174,22 +441,167 @@ impl NativeSession {
                         result = &mut operation => break result?,
                     }
                 };
+                let release_call_id = result.call_id.clone();
+                let post = invocation_events.post_continuation(&result.call_id)?;
                 self.model.results(vec![result]);
                 self.pending.pop_front();
                 self.tools.take_completed();
                 events.checkpoint(self.checkpoint())?;
+                if !matches!(
+                    post,
+                    crate::plugins::receipts::PostContinuation::Held { .. }
+                ) {
+                    let release = self
+                        .tools
+                        .validate_post_release(&release_call_id, &invocation_events);
+                    tokio::pin!(release);
+                    loop {
+                        tokio::select! {
+                            biased;
+                            command = commands.recv() => if let Some(end) = control(command, &mut corrections, events)? { return Ok(end); },
+                            result = &mut release => { result?; break; },
+                        }
+                    }
+                    // Validation may finish in the same poll that queues a
+                    // command. Cancellation still precedes correction charge.
+                    while let Ok(command) = commands.try_recv() {
+                        if let Some(end) = control(Some(command), &mut corrections, events)? {
+                            return Ok(end);
+                        }
+                    }
+                    invocation_events.complete_local_post_release(&release_call_id)?;
+                }
+                match post {
+                    crate::plugins::receipts::PostContinuation::Held { reason } => {
+                        anyhow::bail!("post-tool continuation held: {reason}")
+                    }
+                    crate::plugins::receipts::PostContinuation::Correction => {
+                        while let Some(skipped) = self.pending.pop_front() {
+                            self.model.results(vec![ToolResult { call_id: skipped.id, tool: skipped.name, success: false,
+                                output: "Not executed: plugin-origin correction superseded the remaining response.".into(), exit_code: None }]);
+                        }
+                        break;
+                    }
+                    crate::plugins::receipts::PostContinuation::Continue => {}
+                }
             }
-            let corrected = !corrections.is_empty();
-            for correction in corrections {
-                self.tools.set_intent(&correction);
-                self.model.prompt(correction);
+            let delivered = if let Some(delivery) = events.observer_context()? {
+                self.model.prompt(delivery.text.clone());
+                events.checkpoint(self.checkpoint())?;
+                events.complete_observer_context(&delivery)?;
+                true
+            } else {
+                false
+            };
+            let corrected = !corrections.is_empty() || delivered;
+            while !corrections.is_empty() {
+                for correction in std::mem::take(&mut corrections) {
+                    if let Some(end) = self
+                        .submit_prompt(correction, true, commands, &mut corrections, events)
+                        .await?
+                    {
+                        return Ok(end);
+                    }
+                    stop_hook_active = false;
+                }
             }
             events.checkpoint(self.checkpoint())?;
             if finished && !corrected {
-                return Ok(TurnEnd::Complete);
+                let outcome = match self
+                    .lifecycle(
+                        crate::plugins::receipts::NonToolOccurrence::Stop {
+                            stop_hook_active,
+                            last_assistant_message: response_events.assistant_text()?,
+                        },
+                        commands,
+                        &mut corrections,
+                        events,
+                    )
+                    .await?
+                {
+                    Ok(outcome) => outcome,
+                    Err(end) => return Ok(end),
+                };
+                // A control arriving with hook completion wins before any correction is charged.
+                while let Ok(command) = commands.try_recv() {
+                    if let Some(end) = control(Some(command), &mut corrections, events)? {
+                        return Ok(end);
+                    }
+                }
+                if let Some(outcome) = outcome {
+                    if let Some(reason) = outcome.hold {
+                        anyhow::bail!("Stop gate unmet: {reason}");
+                    }
+                    if outcome.correction {
+                        let (runtime, _) = events.for_non_tool_context(outcome.operation)?;
+                        runtime.admit_non_tool_correction(outcome.operation)?;
+                        // Internal plugin correction is attributed context, not a developer submission or control.
+                        self.model.prompt(format!("[Plugin-origin Stop correction] Continue the original task to address the unmet Stop gate.\n{}", outcome.context));
+                        stop_hook_active = true;
+                        events.checkpoint(self.checkpoint())?;
+                        continue;
+                    }
+                }
+                if corrections.is_empty() {
+                    return Ok(TurnEnd::Complete);
+                }
             }
         }
     }
+}
+
+fn preserve_provider_failure(
+    result: Result<()>,
+    provider_failed: bool,
+    events: &EventSink,
+) -> Result<()> {
+    if !provider_failed {
+        return result;
+    }
+    if let Err(error) = result {
+        // Retention failure latches the runtime itself. Never replace the actual
+        // provider error with an observer, transport or cleanup error.
+        let _ = events.native_failure_diagnostic(format!(
+            "StopFailure observation or cleanup incomplete: {error:#}"
+        ));
+    }
+    Ok(())
+}
+
+fn failure_control(
+    command: Option<Command>,
+    commands: &mut mpsc::Receiver<Command>,
+    events: &EventSink,
+) -> Result<()> {
+    match command {
+        Some(Command::Shutdown) => {
+            let _ = events.select_host_end(crate::session::SessionEnd::Shutdown);
+            // Returning the provider error must not swallow the outer session's
+            // shutdown signal. Closing this same receiver makes its next recv
+            // take the existing command-channel shutdown path.
+            commands.close();
+            while let Ok(command) = commands.try_recv() {
+                if let Command::Submit { reply, .. } = command {
+                    let _ = reply.send(Err("Session is shutting down"));
+                }
+            }
+            anyhow::bail!(
+                "StopFailure observation stopped for shutdown; original provider failure retained"
+            );
+        }
+        Some(Command::Cancel) | None => {
+            anyhow::bail!("StopFailure observation cancelled; original provider failure retained")
+        }
+        Some(Command::Submit { reply, .. }) => {
+            let _ = reply.send(Err(
+                "Provider failed; submit a new turn after failure cleanup",
+            ));
+        }
+        Some(Command::Prompt(_)) => anyhow::bail!(
+            "StopFailure observation stopped by new input; original provider failure retained"
+        ),
+    }
+    Ok(())
 }
 
 fn control(
@@ -199,7 +611,8 @@ fn control(
 ) -> Result<Option<TurnEnd>> {
     match command {
         Some(Command::Cancel) => Ok(Some(TurnEnd::Cancelled)),
-        Some(Command::Shutdown) | None => Ok(Some(TurnEnd::Shutdown)),
+        Some(Command::Shutdown) => Ok(Some(TurnEnd::Shutdown)),
+        None => Ok(Some(TurnEnd::CommandsClosed)),
         Some(Command::Prompt(text)) => {
             if crate::workflow::is_control(&text) {
                 events.emit_advisory(Event::Error {
@@ -242,6 +655,10 @@ fn correction_notice(events: &EventSink, admitted: bool) -> Result<()> {
         }
     })
 }
+
+#[cfg(test)]
+#[path = "native/post_tests.rs"]
+mod post_tests;
 
 #[cfg(test)]
 mod tests {
@@ -521,3 +938,6 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod non_tool_tests;

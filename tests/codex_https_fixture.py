@@ -1,5 +1,6 @@
 #!/usr/bin/python3
 """Keep installed Codex on its built-in route while serving local model traffic."""
+
 import json
 import os
 from pathlib import Path
@@ -8,24 +9,52 @@ import socketserver
 import ssl
 import subprocess
 import sys
-import traceback
+import threading
+import time
 from urllib.parse import urlsplit
 
 
 class _ConnectHandler(socketserver.StreamRequestHandler):
     def handle(self):
+        self.phase = "request"
+        try:
+            self._handle_connect()
+        except (ssl.SSLError, OSError) as error:
+            if self.phase == "TLS handshake" and type(error) in (
+                ssl.SSLEOFError,
+                ConnectionResetError,
+            ):
+                self.server.record_handshake_abort(error)
+                return
+            # Exception messages can contain peer data. Keep diagnostics bounded.
+            self.server.errors.append(
+                f"Codex HTTPS fixture failed during {self.phase}: "
+                f"{type(error).__name__} errno={error.errno}"
+            )
+
+    def _handle_connect(self):
         request = self.rfile.readline(8192)
+        if not request:
+            # Clients can open a pooled connection and close it without using it.
+            return
         if not request.endswith(b"\n"):
-            self.server.errors.append("oversized HTTPS proxy request")
+            kind = "oversized" if len(request) == 8192 else "truncated"
+            self.server.errors.append(f"{kind} HTTPS proxy request")
             return
         total = len(request)
+        self.phase = "headers"
         while True:
             header = self.rfile.readline(8192)
             total += len(header)
-            if total > 64 * 1024:
+            if total > 64 * 1024 or (
+                len(header) == 8192 and not header.endswith(b"\n")
+            ):
                 self.server.errors.append("oversized HTTPS proxy headers")
                 return
-            if header in (b"\r\n", b"\n", b""):
+            if not header.endswith(b"\n"):
+                self.server.errors.append("truncated HTTPS proxy headers")
+                return
+            if header in (b"\r\n", b"\n"):
                 break
         try:
             method, target, _ = request.decode("ascii").strip().split()
@@ -33,26 +62,105 @@ class _ConnectHandler(socketserver.StreamRequestHandler):
             self.server.errors.append("invalid HTTPS proxy request")
             return
         self.server.connect_targets.append(target)
+        self.phase = "CONNECT reply"
         if method != "CONNECT" or target != "chatgpt.com:443":
+            self.server.errors.append("unexpected HTTPS proxy target or method")
             self.wfile.write(b"HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n")
             self.wfile.flush()
-            self.server.errors.append(f"unexpected HTTPS proxy target: {target}")
             return
         self.wfile.write(b"HTTP/1.1 200 Connection Established\r\n\r\n")
         self.wfile.flush()
-        try:
-            stream = self.server.tls_context.wrap_socket(self.connection, server_side=True)
-            self.server.model_handler(stream, self.client_address, self.server)
-        except (ssl.SSLError, OSError) as error:
-            self.server.errors.append(f"Codex HTTPS fixture failed: {error}")
+        self.phase = "TLS handshake"
+        stream = self.server.tls_context.wrap_socket(self.connection, server_side=True)
+        self.phase = "model handler"
+        stream.settimeout(None)
+        self.server.model_handler(stream, self.client_address, self.server)
 
 
 class CodexHttpsServer(socketserver.ThreadingTCPServer):
     allow_reuse_address = True
     daemon_threads = True
 
+    drain_timeout = 5.0
+
+    def __init__(self, *args, **kwargs):
+        self.errors = []
+        self._handlers = threading.Condition()
+        self._active_handlers = 0
+        self._abort_lock = threading.Lock()
+        self._abort_count = 0
+        super().__init__(*args, **kwargs)
+
+    def get_request(self):
+        request, address = super().get_request()
+        request.settimeout(5.0)
+        return request, address
+
+    def process_request(self, request, client_address):
+        # Register before starting the thread so close cannot miss a new handler.
+        with self._handlers:
+            self._active_handlers += 1
+        try:
+            super().process_request(request, client_address)
+        except BaseException:
+            with self._handlers:
+                self._active_handlers -= 1
+                self._handlers.notify_all()
+            raise
+
+    def process_request_thread(self, request, client_address):
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            with self._handlers:
+                self._active_handlers -= 1
+                self._handlers.notify_all()
+
+    def server_close(self):
+        super().server_close()
+        with self._handlers:
+            settled = self._handlers.wait_for(
+                lambda: self._active_handlers == 0, timeout=self.drain_timeout
+            )
+            if not settled:
+                self.errors.append(
+                    "Codex HTTPS fixture has unsettled connection handlers"
+                )
+
+    def record_handshake_abort(self, error):
+        # Only transport observations: no assertion about why a peer disconnected.
+        with self._abort_lock:
+            if self._abort_count >= 128:
+                if self._abort_count == 128:
+                    self.errors.append(
+                        "Codex HTTPS fixture abort journal limit exceeded"
+                    )
+                    self._abort_count += 1
+                return
+            self._abort_count += 1
+            record = {
+                "sequence": self._abort_count,
+                "monotonic_ns": time.monotonic_ns(),
+                "phase": "TLS handshake",
+                "type": type(error).__name__,
+                "errno": error.errno,
+            }
+            try:
+                with self.abort_journal.open("a", encoding="utf-8") as journal:
+                    journal.write(json.dumps(record) + "\n")
+                    journal.flush()
+                    os.fsync(journal.fileno())
+            except OSError as failure:
+                self.errors.append(
+                    "Codex HTTPS fixture abort journal write failed: "
+                    f"{type(failure).__name__} errno={failure.errno}"
+                )
+
     def handle_error(self, _request, _client_address):
-        self.errors.append(traceback.format_exc(limit=1).strip())
+        error = sys.exception()
+        self.errors.append(
+            f"Codex HTTPS fixture handler failed: {type(error).__name__}"
+        )
 
 
 def create_server(directory, model_handler):
@@ -142,6 +250,12 @@ def create_server(directory, model_handler):
         **quiet,
     )
     server = CodexHttpsServer(("127.0.0.1", 0), _ConnectHandler)
+    server.abort_journal = directory / "connection-aborts.jsonl"
+    try:
+        server.abort_journal.touch(exist_ok=False)
+    except OSError:
+        server.server_close()
+        raise
     server.server_port = server.server_address[1]
     server.ca_certificate = ca_certificate
     server.connect_targets = []

@@ -40,6 +40,16 @@ pub struct AccessPolicy {
     pub extension: Option<Arc<dyn ToolExtension>>,
     /// Explicit session configuration; repositories and models cannot enable servers.
     pub language_servers: crate::language_services::LanguageServers,
+    /// Host-selected lifecycle owner; packages cannot configure a backend relay.
+    pub lifecycle: Option<Arc<crate::plugins::bridge::Lifecycle>>,
+    /// Host-only model-hook evidence capability; never deserialized with Connection.
+    pub snapshot: Option<Arc<crate::plugins::runners::SnapshotInspection>>,
+    /// Frozen host-owned synchronous completed-tool plans.
+    pub post_tools: Vec<Arc<crate::plugins::lifecycle::PostToolPlan>>,
+    /// Frozen host-owned pre-tool admission plan.
+    pub pre_tool: Option<Arc<crate::plugins::dispatch::PreToolPlan>>,
+    /// Frozen host-owned native prompt/Stop plans. Source callback wiring is separate.
+    pub non_tools: Vec<Arc<crate::plugins::non_tool::NonToolPlan>>,
 }
 
 impl Default for AccessPolicy {
@@ -53,6 +63,11 @@ impl Default for AccessPolicy {
             supervisor: None,
             extension: None,
             language_servers: crate::language_services::LanguageServers::default(),
+            lifecycle: None,
+            snapshot: None,
+            post_tools: Vec::new(),
+            pre_tool: None,
+            non_tools: Vec::new(),
         }
     }
 }
@@ -74,14 +89,14 @@ impl AccessPolicy {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 pub struct ToolCall {
     pub id: String,
     pub name: String,
     pub arguments: Value,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 pub struct ToolResult {
     pub call_id: String,
     pub tool: String,
@@ -129,6 +144,73 @@ pub trait ToolExtension: Send + Sync {
     async fn execute(&self, call: &ToolCall, events: &EventSink) -> Result<String>;
 }
 
+struct ToolEffect<'a> {
+    events: &'a EventSink,
+    started: bool,
+    admission_refused: bool,
+    admission: Option<crate::plugins::admission::AdmittedCandidate>,
+    boundary: Option<Arc<tokio::sync::Mutex<()>>>,
+    guard: Option<Arc<tokio::sync::OwnedMutexGuard<()>>>,
+}
+
+/// The same descriptor resolver used by file admission pins the target inspected
+/// by path matchers. A missing leaf pins its existing parent instead.
+pub(crate) struct PluginTarget {
+    anchor: File,
+    path: PathBuf,
+    leaf: Option<std::ffi::OsString>,
+}
+
+impl PluginTarget {
+    pub(crate) fn verify(&self) -> Result<()> {
+        ensure!(
+            descriptor_path(&self.anchor)? == self.path,
+            "plugin target moved after path matching; retry"
+        );
+        Ok(())
+    }
+
+    fn bind(&self, file: &File, parent: bool) -> Result<()> {
+        let expected = self.anchor.metadata()?;
+        let actual = file.metadata()?;
+        ensure!(
+            parent == self.leaf.is_some()
+                && (expected.dev(), expected.ino()) == (actual.dev(), actual.ino())
+                && descriptor_path(file)? == self.path,
+            "plugin target changed after path matching; retry"
+        );
+        self.verify()
+    }
+}
+
+impl ToolEffect<'_> {
+    fn bind_target(&self, file: &File, parent: bool) -> Result<()> {
+        if let Some(target) = self.admission.as_ref().and_then(|a| a.target.as_ref()) {
+            target.bind(file, parent)?;
+        }
+        Ok(())
+    }
+
+    async fn lock(&mut self) {
+        if self.guard.is_none()
+            && let Some(boundary) = &self.boundary
+        {
+            self.guard = Some(Arc::new(boundary.clone().lock_owned().await));
+        }
+    }
+    async fn start(&mut self) -> Result<()> {
+        self.lock().await;
+        if !self.started
+            && let Some(admission) = &self.admission
+        {
+            admission.validate(self.guard.clone()).await?;
+        }
+        self.events.tool_effect()?;
+        self.started = true;
+        Ok(())
+    }
+}
+
 pub struct ToolExecutor {
     root: Arc<File>,
     workspace: PathBuf,
@@ -138,6 +220,11 @@ pub struct ToolExecutor {
     worktree: Option<Arc<crate::worktree_access::WorktreeAccess>>,
     intent: Mutex<String>,
     hooks: Vec<Box<dyn ToolHook>>,
+    plugin_plan: Option<Arc<crate::plugins::dispatch::PreToolPlan>>,
+    post_tool_plans: Vec<Arc<crate::plugins::lifecycle::PostToolPlan>>,
+    post_validations:
+        Mutex<std::collections::BTreeMap<u64, crate::plugins::lifecycle::PostValidation>>,
+    gate_workspace: Arc<crate::plugins::gate_snapshot::GateWorkspace>,
     // Execution is sequential. Keep the current receipt across cancellation
     // during event delivery or a presentation error; never retain a full copy
     // of the session history here.
@@ -146,11 +233,55 @@ pub struct ToolExecutor {
 }
 
 impl ToolExecutor {
+    pub(crate) fn hook_host(&self) -> crate::plugins::runners::HookHost {
+        crate::plugins::runners::HookHost::new(
+            self.root.clone(),
+            self.workspace.clone(),
+            self.gate_workspace.frozen_credentials(),
+            self.access.supervisor.clone(),
+        )
+    }
+
     pub fn new(workspace: &Path) -> Result<Self> {
         Self::with_policy(workspace, &AccessPolicy::default())
     }
 
     pub fn with_policy(workspace: &Path, access: &AccessPolicy) -> Result<Self> {
+        ensure!(
+            access.snapshot.is_none()
+                || (!access.unrestricted
+                    && !access.strict_worktree
+                    && access.oracle.is_none()
+                    && access.extension.is_none()
+                    && !access.language_servers.enabled()
+                    && access.lifecycle.is_none()
+                    && access.non_tools.is_empty()
+                    && access.post_tools.is_empty()
+                    && access.pre_tool.is_none()),
+            "snapshot hook policy cannot inherit live tools, extensions, language services or lifecycle dispatch"
+        );
+        ensure!(
+            access.post_tools.len() <= 2
+                && access
+                    .post_tools
+                    .iter()
+                    .enumerate()
+                    .all(|(index, plan)| access.post_tools[..index]
+                        .iter()
+                        .all(|earlier| earlier.plan.event != plan.plan.event)),
+            "post-tool plans repeat an event or exceed supported events"
+        );
+        ensure!(
+            access.non_tools.len() <= 5
+                && access
+                    .non_tools
+                    .iter()
+                    .enumerate()
+                    .all(|(index, plan)| access.non_tools[..index]
+                        .iter()
+                        .all(|earlier| earlier.plan.event != plan.plan.event)),
+            "non-tool plans repeat an event or exceed supported events"
+        );
         access.language_servers.validate()?;
         ensure!(
             !access.language_servers.enabled() || (access.tools_enabled && !access.strict_worktree),
@@ -205,7 +336,11 @@ impl ToolExecutor {
         .context("workspace requires Linux openat2")?;
         let root = Arc::new(root);
         let workspace = workspace.canonicalize().context("resolve tool workspace")?;
-        let developer = if !access.unrestricted && !access.strict_worktree && access.tools_enabled {
+        let developer = if !access.unrestricted
+            && !access.strict_worktree
+            && access.tools_enabled
+            && access.snapshot.is_none()
+        {
             Some(Arc::new(crate::developer_access::DeveloperAccess::new(
                 &workspace,
                 &access.credential_paths,
@@ -259,6 +394,15 @@ impl ToolExecutor {
             },
             intent: Mutex::new(String::new()),
             hooks: Vec::new(),
+            plugin_plan: access.pre_tool.clone(),
+            post_tool_plans: access.post_tools.clone(),
+            post_validations: Mutex::new(Default::default()),
+            gate_workspace: Arc::new(
+                crate::plugins::gate_snapshot::GateWorkspace::open_with_credentials(
+                    &workspace,
+                    &access.credential_paths,
+                )?,
+            ),
             completed: Mutex::new(None),
         })
     }
@@ -266,6 +410,9 @@ impl ToolExecutor {
     pub fn definitions(&self) -> Vec<Value> {
         if !self.access.tools_enabled {
             return Vec::new();
+        }
+        if let Some(snapshot) = &self.access.snapshot {
+            return snapshot.definitions();
         }
         let mut tools = definitions();
         if self.access.strict_worktree {
@@ -322,6 +469,159 @@ impl ToolExecutor {
         Ok(())
     }
 
+    /// Host-selected immutable registration; package discovery/activation is separate.
+    pub fn register_pre_tool_plan(
+        &mut self,
+        plan: Arc<crate::plugins::dispatch::PreToolPlan>,
+    ) -> Result<()> {
+        ensure!(
+            self.plugin_plan.is_none(),
+            "pre-tool plan is already frozen"
+        );
+        self.plugin_plan = Some(plan);
+        Ok(())
+    }
+
+    pub fn register_non_tool_plan(
+        &mut self,
+        plan: Arc<crate::plugins::non_tool::NonToolPlan>,
+    ) -> Result<()> {
+        ensure!(
+            self.access.snapshot.is_none(),
+            "snapshot tools cannot dispatch lifecycle hooks"
+        );
+        ensure!(
+            !self
+                .access
+                .non_tools
+                .iter()
+                .any(|p| p.plan.event == plan.plan.event),
+            "lifecycle event already registered"
+        );
+        self.access.non_tools.push(plan);
+        Ok(())
+    }
+    pub(crate) async fn dispatch_non_tool(
+        &self,
+        occurrence: crate::plugins::receipts::NonToolOccurrence,
+        events: &EventSink,
+    ) -> Result<Option<crate::plugins::non_tool::NonToolOutcome>> {
+        let plan = self
+            .access
+            .non_tools
+            .iter()
+            .find(|p| p.plan.event == occurrence.event());
+        if plan.is_none() && !events.has_source_lifecycle() {
+            return Ok(None);
+        }
+        ensure!(
+            self.access.snapshot.is_none(),
+            "snapshot tools cannot dispatch lifecycle hooks"
+        );
+        let metadata = self.root.metadata()?;
+        let Some(plan) = plan else {
+            return crate::plugins::non_tool::NonToolPlan::observe_source(
+                occurrence,
+                events,
+                (metadata.dev(), metadata.ino()),
+            )
+            .map(Some);
+        };
+        plan.dispatch(
+            occurrence,
+            events,
+            self.gate_workspace.clone(),
+            (metadata.dev(), metadata.ino()),
+            self,
+        )
+        .await
+        .map(Some)
+    }
+    pub(crate) fn has_non_tool_plan(&self, event: crate::plugins::hook_types::HookEvent) -> bool {
+        self.access.non_tools.iter().any(|p| p.plan.event == event)
+    }
+    pub(crate) fn native_lifetime_plans(
+        &self,
+    ) -> Vec<(crate::plugins::hook_types::HookEvent, String)> {
+        use crate::plugins::hook_types::HookEvent;
+        [HookEvent::SessionStart, HookEvent::SessionEnd]
+            .into_iter()
+            .filter_map(|event| {
+                self.access
+                    .non_tools
+                    .iter()
+                    .find(|p| p.plan.event == event)
+                    .map(|p| (event, p.plan.digest.clone()))
+            })
+            .collect()
+    }
+    pub fn register_post_tool_plan(
+        &mut self,
+        plan: Arc<crate::plugins::lifecycle::PostToolPlan>,
+    ) -> Result<()> {
+        ensure!(
+            self.access.snapshot.is_none(),
+            "snapshot tools cannot dispatch lifecycle hooks"
+        );
+        ensure!(
+            !self
+                .post_tool_plans
+                .iter()
+                .any(|p| p.plan.event == plan.plan.event),
+            "post-tool event already registered"
+        );
+        self.post_tool_plans.push(plan);
+        Ok(())
+    }
+
+    pub(crate) fn retain_post_validation(
+        &self,
+        id: u64,
+        validation: crate::plugins::lifecycle::PostValidation,
+    ) -> Result<()> {
+        let mut pending = self
+            .post_validations
+            .lock()
+            .map_err(|_| anyhow::anyhow!("post validation lock failed"))?;
+        ensure!(
+            pending.len() < 64 && !pending.contains_key(&id),
+            "post-tool validation reservation repeated or exceeds bound"
+        );
+        pending.insert(id, validation);
+        Ok(())
+    }
+    pub(crate) async fn validate_post_release(
+        &self,
+        call_id: &str,
+        events: &EventSink,
+    ) -> Result<()> {
+        let Some((runtime, id)) = events.post_delivery_context(call_id)? else {
+            return events.validate_hook_delivery();
+        };
+        let validation = self
+            .post_validations
+            .lock()
+            .map_err(|_| anyhow::anyhow!("post validation lock failed"))?
+            .remove(&id)
+            .context("post-tool validation missing; never replay release")?;
+        let result = async {
+            runtime.validate_post_delivery_owner(id)?;
+            tokio::time::timeout(runtime.remaining()?, validation.validate())
+                .await
+                .context("post-tool release freshness validation timed out")??;
+            runtime.validate_post_delivery_owner(id)?;
+            Ok(())
+        }
+        .await;
+        if let Err(error) = &result {
+            runtime.hold_post_delivery(
+                id,
+                &format!("post-tool release validation failed: {error:#}"),
+            )?;
+        }
+        result
+    }
+
     pub fn add_hook(&mut self, hook: Box<dyn ToolHook>) {
         self.hooks.push(hook);
     }
@@ -333,17 +633,54 @@ impl ToolExecutor {
             .take()
     }
 
+    /// Verification consumes immutable evidence after post-tool continuation is
+    /// released. Plugin presentation remains separate from check receipts.
+    pub(crate) async fn execute_for_evidence(
+        &self,
+        call: ToolCall,
+        events: &EventSink,
+    ) -> Result<ToolResult> {
+        let presentation = self.execute(call, events).await?;
+        self.validate_post_release(&presentation.call_id, events)
+            .await?;
+        events.complete_local_post_release(&presentation.call_id)?;
+        Ok(events
+            .original_tool_evidence(&presentation.call_id)?
+            .unwrap_or(presentation))
+    }
+
     pub async fn execute(&self, mut call: ToolCall, events: &EventSink) -> Result<ToolResult> {
+        ensure!(self.hooks.len() <= 32, "too many tool hooks");
+        let (scoped_events, replay) = events.begin_tool(&call)?;
+        if let Some(result) = replay {
+            return Ok(result);
+        }
+        let events = &scoped_events;
         self.take_completed();
         let identity = (call.id.clone(), call.name.clone());
+        let root_metadata = self.root.metadata()?;
+        let workspace_identity = (root_metadata.dev(), root_metadata.ino());
+        let mut effect = ToolEffect {
+            events,
+            started: false,
+            admission_refused: false,
+            admission: None,
+            boundary: if matches!(call.name.as_str(), "write" | "edit" | "bash") {
+                events.mutation_boundary(workspace_identity)?
+            } else {
+                None
+            },
+            guard: None,
+        };
+        let mut admitted_attempt = false;
         let execution = async {
             ensure!(self.access.tools_enabled, "the Oracle cannot execute tools");
             for hook in &self.hooks {
                 hook.before(&mut call)?;
             }
             ensure!(
-                call.id == identity.0,
-                "hooks cannot change tool call identity"
+                call.id == identity.0 && call.name == identity.1,
+                "hooks cannot change tool identity"
             );
             ensure!(
                 !call.id.is_empty() && call.id.len() <= 256,
@@ -353,22 +690,34 @@ impl ToolExecutor {
                 serde_json::to_vec(&call.arguments)?.len() <= MAX_BYTES,
                 "tool arguments exceed 1 MiB"
             );
+            if let Some(plan) = &self.plugin_plan {
+                effect.admission = Some(plan.admit(&mut call, events, self.gate_workspace.clone(), workspace_identity, self).await?);
+            }
+            self.validate_final_call(&call)?;
+            events.admit_tool(&call)?;
+            admitted_attempt = true;
             events
                 .emit(Event::ToolStarted { call: call.clone() })
                 .await?;
+            if let Some(snapshot) = &self.access.snapshot {
+                effect.start().await?;
+                return Ok((snapshot.execute(&call)?, None));
+            }
             match call.name.as_str() {
                 "read" => {
                     let args: ReadArgs = serde_json::from_value(call.arguments.clone())?;
                     let mut file = self
-                        .admitted_file(&call, &args.path, OFlags::RDONLY, false, events)
+                        .admitted_file(&call, &args.path, OFlags::RDONLY, false, &mut effect)
                         .await?;
+                    effect.start().await?;
                     Ok((read_text(&mut file)?, None))
                 }
                 "write" => {
                     let args: WriteArgs = serde_json::from_value(call.arguments.clone())?;
                     let mut file = self
-                        .admitted_file(&call, &args.path, OFlags::WRONLY, true, events)
+                        .admitted_file(&call, &args.path, OFlags::WRONLY, true, &mut effect)
                         .await?;
+                    effect.start().await?;
                     write_text(&mut file, &args.content)?;
                     Ok((
                         format!("Wrote {} bytes to {}", args.content.len(), args.path),
@@ -379,7 +728,7 @@ impl ToolExecutor {
                     let args: EditArgs = serde_json::from_value(call.arguments.clone())?;
                     ensure!(!args.old_text.is_empty(), "old_text must not be empty");
                     let mut file = self
-                        .admitted_file(&call, &args.path, OFlags::RDWR, false, events)
+                        .admitted_file(&call, &args.path, OFlags::RDWR, false, &mut effect)
                         .await?;
                     let old = read_text(&mut file)?;
                     ensure!(
@@ -387,6 +736,7 @@ impl ToolExecutor {
                         "edit requires exactly one matching old_text"
                     );
                     let new = old.replacen(&args.old_text, &args.new_text, 1);
+                    effect.start().await?;
                     write_text(&mut file, &new)?;
                     Ok((format!("Edited {}", args.path), None))
                 }
@@ -397,13 +747,13 @@ impl ToolExecutor {
                         "invalid Bash command size"
                     );
                     if self.access.unrestricted {
-                        self.review(&call, None, None, events).await?;
+                        self.review(&call, None, None, &mut effect).await?;
                     }
-                    self.bash(&call.id, &args.command, events).await
+                    self.bash(&call.id, &args.command, &mut effect).await
                 }
                 "lsp" => {
                     let args = serde_json::from_value(call.arguments.clone())?;
-                    Ok((self.language_query(args).await?, None))
+                    Ok((self.language_query(args, Some(&mut effect)).await?, None))
                 }
                 _ => {
                     let extension = self
@@ -419,6 +769,7 @@ impl ToolExecutor {
                         "tool is not authorized: {}",
                         call.name
                     );
+                    effect.start().await?;
                     let output = extension.execute(&call, events).await?;
                     ensure!(output.len() <= MAX_BYTES, "parent tool result exceeds 1 MiB; inspect the retained agent record with /agent ID");
                     Ok((output, None))
@@ -426,17 +777,26 @@ impl ToolExecutor {
             }
         }
         .await;
+        effect.guard.take();
+        if effect.admission_refused {
+            ensure!(
+                !effect.started && execution.is_err(),
+                "refused policy admission cannot have executed effects"
+            );
+            events.refuse_tool_execution()?;
+            admitted_attempt = false;
+        }
         let mut result = match execution {
             Ok((output, exit_code)) => ToolResult {
                 call_id: identity.0,
-                tool: call.name,
+                tool: identity.1,
                 success: exit_code.is_none_or(|v| v == 0),
                 output,
                 exit_code,
             },
             Err(error) => ToolResult {
                 call_id: identity.0,
-                tool: call.name,
+                tool: identity.1,
                 success: false,
                 output: format!("{error:#}"),
                 exit_code: None,
@@ -445,6 +805,10 @@ impl ToolExecutor {
         // No await separates completion from this receipt. The session can
         // recover it even if event delivery is cancelled or presentation fails.
         *self.completed.lock().expect("tool receipt lock poisoned") = Some(result.clone());
+        events.original_tool_result(&result)?;
+        // The visible completion is original evidence, retained before any post await.
+        let completion = events.retain_tool_completion(result.clone())?;
+        let original = result.clone();
         if result.success
             && matches!(result.tool.as_str(), "write" | "edit")
             && let Some(path) = call.arguments["path"].as_str()
@@ -455,7 +819,7 @@ impl ToolExecutor {
         {
             // The completed mutation is recoverable before any diagnostic await.
             let feedback = self
-                .language_query(crate::language_services::Args::diagnostics(path))
+                .language_query(crate::language_services::Args::diagnostics(path), None)
                 .await;
             result.output.push_str("\nLanguage diagnostics: ");
             match feedback {
@@ -464,26 +828,174 @@ impl ToolExecutor {
                     "unavailable or pending: {error:#}; verification not run"
                 )),
             }
-            *self.completed.lock().expect("tool receipt lock poisoned") = Some(result.clone());
         }
-        // The actual result is retained first. Presentation never replaces evidence.
-        events
-            .emit(Event::ToolFinished {
-                result: result.clone(),
-            })
-            .await?;
-        for hook in &self.hooks {
+        if admitted_attempt {
+            let event = if original.success {
+                crate::plugins::hook_types::HookEvent::PostToolUse
+            } else {
+                crate::plugins::hook_types::HookEvent::PostToolUseFailure
+            };
+            if let Some(plan) = self
+                .post_tool_plans
+                .iter()
+                .find(|plan| plan.plan.event == event)
+            {
+                result = plan
+                    .dispatch(
+                        &call,
+                        &result,
+                        events,
+                        self.gate_workspace.clone(),
+                        workspace_identity,
+                        self,
+                    )
+                    .await?;
+            }
+        }
+        events.model_tool_result(&result)?;
+        *self.completed.lock().expect("tool receipt lock poisoned") = Some(result.clone());
+        if self.hooks.is_empty() || !effect.started {
+            events.settle_tool()?;
+        }
+        completion.await?;
+        // Presentation never replaces the original evidence.
+        if !effect.started {
+            return Ok(result);
+        }
+        for (index, hook) in self.hooks.iter().enumerate() {
+            events.tool_observer(index, None)?;
+            let text = match hook.present(&result) {
+                Ok(text) => {
+                    events.tool_observer(index, Some(Ok(&text)))?;
+                    text
+                }
+                Err(error) => {
+                    events.tool_observer(index, Some(Err(&format!("{error:#}"))))?;
+                    return Err(error);
+                }
+            };
+            if index + 1 == self.hooks.len() {
+                events.settle_tool()?;
+            }
             events
                 .emit(Event::ToolPresentation {
                     call_id: result.call_id.clone(),
-                    text: hook.present(&result)?,
+                    text,
                 })
                 .await?;
         }
         Ok(result)
     }
 
-    async fn language_query(&self, args: crate::language_services::Args) -> Result<String> {
+    fn validate_final_call(&self, call: &ToolCall) -> Result<()> {
+        ensure!(
+            serde_json::to_vec(&call.arguments)?.len() <= MAX_BYTES,
+            "tool arguments exceed 1 MiB"
+        );
+        match call.name.as_str() {
+            "read" => {
+                let _: ReadArgs = serde_json::from_value(call.arguments.clone())?;
+            }
+            "write" => {
+                let args: WriteArgs = serde_json::from_value(call.arguments.clone())?;
+                ensure!(
+                    args.content.len() <= MAX_BYTES,
+                    "file content exceeds 1 MiB"
+                );
+            }
+            "edit" => {
+                let args: EditArgs = serde_json::from_value(call.arguments.clone())?;
+                ensure!(!args.old_text.is_empty(), "old_text must not be empty");
+            }
+            "bash" => {
+                let args: BashArgs = serde_json::from_value(call.arguments.clone())?;
+                ensure!(
+                    !args.command.is_empty() && args.command.len() <= 65536,
+                    "invalid Bash command size"
+                );
+            }
+            _ => ensure!(
+                self.plugin_plan.is_none(),
+                "plugin admission for extension and language-service tools requires their effect owner integration"
+            ),
+        }
+        Ok(())
+    }
+
+    /// Normalize only the file tools whose effects this executor owns. O_PATH
+    /// inspects identity without reading contents or creating/truncating a file;
+    /// ordinary access checks and Oracle review still run in admitted_file.
+    pub(crate) fn plugin_candidate(&self, call: &mut ToolCall) -> Result<Option<PluginTarget>> {
+        if !matches!(call.name.as_str(), "read" | "write" | "edit") {
+            return Ok(None);
+        }
+        let path = call.arguments["path"]
+            .as_str()
+            .context("file tool requires a path")?;
+        ensure!(!path.is_empty() && path.len() <= 4096, "invalid tool path");
+        let resolve = if self.access.strict_worktree {
+            validate_path(path)?;
+            RESOLVE | ResolveFlags::NO_XDEV
+        } else if self.access.unrestricted {
+            ResolveFlags::empty()
+        } else if call.name == "read" {
+            ResolveFlags::NO_MAGICLINKS
+        } else {
+            validate_path(path)?;
+            RESOLVE
+        };
+        let opened = openat2(
+            &*self.root,
+            path,
+            OFlags::PATH | OFlags::CLOEXEC,
+            Mode::empty(),
+            resolve,
+        );
+        let (anchor, leaf) = match opened {
+            Ok(fd) => (File::from(fd), None),
+            Err(rustix::io::Errno::NOENT) if call.name == "write" => {
+                let path = Path::new(path);
+                let name = path
+                    .file_name()
+                    .context("new file needs a name")?
+                    .to_owned();
+                let parent = path
+                    .parent()
+                    .filter(|p| !p.as_os_str().is_empty())
+                    .unwrap_or(Path::new("."));
+                let directory = openat2(
+                    &*self.root,
+                    parent,
+                    OFlags::PATH | OFlags::DIRECTORY | OFlags::CLOEXEC,
+                    Mode::empty(),
+                    resolve,
+                )
+                .context("open existing parent directory for plugin path matching")?;
+                (File::from(directory), Some(name))
+            }
+            Err(error) => {
+                return Err(error).context("resolve plugin candidate with tool access policy");
+            }
+        };
+        let target = PluginTarget {
+            path: descriptor_path(&anchor)?,
+            anchor,
+            leaf,
+        };
+        let absolute = target
+            .leaf
+            .as_ref()
+            .map_or_else(|| target.path.clone(), |leaf| target.path.join(leaf));
+        let normalized = absolute.strip_prefix(&self.workspace).unwrap_or(&absolute);
+        call.arguments["path"] = json!(normalized.to_str().context("tool target is not UTF-8")?);
+        Ok(Some(target))
+    }
+
+    async fn language_query(
+        &self,
+        args: crate::language_services::Args,
+        effect: Option<&mut ToolEffect<'_>>,
+    ) -> Result<String> {
         let manager = self
             .language_services
             .as_ref()
@@ -496,6 +1008,9 @@ impl ToolExecutor {
         };
         let path = args.path.clone();
         let original = source.clone();
+        if let Some(effect) = effect {
+            effect.start().await?;
+        }
         let output = manager.execute(args, source).await?;
         if let (Some(path), Some(original)) = (path, original) {
             ensure!(
@@ -538,7 +1053,13 @@ impl ToolExecutor {
         read_text(&mut file)
     }
 
-    fn open(&self, path: &str, flags: OFlags, create: bool) -> Result<File> {
+    async fn open(
+        &self,
+        path: &str,
+        flags: OFlags,
+        create: bool,
+        effect: &mut ToolEffect<'_>,
+    ) -> Result<File> {
         validate_path(path)?;
         if let Some(worktree) = &self.worktree {
             worktree.check_path(&self.workspace.join(path))?;
@@ -558,16 +1079,30 @@ impl ToolExecutor {
         let fd = openat2(&*self.root, path, flags, Mode::empty(), resolve);
         let file = match fd {
             Ok(fd) => File::from(fd),
-            Err(rustix::io::Errno::NOENT) if create => File::from(
-                openat2(
-                    &*self.root,
-                    path,
-                    flags | OFlags::CREATE | OFlags::EXCL,
-                    Mode::RUSR | Mode::WUSR,
-                    resolve,
+            Err(rustix::io::Errno::NOENT) if create => {
+                effect.start().await?;
+                // With a plugin plan, create relative to the parent that the
+                // matchers inspected, not a second traversal of the request.
+                let target = effect.admission.as_ref().and_then(|a| a.target.as_ref());
+                let (root, path) = if let Some(target) = target {
+                    (
+                        &target.anchor,
+                        Path::new(target.leaf.as_ref().context("plugin target disappeared")?),
+                    )
+                } else {
+                    (&*self.root, Path::new(path))
+                };
+                File::from(
+                    openat2(
+                        root,
+                        path,
+                        flags | OFlags::CREATE | OFlags::EXCL,
+                        Mode::RUSR | Mode::WUSR,
+                        resolve,
+                    )
+                    .context("create file beneath workspace; parent directory must exist")?,
                 )
-                .context("create file beneath workspace; parent directory must exist")?,
-            ),
+            }
             Err(error) => {
                 return Err(error).context("open file beneath workspace without symlinks");
             }
@@ -578,6 +1113,9 @@ impl ToolExecutor {
             "tools require regular files without hard links"
         );
         ensure!(meta.len() <= MAX_BYTES as u64, "file exceeds 1 MiB");
+        if !effect.started {
+            effect.bind_target(&file, false)?;
+        }
         Ok(file)
     }
 
@@ -587,21 +1125,25 @@ impl ToolExecutor {
         path: &str,
         flags: OFlags,
         create: bool,
-        events: &EventSink,
+        effect: &mut ToolEffect<'_>,
     ) -> Result<File> {
         if self.access.strict_worktree {
-            return self.open(path, flags, create);
+            effect.lock().await;
+            return self.open(path, flags, create, effect).await;
         }
         if !self.access.unrestricted {
             if flags == OFlags::RDONLY {
-                return self
+                let file = self
                     .developer
                     .as_ref()
                     .context("developer tools are disabled")?
                     .read(self.root.clone(), path.to_owned())
-                    .await;
+                    .await?;
+                effect.bind_target(&file, false)?;
+                return Ok(file);
             }
-            return self.open(path, flags, create);
+            effect.lock().await;
+            return self.open(path, flags, create, effect).await;
         }
         ensure!(!path.is_empty() && path.len() <= 4096, "invalid tool path");
         let flags = flags | OFlags::CLOEXEC | OFlags::NONBLOCK;
@@ -623,13 +1165,15 @@ impl ToolExecutor {
                 );
                 let target = descriptor_path(&file)?;
                 if !self.approved_path(&target) || meta.nlink() > 1 {
-                    self.review(call, Some(&target), Some(meta.nlink()), events)
+                    self.review(call, Some(&target), Some(meta.nlink()), effect)
                         .await?;
                 }
                 ensure!(
                     descriptor_path(&file)? == target,
                     "tool target moved during admission; retry with its current path"
                 );
+                effect.bind_target(&file, false)?;
+                effect.lock().await;
                 Ok(file)
             }
             Err(rustix::io::Errno::NOENT) if create => {
@@ -652,14 +1196,16 @@ impl ToolExecutor {
                 let parent_path = descriptor_path(&directory)?;
                 let target = parent_path.join(name);
                 if !self.approved_path(&target) {
-                    self.review(call, Some(&target), None, events).await?;
+                    self.review(call, Some(&target), None, effect).await?;
                 }
                 ensure!(
                     descriptor_path(&directory)? == parent_path,
                     "parent directory moved during admission; retry"
                 );
+                effect.bind_target(&directory, true)?;
                 // No file is created before review. A concurrently created leaf
                 // or symlink fails rather than changing the admitted target.
+                effect.start().await?;
                 Ok(File::from(
                     openat2(
                         &directory,
@@ -688,8 +1234,10 @@ impl ToolExecutor {
         call: &ToolCall,
         target: Option<&Path>,
         links: Option<u64>,
-        events: &EventSink,
+        effect: &mut ToolEffect<'_>,
     ) -> Result<()> {
+        effect.admission_refused = true;
+        let events = effect.events;
         let config = self
             .access
             .oracle
@@ -735,6 +1283,7 @@ impl ToolExecutor {
                     })
                     .await?;
                 ensure!(allowed, "Oracle blocked this request: {}", decision.reason);
+                effect.admission_refused = false;
                 Ok(())
             }
             Err(error) => {
@@ -769,8 +1318,9 @@ impl ToolExecutor {
         &self,
         id: &str,
         script: &str,
-        events: &EventSink,
+        effect: &mut ToolEffect<'_>,
     ) -> Result<(String, Option<i32>)> {
+        let events = effect.events;
         // Both modes start in the pinned project. Only explicit host access
         // takes this branch; a confined launch never falls back to it.
         let root_path = format!("/proc/{}/fd/{}", std::process::id(), self.root.as_raw_fd());
@@ -818,6 +1368,7 @@ impl ToolExecutor {
                 .kill_on_drop(true);
             command
         };
+        effect.start().await?;
         let mut child = command.spawn().with_context(|| {
             if self.access.unrestricted {
                 "start host Bash"
@@ -1009,3 +1560,6 @@ mod utf8_tests {
         }
     }
 }
+
+#[cfg(test)]
+mod plugin_target_tests;

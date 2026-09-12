@@ -2,7 +2,7 @@ use super::http;
 use crate::{
     config::Connection,
     events::{ContextUsage, Event, EventSink},
-    native::{Model, NativeSession},
+    native::{Model, NativeSession, provider_response_failure},
     session::Session,
     tools::{ToolCall, ToolExecutor, ToolResult},
 };
@@ -22,6 +22,7 @@ struct OpenAi {
     max_output_tokens: Option<u32>,
     history: Vec<Value>,
     definitions: Vec<Value>,
+    model_hook: bool,
 }
 
 pub fn open(config: &Connection, workspace: &Path) -> Result<Box<dyn Session>> {
@@ -34,6 +35,7 @@ pub fn open(config: &Connection, workspace: &Path) -> Result<Box<dyn Session>> {
     let definitions = tools.definitions();
     Ok(Box::new(NativeSession::with_tools(
         Box::new(OpenAi {
+            model_hook: config.access.snapshot.is_some(),
             client: http::client()?,
             endpoint: http::endpoint(
                 config
@@ -93,7 +95,9 @@ impl Model for OpenAi {
             })
             .collect();
         let mut body = json!({"model":self.model,"input":self.history,"stream":true,"store":false,"include":["reasoning.encrypted_content"],"tools":tools});
-        if !self.definitions.is_empty() {
+        if self.model_hook {
+            body["instructions"] = super::MODEL_HOOK_INSTRUCTIONS.into();
+        } else if !self.definitions.is_empty() {
             body["instructions"] = super::CREATOR_INSTRUCTIONS.into();
         }
         if let Some(limit) = self.max_output_tokens {
@@ -107,22 +111,24 @@ impl Model for OpenAi {
                 usage: ContextUsage::estimate_request(&body),
             })
             .await?;
+        events.validate_hook_request(&body)?;
         let request = self
             .client
             .post(self.endpoint.clone())
             .bearer_auth(&self.key)
             .json(&body);
-        let stream = http::json_events(http::response(request).await?);
+        let stream = http::json_events(http::provider_response(request).await?);
         tokio::pin!(stream);
         while let Some(event) = stream.next().await {
-            let event = event?;
+            let event = event.map_err(provider_response_failure)?;
             match event["type"].as_str() {
                 Some("response.output_text.delta") => {
                     events
                         .emit(Event::Text {
                             text: event["delta"]
                                 .as_str()
-                                .context("missing text delta")?
+                                .context("missing text delta")
+                                .map_err(provider_response_failure)?
                                 .to_owned(),
                         })
                         .await?
@@ -131,24 +137,29 @@ impl Model for OpenAi {
                     let response = &event["response"];
                     let output = response["output"]
                         .as_array()
-                        .context("missing response output")?;
+                        .context("missing response output")
+                        .map_err(provider_response_failure)?;
                     let mut calls = Vec::new();
                     for item in output {
                         if item["type"] == "function_call" {
                             calls.push(ToolCall {
                                 id: item["call_id"]
                                     .as_str()
-                                    .context("missing OpenAI call ID")?
+                                    .context("missing OpenAI call ID")
+                                    .map_err(provider_response_failure)?
                                     .into(),
                                 name: item["name"]
                                     .as_str()
-                                    .context("missing OpenAI tool name")?
+                                    .context("missing OpenAI tool name")
+                                    .map_err(provider_response_failure)?
                                     .into(),
                                 arguments: serde_json::from_str(
                                     item["arguments"]
                                         .as_str()
-                                        .context("missing OpenAI tool arguments")?,
-                                )?,
+                                        .context("missing OpenAI tool arguments")
+                                        .map_err(provider_response_failure)?,
+                                )
+                                .map_err(provider_response_failure)?,
                             });
                         }
                     }
@@ -187,20 +198,24 @@ impl Model for OpenAi {
                         })
                         .await?;
                     if event["response"]["incomplete_details"]["reason"] == "max_output_tokens" {
-                        bail!(
+                        return Err(provider_response_failure(anyhow::anyhow!(
                             "OpenAI response reached its output limit; no tool calls from this response were executed. Request a smaller continuation or adjust an explicit max_output_tokens setting."
-                        );
+                        )));
                     }
-                    bail!(
+                    return Err(provider_response_failure(anyhow::anyhow!(
                         "OpenAI response is incomplete; no tool calls from this response were executed"
-                    );
+                    )));
                 }
                 Some("response.failed" | "error") => {
-                    bail!("OpenAI did not complete the response")
+                    return Err(provider_response_failure(anyhow::anyhow!(
+                        "OpenAI did not complete the response"
+                    )));
                 }
                 _ => {}
             }
         }
-        bail!("OpenAI stream ended without a completed response")
+        Err(provider_response_failure(anyhow::anyhow!(
+            "OpenAI stream ended without a completed response"
+        )))
     }
 }

@@ -5,6 +5,7 @@ inputs:
   - src/
   - tests/
   - scripts/
+  - backend-integrations/
   - README.md
   - docs/spec/
   - docs/plans/

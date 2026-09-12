@@ -1,30 +1,38 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 use clap::Parser;
-use demoncoder::{
-    adapters,
-    config::Args,
-    events::EventSink,
-    session::{self, Command},
-    startup, terminal,
-};
-use std::time::Duration;
+use demoncoder::{adapters, config::Args, events::EventSink, session, startup, terminal};
 use tokio::sync::mpsc;
 
 #[tokio::main]
 async fn main() -> Result<()> {
     let args = Args::parse();
+    if let Some(spec) = &args.supervise_backend {
+        return adapters::backend_supervisor::run(spec).await;
+    }
+    if let Some(address) = args
+        .codex_compaction_relay
+        .as_ref()
+        .or(args.codex_ordinary_relay.as_ref())
+    {
+        return demoncoder::plugins::codex_relay::run(address).await;
+    }
     if let Some(script) = &args.supervise_bash {
         std::process::exit(demoncoder::supervisor::run(script).await?);
     }
+    if let Some(spec) = &args.supervise_hook {
+        std::process::exit(demoncoder::supervisor::run_hook(spec).await?);
+    }
+    let session_hook_limits = args.session_hook_limits()?;
     startup::prepare(&args).await?;
     let live_settings = demoncoder::settings::Handle::open(&args)?;
     let mut selection = args.selection()?;
     let settings = args.workflow_settings()?;
-    let (runtime, resumed) = demoncoder::workflow::runtime::SharedRuntime::open_with_scope(
+    let (runtime, resumed) = demoncoder::workflow::runtime::SharedRuntime::open_with_session_hooks(
         &selection.workspace,
         &selection.connection,
         args.resume.as_deref(),
         &settings.capture_scope,
+        session_hook_limits.as_ref(),
     )?;
     let agent_settings = args.agent_settings()?;
     anyhow::ensure!(
@@ -66,7 +74,8 @@ async fn main() -> Result<()> {
     let (event_tx, event_rx) = mpsc::channel(256);
     let sink = EventSink::new(selection.name.clone(), event_tx, args.event_log.as_deref())?
         .with_runtime(runtime.clone());
-    let mut worker = tokio::spawn(session::run(session, command_rx, sink));
+    let native_lifetime = session.native_lifetime();
+    let worker = tokio::spawn(session::run(session, command_rx, sink));
     let label = format!(
         "{} · {}",
         selection.name,
@@ -89,19 +98,6 @@ async fn main() -> Result<()> {
         live_settings,
     )
     .await;
-    // Queue submission belongs inside the deadline too: a stopped consumer must
-    // not trap quit before the cleanup timeout even starts.
-    let shutdown = async {
-        let _ = command_tx.send(Command::Shutdown).await;
-        (&mut worker).await.context("session runtime failed")?
-    };
-    let worker_result = match tokio::time::timeout(Duration::from_secs(3), shutdown).await {
-        Ok(result) => result,
-        Err(error) => {
-            worker.abort();
-            let _ = worker.await;
-            return Err(error).context("session shutdown timed out");
-        }
-    };
+    let worker_result = session::shutdown(command_tx, worker, native_lifetime).await?;
     ui_result.and(worker_result)
 }

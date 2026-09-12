@@ -124,6 +124,25 @@ fn overview(out: &mut Pager, record: &Record) -> fmt::Result {
             )?,
         }
     }
+    if let Some(grant) = &record.session_hook_allowance {
+        let allocation = &grant.allocation;
+        writeln!(
+            out,
+            "Session hook grant: model/backend slots {}/{} · host backend invocations {} · snapshot tools {}/{}",
+            allocation.model_calls,
+            allocation.limits.model_calls,
+            grant.backend_invocations,
+            allocation.tool_calls,
+            allocation.limits.tool_calls
+        )?;
+        match allocation.remaining_ms() {
+            Ok(ms) => writeln!(out, "Session hook time remaining: {}s", ms / 1000)?,
+            Err(_) => writeln!(
+                out,
+                "Session hook time unavailable: clock is uncertain; execution is held."
+            )?,
+        }
+    }
     if let Some(delegation) = &record.delegation {
         writeln!(
             out,
@@ -156,7 +175,25 @@ fn overview(out: &mut Pager, record: &Record) -> fmt::Result {
             record.archived.len()
         )?;
     }
-    Ok(())
+    if let Some(receipt) = &record.unattributed_usage {
+        writeln!(
+            out,
+            "Unresolved usage attribution: {} reports without an exact model/backend recipient; totals retained, no grant charged. {:?}",
+            receipt.reports, receipt.usage
+        )?;
+    }
+    for operation in &record.operations {
+        if let Some(receipt) = &operation.usage_receipt
+            && let Some(reason) = &receipt.unresolved
+        {
+            writeln!(
+                out,
+                "Unresolved usage attribution for operation {}: {:?}; {} reports; missing report {}; totals retained, no grant inferred. {:?}",
+                operation.id, reason, receipt.reports, receipt.missing_report, receipt.usage
+            )?;
+        }
+    }
+    lifecycle_report(out, record, None)
 }
 
 fn task_report(out: &mut Pager, record: &Record, task: &Task, archived: bool) -> fmt::Result {
@@ -174,6 +211,7 @@ fn task_report(out: &mut Pager, record: &Record, task: &Task, archived: bool) ->
         )
     )?;
     quote(out, "Objective:", &task.objective)?;
+    lifecycle_report(out, record, Some(task.id))?;
     writeln!(
         out,
         "Connection: {} · model {}",
@@ -622,6 +660,105 @@ fn source(out: &mut Pager, evidence: &str) -> fmt::Result {
             quote(out, label.trim(), &text)?;
         } else {
             writeln!(out, "  | {line}")?;
+        }
+    }
+    Ok(())
+}
+
+fn lifecycle_report(out: &mut Pager, record: &Record, task: Option<u64>) -> fmt::Result {
+    for operation in &record.operations {
+        if let Some(crate::workflow::runtime::HostInvocation::NativeSession(lifetime)) =
+            &operation.host_invocation
+        {
+            writeln!(
+                out,
+                "\nNative session lifetime {} · {:?} · {:?}",
+                operation.id, lifetime.source, lifetime.end
+            )?;
+            for diagnostic in &lifetime.diagnostics {
+                quote(out, "Session diagnostic:", diagnostic)?;
+            }
+        }
+        if let Some(crate::workflow::runtime::HostInvocation::NativeTurn(turn)) =
+            &operation.host_invocation
+            && turn.task == task
+        {
+            writeln!(
+                out,
+                "\nNative turn {} · {} · {:?} · owner {}",
+                operation.id,
+                match turn.origin {
+                    crate::plugins::receipts::NativeTurnOrigin::Developer => "developer",
+                    crate::plugins::receipts::NativeTurnOrigin::PluginContext => "plugin context",
+                },
+                turn.end,
+                turn.owner_phase.as_deref().unwrap_or("no workflow phase")
+            )?;
+            for diagnostic in &turn.diagnostics {
+                quote(out, "Turn diagnostic:", diagnostic)?;
+            }
+        }
+    }
+    for receipt in record
+        .operations
+        .iter()
+        .filter_map(|o| o.non_tool_receipt())
+        .filter(|r| r.facts.task == task)
+    {
+        writeln!(
+            out,
+            "\nLifecycle {} · operation {} · {}",
+            receipt.facts.subject.occurrence.event().as_str(),
+            receipt.facts.operation,
+            if receipt.hold.is_some() {
+                "unmet"
+            } else if receipt.settled {
+                "settled"
+            } else {
+                "pending; never replay automatically"
+            }
+        )?;
+        if let Some(turn) = receipt.facts.native_turn {
+            writeln!(
+                out,
+                "Native turn {turn} · host translation (not an external backend callback)"
+            )?;
+        } else {
+            writeln!(
+                out,
+                "No recorded native turn linkage (legacy or external occurrence)"
+            )?;
+        }
+        if let crate::plugins::receipts::NonToolOccurrence::UserPromptSubmit { prompt, .. } =
+            &receipt.facts.subject.occurrence
+        {
+            quote(
+                out,
+                "Original submitted prompt (retained even when blocked):",
+                prompt,
+            )?;
+        }
+        if let Some(reason) = &receipt.hold {
+            quote(out, "Unmet gate reason:", reason)?;
+        }
+        for message in &receipt.messages {
+            quote(
+                out,
+                &format!("Plugin-origin {}:", message.package),
+                &message.text,
+            )?;
+        }
+        for hook in &receipt.hooks {
+            if let Some(crate::plugins::receipts::RawOutcome::Failure { reason }) = &hook.outcome {
+                quote(
+                    out,
+                    &format!("Plugin-origin {} failure:", hook.declaration.package),
+                    reason,
+                )?;
+            }
+        }
+        for diagnostic in &receipt.diagnostics {
+            quote(out, "Hook diagnostic:", diagnostic)?;
         }
     }
     Ok(())

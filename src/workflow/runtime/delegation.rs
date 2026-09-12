@@ -85,7 +85,10 @@ impl SharedRuntime {
                 "each orchestration check must contain 1 to 8192 bytes"
             );
         }
-        self.update(|record| {
+        let session = self.plugin_session()?;
+        self.update(|target| {
+            let mut staged = target.clone();
+            let record = &mut staged;
             if let Some(saved) = &record.delegation {
                 ensure!(
                     record.allocation.is_some(),
@@ -114,8 +117,9 @@ impl SharedRuntime {
                 record.delegation = Some(identity);
             }
             if record.allocation.is_none() {
-                record.allocation = Some(Allocation::new(limits)?);
+                super::budget_accounting::replace(record, &session, Allocation::new(limits)?)?;
             }
+            *target = staged;
             Ok(())
         })
     }
@@ -125,45 +129,55 @@ impl SharedRuntime {
         self.begin_backend_as(phase, None)
     }
 
+    #[cfg(test)]
     pub(crate) fn begin_backend_as(
         &self,
         phase: &str,
         identity: Option<&super::Identity>,
     ) -> Result<u64> {
-        self.admission(|record| {
-            ensure!(
-                !record.recovery_pending,
-                "uncertain work needs reconciliation before backend admission"
-            );
-            ensure_agent_active(record, phase)?;
-            let limit = record
-                .delegation
-                .as_ref()
-                .context("backend admission requires a delegation allocation")?
-                .backend_limit;
-            ensure!(
-                record.backend_invocations < limit,
-                "cumulative backend invocation allowance exhausted"
-            );
-            ensure!(
-                record.operations.len() < 4096,
-                "session operation history is full"
-            );
-            record.backend_invocations += 1;
-            let id = record.operations.len() as u64 + 1;
-            record.operations.push(Operation {
-                id,
-                phase: phase.into(),
-                verification: None,
-                call: None,
-                result: None,
-                complete: false,
-                reconciled: false,
-                usage_reported: false,
-                identity: identity.cloned(),
-            });
-            Ok(id)
-        })
+        self.begin_backend_owned(phase, identity, None)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn begin_backend_owned(
+        &self,
+        phase: &str,
+        identity: Option<&super::Identity>,
+        hook: Option<&super::plugin_admission::ModelAdmission>,
+    ) -> Result<u64> {
+        self.begin_backend_from(phase, identity, hook, None)
+    }
+
+    pub(crate) fn begin_backend_from(
+        &self,
+        phase: &str,
+        identity: Option<&super::Identity>,
+        hook: Option<&super::plugin_admission::ModelAdmission>,
+        oracle: Option<&super::OracleSource>,
+    ) -> Result<u64> {
+        let session = self.plugin_session()?;
+        let id = self.update(|record| {
+            if let Some(source) = oracle {
+                let budget = source.validate(record, &session, phase)?;
+                ensure!(
+                    hook.is_none_or(|h| h.budget == budget),
+                    "Oracle hook budget changed"
+                );
+            }
+            begin_backend_record(
+                record,
+                &session,
+                phase,
+                identity,
+                hook,
+                oracle.map(|s| s.operation()),
+            )
+        })?;
+        self.validate_operation_deadline(id)?;
+        if let Some(hook) = hook {
+            self.validate_hook_model_owner(hook)?;
+        }
+        Ok(id)
     }
 
     pub(crate) fn update_agent<T>(
@@ -247,6 +261,92 @@ impl SharedRuntime {
     }
 }
 
+/// The caller owns the admission transaction. Corrections reuse the same
+/// accounting while atomically reserving their one exact superseded receipt.
+pub(super) fn begin_backend_record(
+    record: &mut Record,
+    session: &str,
+    phase: &str,
+    identity: Option<&super::Identity>,
+    hook: Option<&super::plugin_admission::ModelAdmission>,
+    source: Option<u64>,
+) -> Result<u64> {
+    ensure!(
+        !record.recovery_pending,
+        "uncertain work needs reconciliation before backend admission"
+    );
+    ensure_agent_active(record, phase)?;
+    ensure!(
+        record.operations.len() < 4096,
+        "session operation history is full"
+    );
+    let budget = match (hook, source) {
+        (Some(hook), _) => hook.budget.clone(),
+        (_, Some(source)) => super::budget_accounting::inherited(record, source)?,
+        _ => super::budget_accounting::capture(record, session),
+    };
+    super::budget_accounting::active(record, session, &budget)?;
+    let session_hook = matches!(budget, super::BudgetRef::SessionHooks { .. });
+    let next_backend = if session_hook {
+        ensure!(
+            hook.is_some(),
+            "session backend requires live model hook authority"
+        );
+        record
+            .session_hook_allowance
+            .as_ref()
+            .context("session hook allowance missing")?
+            .backend_invocations
+            .checked_add(1)
+            .context("session backend invocation count overflow")?
+    } else {
+        if let Some(delegation) = &record.delegation {
+            ensure!(
+                record.backend_invocations < delegation.backend_limit,
+                "cumulative backend invocation allowance exhausted"
+            );
+        }
+        record
+            .backend_invocations
+            .checked_add(u64::from(record.delegation.is_some() || hook.is_some()))
+            .context("backend invocation count overflow")?
+    };
+    if let Some(hook) = hook {
+        ensure!(
+            hook.key.session == session,
+            "model hook belongs to another session"
+        );
+        super::plugin_admission::validate_model_admission(record, phase, hook)?;
+        super::budget_accounting::admit(record, session, &budget, true)?;
+    }
+    if session_hook {
+        record
+            .session_hook_allowance
+            .as_mut()
+            .expect("validated session allowance")
+            .backend_invocations = next_backend;
+    } else if record.delegation.is_some() || hook.is_some() {
+        record.backend_invocations = next_backend;
+    }
+    let id = record.operations.len() as u64 + 1;
+    record.operations.push(Operation {
+        id,
+        phase: phase.into(),
+        verification: None,
+        call: None,
+        result: None,
+        tool_receipt: None,
+        budget: Some(budget),
+        usage_receipt: None,
+        host_invocation: Some(super::HostInvocation::Backend),
+        complete: false,
+        reconciled: false,
+        usage_reported: false,
+        identity: identity.cloned(),
+    });
+    Ok(id)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -308,6 +408,10 @@ mod tests {
             record,
             failed: false,
             learning_view: None,
+            mutation_boundaries: Default::default(),
+            service_slots: Arc::new(tokio::sync::Semaphore::new(8)),
+            once_live: Default::default(),
+            observers: Default::default(),
         })));
         let mut judge = connection.clone();
         judge.model = Some("judge-a".into());
@@ -370,6 +474,10 @@ mod tests {
             record,
             failed: false,
             learning_view: None,
+            mutation_boundaries: Default::default(),
+            service_slots: Arc::new(tokio::sync::Semaphore::new(8)),
+            once_live: Default::default(),
+            observers: Default::default(),
         })));
         let identity = DelegationIdentity {
             default_roles: Vec::new(),
@@ -410,6 +518,10 @@ mod tests {
             record,
             failed: false,
             learning_view: None,
+            mutation_boundaries: Default::default(),
+            service_slots: Arc::new(tokio::sync::Semaphore::new(8)),
+            once_live: Default::default(),
+            observers: Default::default(),
         })));
 
         let error = runtime.admit_agent_validation(1, 1).unwrap_err();

@@ -2,7 +2,7 @@ use super::http;
 use crate::{
     config::Connection,
     events::{ContextUsage, Event, EventSink},
-    native::{Model, NativeSession},
+    native::{Model, NativeSession, provider_response_failure},
     session::Session,
     tools::{ToolCall, ToolExecutor, ToolResult},
 };
@@ -24,6 +24,7 @@ struct Anthropic {
     max_output_tokens: Option<u32>,
     history: Vec<Value>,
     definitions: Vec<Value>,
+    model_hook: bool,
 }
 
 pub fn open(config: &Connection, workspace: &Path) -> Result<Box<dyn Session>> {
@@ -36,6 +37,7 @@ pub fn open(config: &Connection, workspace: &Path) -> Result<Box<dyn Session>> {
     let definitions = tools.definitions();
     Ok(Box::new(NativeSession::with_tools(
         Box::new(Anthropic {
+            model_hook: config.access.snapshot.is_some(),
             client: http::client()?,
             endpoint: http::endpoint(
                 config
@@ -63,9 +65,10 @@ impl Anthropic {
             return Ok(limit);
         }
         let result = self.discover_output_limit().await;
-        let limit = result.map_err(|error| anyhow::anyhow!(
-            "Cannot determine the selected model's output limit: {error:#}. Set max_output_tokens in the connection or pass --max-output-tokens for an endpoint without model metadata."
-        ))?;
+        let limit = result.map_err(|error| {
+            let guidance = format!("Cannot determine the selected model's output limit: {error:#}. Set max_output_tokens in the connection or pass --max-output-tokens for an endpoint without model metadata.");
+            crate::native::provider_failure_context(error, guidance)
+        })?;
         self.max_output_tokens = Some(limit);
         Ok(limit)
     }
@@ -84,26 +87,27 @@ impl Anthropic {
             .header("x-api-key", &self.key)
             .header("anthropic-version", "2023-06-01")
             .timeout(std::time::Duration::from_secs(30));
-        let mut response = http::response(request).await?;
+        let mut response = http::provider_response(request).await?;
         let mut bytes = Vec::new();
-        while let Some(chunk) = response
-            .chunk()
-            .await
-            .map_err(|_| anyhow::anyhow!("model metadata transfer failed"))?
-        {
-            anyhow::ensure!(
-                bytes.len() + chunk.len() <= 64 * 1024,
-                "model metadata exceeds 64 KiB"
-            );
+        while let Some(chunk) = response.chunk().await.map_err(|_| {
+            provider_response_failure(anyhow::anyhow!("model metadata transfer failed"))
+        })? {
+            if bytes.len() + chunk.len() > 64 * 1024 {
+                return Err(provider_response_failure(anyhow::anyhow!(
+                    "model metadata exceeds 64 KiB"
+                )));
+            }
             bytes.extend_from_slice(&chunk);
         }
-        let metadata: Value = serde_json::from_slice(&bytes)
-            .map_err(|_| anyhow::anyhow!("model metadata is not valid JSON"))?;
+        let metadata: Value = serde_json::from_slice(&bytes).map_err(|_| {
+            provider_response_failure(anyhow::anyhow!("model metadata is not valid JSON"))
+        })?;
         metadata["max_tokens"]
             .as_u64()
             .and_then(|value| u32::try_from(value).ok())
             .filter(|value| *value > 0)
             .context("model metadata has no valid positive max_tokens value")
+            .map_err(provider_response_failure)
     }
 }
 
@@ -152,7 +156,9 @@ impl Model for Anthropic {
             "model":self.model,"messages":self.history,"stream":true,"max_tokens":limit,
             "tools":self.definitions.clone(),
         });
-        if !self.definitions.is_empty() {
+        if self.model_hook {
+            body["system"] = super::MODEL_HOOK_INSTRUCTIONS.into();
+        } else if !self.definitions.is_empty() {
             body["system"] = super::CREATOR_INSTRUCTIONS.into();
         }
         if let Some(effort) = &self.effort {
@@ -163,13 +169,14 @@ impl Model for Anthropic {
                 usage: ContextUsage::estimate_request(&body),
             })
             .await?;
+        events.validate_hook_request(&body)?;
         let request = self
             .client
             .post(self.endpoint.clone())
             .header("x-api-key", &self.key)
             .header("anthropic-version", "2023-06-01")
             .json(&body);
-        let stream = http::json_events(http::response(request).await?);
+        let stream = http::json_events(http::provider_response(request).await?);
         tokio::pin!(stream);
         let mut blocks: Vec<Value> = Vec::new();
         let mut partial: Vec<String> = Vec::new();
@@ -177,7 +184,7 @@ impl Model for Anthropic {
         let mut stop_reason = None;
         let mut context_usage = crate::context::MessageContext::default();
         while let Some(event) = stream.next().await {
-            let event = event?;
+            let event = event.map_err(provider_response_failure)?;
             if let Some(usage) = context_usage.observe(&event) {
                 events.emit(Event::Context { usage }).await?;
             }
@@ -190,18 +197,24 @@ impl Model for Anthropic {
                 Some("content_block_start") => {
                     let index = event["index"]
                         .as_u64()
-                        .context("missing content block index")?
+                        .context("missing content block index")
+                        .map_err(provider_response_failure)?
                         as usize;
-                    anyhow::ensure!(
-                        index == blocks.len(),
-                        "out of order Anthropic content block"
-                    );
+                    if index != blocks.len() {
+                        return Err(provider_response_failure(anyhow::anyhow!(
+                            "out of order Anthropic content block"
+                        )));
+                    }
                     let block = &event["content_block"];
-                    if block["type"] == "tool_use" {
-                        anyhow::ensure!(
-                            serde_json::to_vec(&block["input"])?.len() <= MAX_TOOL_INPUT_BYTES,
+                    if block["type"] == "tool_use"
+                        && serde_json::to_vec(&block["input"])
+                            .map_err(provider_response_failure)?
+                            .len()
+                            > MAX_TOOL_INPUT_BYTES
+                    {
+                        return Err(provider_response_failure(anyhow::anyhow!(
                             "Anthropic tool input exceeds 1 MiB; no tool calls from this response were executed"
-                        );
+                        )));
                     }
                     blocks.push(block.clone());
                     partial.push(String::new());
@@ -216,22 +229,29 @@ impl Model for Anthropic {
                     }
                     let block = blocks
                         .get_mut(index)
-                        .context("unknown Anthropic content block")?;
+                        .context("unknown Anthropic content block")
+                        .map_err(provider_response_failure)?;
                     match delta["type"].as_str() {
                         Some("text_delta") => {
-                            let text = delta["text"].as_str().context("missing text delta")?;
-                            append(block, "text", text)?;
+                            let text = delta["text"]
+                                .as_str()
+                                .context("missing text delta")
+                                .map_err(provider_response_failure)?;
+                            append(block, "text", text).map_err(provider_response_failure)?;
                             events.emit(Event::Text { text: text.into() }).await?;
                         }
                         Some("input_json_delta") => {
                             let fragment = delta["partial_json"]
                                 .as_str()
-                                .context("missing tool input delta")?;
-                            anyhow::ensure!(
-                                fragment.len()
-                                    <= MAX_TOOL_INPUT_BYTES.saturating_sub(partial[index].len()),
-                                "Anthropic tool input exceeds 1 MiB; no tool calls from this response were executed"
-                            );
+                                .context("missing tool input delta")
+                                .map_err(provider_response_failure)?;
+                            if fragment.len()
+                                > MAX_TOOL_INPUT_BYTES.saturating_sub(partial[index].len())
+                            {
+                                return Err(provider_response_failure(anyhow::anyhow!(
+                                    "Anthropic tool input exceeds 1 MiB; no tool calls from this response were executed"
+                                )));
+                            }
                             partial[index].push_str(fragment);
                         }
                         Some("thinking_delta") => append(
@@ -239,15 +259,19 @@ impl Model for Anthropic {
                             "thinking",
                             delta["thinking"]
                                 .as_str()
-                                .context("missing thinking delta")?,
-                        )?,
+                                .context("missing thinking delta")
+                                .map_err(provider_response_failure)?,
+                        )
+                        .map_err(provider_response_failure)?,
                         Some("signature_delta") => append(
                             block,
                             "signature",
                             delta["signature"]
                                 .as_str()
-                                .context("missing signature delta")?,
-                        )?,
+                                .context("missing signature delta")
+                                .map_err(provider_response_failure)?,
+                        )
+                        .map_err(provider_response_failure)?,
                         _ => {}
                     }
                 }
@@ -269,28 +293,35 @@ impl Model for Anthropic {
                         })
                         .await?;
                     match stop_reason.as_deref() {
-                        Some("max_tokens") => bail!(
-                            "Anthropic response was truncated at the {limit}-token output limit; no tool calls from this response were executed. Request a smaller continuation or adjust an explicit max_output_tokens setting."
-                        ),
-                        Some("model_context_window_exceeded") => bail!(
-                            "Anthropic response exceeded the model context window; no tool calls from this response were executed. Reduce conversation context before retrying."
-                        ),
+                        Some("max_tokens") => {
+                            return Err(provider_response_failure(anyhow::anyhow!(
+                                "Anthropic response was truncated at the {limit}-token output limit; no tool calls from this response were executed. Request a smaller continuation or adjust an explicit max_output_tokens setting."
+                            )));
+                        }
+                        Some("model_context_window_exceeded") => {
+                            return Err(provider_response_failure(anyhow::anyhow!(
+                                "Anthropic response exceeded the model context window; no tool calls from this response were executed. Reduce conversation context before retrying."
+                            )));
+                        }
                         _ => {}
                     }
                     let mut calls = Vec::new();
                     for (block, partial) in blocks.iter_mut().zip(partial) {
                         if block["type"] == "tool_use" {
                             if !partial.is_empty() {
-                                block["input"] = serde_json::from_str(&partial)?;
+                                block["input"] = serde_json::from_str(&partial)
+                                    .map_err(provider_response_failure)?;
                             }
                             calls.push(ToolCall {
                                 id: block["id"]
                                     .as_str()
-                                    .context("missing Anthropic call ID")?
+                                    .context("missing Anthropic call ID")
+                                    .map_err(provider_response_failure)?
                                     .into(),
                                 name: block["name"]
                                     .as_str()
-                                    .context("missing Anthropic tool name")?
+                                    .context("missing Anthropic tool name")
+                                    .map_err(provider_response_failure)?
                                     .into(),
                                 arguments: block["input"].clone(),
                             });
@@ -300,11 +331,17 @@ impl Model for Anthropic {
                         .push(json!({"role":"assistant", "content":blocks}));
                     return Ok(calls);
                 }
-                Some("error") => bail!("Anthropic returned a stream error"),
+                Some("error") => {
+                    return Err(provider_response_failure(anyhow::anyhow!(
+                        "Anthropic returned a stream error"
+                    )));
+                }
                 _ => {}
             }
         }
-        bail!("Anthropic stream ended without message_stop")
+        Err(provider_response_failure(anyhow::anyhow!(
+            "Anthropic stream ended without message_stop"
+        )))
     }
 }
 

@@ -38,6 +38,28 @@ pub async fn response(request: reqwest::RequestBuilder) -> Result<Response> {
         .send()
         .await
         .map_err(|_| anyhow::anyhow!("provider request failed; check connection and endpoint"))?;
+    successful_response(response)
+}
+
+/// Build locally before attributing transport/status errors to the provider.
+/// Never retain reqwest's request-builder error: it can contain credentials.
+pub async fn provider_response(request: reqwest::RequestBuilder) -> Result<Response> {
+    let (client, request) = request.build_split();
+    let request =
+        request.map_err(|_| anyhow::anyhow!("provider request configuration is invalid"))?;
+    let response = client.execute(request).await.map_err(|error| {
+        if error.is_builder() {
+            anyhow::anyhow!("provider request configuration is invalid")
+        } else {
+            crate::native::provider_response_failure(anyhow::anyhow!(
+                "provider request failed; check connection and endpoint"
+            ))
+        }
+    })?;
+    successful_response(response).map_err(crate::native::provider_response_failure)
+}
+
+fn successful_response(response: Response) -> Result<Response> {
     if !response.status().is_success() {
         // Never echo error bodies or headers: an endpoint may reflect credentials.
         bail!(

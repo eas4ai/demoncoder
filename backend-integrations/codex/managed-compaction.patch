@@ -1,0 +1,2427 @@
+--- a/codex-rs/Cargo.lock
++++ b/codex-rs/Cargo.lock
+@@ -394,7 +394,7 @@
+ 
+ [[package]]
+ name = "app_test_support"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "anyhow",
+  "base64 0.22.1",
+@@ -1897,7 +1897,7 @@
+ 
+ [[package]]
+ name = "codex-agent-extension"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "anyhow",
+  "codex-core",
+@@ -1909,7 +1909,7 @@
+ 
+ [[package]]
+ name = "codex-agent-graph-store"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "codex-protocol",
+  "codex-state",
+@@ -1924,7 +1924,7 @@
+ 
+ [[package]]
+ name = "codex-agent-identity"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "anyhow",
+  "base64 0.22.1",
+@@ -1944,7 +1944,7 @@
+ 
+ [[package]]
+ name = "codex-agent-roles"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "codex-config",
+  "codex-file-system",
+@@ -1957,7 +1957,7 @@
+ 
+ [[package]]
+ name = "codex-analytics"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "codex-app-server-protocol",
+  "codex-git-utils",
+@@ -1978,7 +1978,7 @@
+ 
+ [[package]]
+ name = "codex-ansi-escape"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "ansi-to-tui",
+  "ratatui",
+@@ -1987,7 +1987,7 @@
+ 
+ [[package]]
+ name = "codex-api"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "anyhow",
+  "assert_matches",
+@@ -2022,7 +2022,7 @@
+ 
+ [[package]]
+ name = "codex-app-server"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "anyhow",
+  "app_test_support",
+@@ -2124,7 +2124,7 @@
+ 
+ [[package]]
+ name = "codex-app-server-client"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "codex-app-server",
+  "codex-app-server-protocol",
+@@ -2151,7 +2151,7 @@
+ 
+ [[package]]
+ name = "codex-app-server-daemon"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "anyhow",
+  "codex-app-server-protocol",
+@@ -2172,7 +2172,7 @@
+ 
+ [[package]]
+ name = "codex-app-server-protocol"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "anyhow",
+  "codex-app-server-protocol-noop-macros",
+@@ -2206,11 +2206,11 @@
+ 
+ [[package]]
+ name = "codex-app-server-protocol-noop-macros"
+-version = "0.0.0"
++version = "0.153.4"
+ 
+ [[package]]
+ name = "codex-app-server-test-client"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "anyhow",
+  "clap",
+@@ -2232,7 +2232,7 @@
+ 
+ [[package]]
+ name = "codex-app-server-transport"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "anyhow",
+  "axum",
+@@ -2274,7 +2274,7 @@
+ 
+ [[package]]
+ name = "codex-apply-patch"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "anyhow",
+  "assert_cmd",
+@@ -2294,7 +2294,7 @@
+ 
+ [[package]]
+ name = "codex-arg0"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "anyhow",
+  "codex-apply-patch",
+@@ -2316,7 +2316,7 @@
+ 
+ [[package]]
+ name = "codex-async-utils"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "pretty_assertions",
+  "tokio",
+@@ -2325,7 +2325,7 @@
+ 
+ [[package]]
+ name = "codex-aws-auth"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "aws-config",
+  "aws-credential-types",
+@@ -2340,7 +2340,7 @@
+ 
+ [[package]]
+ name = "codex-backend-client"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "anyhow",
+  "codex-api",
+@@ -2360,7 +2360,7 @@
+ 
+ [[package]]
+ name = "codex-backend-openapi-models"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "serde",
+  "serde_json",
+@@ -2369,7 +2369,7 @@
+ 
+ [[package]]
+ name = "codex-build-info"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "codex-install-context",
+  "pretty_assertions",
+@@ -2381,7 +2381,7 @@
+ 
+ [[package]]
+ name = "codex-bwrap"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "cc",
+  "libc",
+@@ -2390,7 +2390,7 @@
+ 
+ [[package]]
+ name = "codex-chatgpt"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "anyhow",
+  "clap",
+@@ -2412,7 +2412,7 @@
+ 
+ [[package]]
+ name = "codex-cli"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "anyhow",
+  "app_test_support",
+@@ -2442,6 +2442,7 @@
+  "codex-git-utils",
+  "codex-history",
+  "codex-home",
++ "codex-hooks",
+  "codex-http-client",
+  "codex-install-context",
+  "codex-login",
+@@ -2502,7 +2503,7 @@
+ 
+ [[package]]
+ name = "codex-client"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "codex-http-client",
+  "eventsource-stream",
+@@ -2515,7 +2516,7 @@
+ 
+ [[package]]
+ name = "codex-cloud-config"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "base64 0.22.1",
+  "chrono",
+@@ -2540,7 +2541,7 @@
+ 
+ [[package]]
+ name = "codex-cloud-tasks"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "anyhow",
+  "chrono",
+@@ -2573,7 +2574,7 @@
+ 
+ [[package]]
+ name = "codex-cloud-tasks-client"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "anyhow",
+  "chrono",
+@@ -2588,7 +2589,7 @@
+ 
+ [[package]]
+ name = "codex-cloud-tasks-mock-client"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "chrono",
+  "codex-cloud-tasks-client",
+@@ -2597,7 +2598,7 @@
+ 
+ [[package]]
+ name = "codex-code-mode"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "codex-code-mode-protocol",
+  "codex-http-client",
+@@ -2620,7 +2621,7 @@
+ 
+ [[package]]
+ name = "codex-code-mode-host"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "anyhow",
+  "axum",
+@@ -2648,7 +2649,7 @@
+ 
+ [[package]]
+ name = "codex-code-mode-protocol"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "codex-protocol",
+  "glob",
+@@ -2666,7 +2667,7 @@
+ 
+ [[package]]
+ name = "codex-code-mode-runtime"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "base64 0.22.1",
+  "codex-code-mode-protocol",
+@@ -2684,11 +2685,11 @@
+ 
+ [[package]]
+ name = "codex-collaboration-mode-templates"
+-version = "0.0.0"
++version = "0.153.4"
+ 
+ [[package]]
+ name = "codex-config"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "anyhow",
+  "base64 0.22.1",
+@@ -2737,7 +2738,7 @@
+ 
+ [[package]]
+ name = "codex-config-schema"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "anyhow",
+  "clap",
+@@ -2746,7 +2747,7 @@
+ 
+ [[package]]
+ name = "codex-connectors"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "anyhow",
+  "arc-swap",
+@@ -2768,7 +2769,7 @@
+ 
+ [[package]]
+ name = "codex-connectors-extension"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "codex-connectors",
+  "codex-core-plugins",
+@@ -2782,7 +2783,7 @@
+ 
+ [[package]]
+ name = "codex-context-fragments"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "codex-protocol",
+  "codex-utils-string",
+@@ -2790,7 +2791,7 @@
+ 
+ [[package]]
+ name = "codex-core"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "anyhow",
+  "arc-swap",
+@@ -2924,7 +2925,7 @@
+ 
+ [[package]]
+ name = "codex-core-api"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "codex-analytics",
+  "codex-app-server-protocol",
+@@ -2947,7 +2948,7 @@
+ 
+ [[package]]
+ name = "codex-core-plugins"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "anyhow",
+  "chrono",
+@@ -3003,7 +3004,7 @@
+ 
+ [[package]]
+ name = "codex-diagnostics"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "libc",
+  "pretty_assertions",
+@@ -3011,7 +3012,7 @@
+ 
+ [[package]]
+ name = "codex-exec"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "anyhow",
+  "assert_cmd",
+@@ -3060,7 +3061,7 @@
+ 
+ [[package]]
+ name = "codex-exec-server"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "anyhow",
+  "arc-swap",
+@@ -3119,7 +3120,7 @@
+ 
+ [[package]]
+ name = "codex-exec-server-protocol"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "base64 0.22.1",
+  "codex-file-system",
+@@ -3134,7 +3135,7 @@
+ 
+ [[package]]
+ name = "codex-exec-server-test-support"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "anyhow",
+  "codex-exec-server",
+@@ -3149,7 +3150,7 @@
+ 
+ [[package]]
+ name = "codex-execpolicy"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "anyhow",
+  "clap",
+@@ -3167,7 +3168,7 @@
+ 
+ [[package]]
+ name = "codex-experimental-api-macros"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "proc-macro2",
+  "quote",
+@@ -3176,7 +3177,7 @@
+ 
+ [[package]]
+ name = "codex-extension-api"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "codex-config",
+  "codex-context-fragments",
+@@ -3193,7 +3194,7 @@
+ 
+ [[package]]
+ name = "codex-extension-items"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "codex-utils-absolute-path",
+  "pretty_assertions",
+@@ -3205,7 +3206,7 @@
+ 
+ [[package]]
+ name = "codex-external-agent-migration"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "chrono",
+  "codex-analytics",
+@@ -3235,7 +3236,7 @@
+ 
+ [[package]]
+ name = "codex-features"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "codex-otel",
+  "codex-protocol",
+@@ -3248,7 +3249,7 @@
+ 
+ [[package]]
+ name = "codex-feedback"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "anyhow",
+  "bytes",
+@@ -3270,7 +3271,7 @@
+ 
+ [[package]]
+ name = "codex-file-search"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "anyhow",
+  "clap",
+@@ -3286,7 +3287,7 @@
+ 
+ [[package]]
+ name = "codex-file-system"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "bytes",
+  "codex-protocol",
+@@ -3298,7 +3299,7 @@
+ 
+ [[package]]
+ name = "codex-file-watcher"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "notify",
+  "pretty_assertions",
+@@ -3309,7 +3310,7 @@
+ 
+ [[package]]
+ name = "codex-git-attribution"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "codex-backend-client",
+  "codex-extension-api",
+@@ -3322,7 +3323,7 @@
+ 
+ [[package]]
+ name = "codex-git-utils"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "anyhow",
+  "chrono",
+@@ -3348,7 +3349,7 @@
+ 
+ [[package]]
+ name = "codex-goal-extension"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "anyhow",
+  "chrono",
+@@ -3372,7 +3373,7 @@
+ 
+ [[package]]
+ name = "codex-guardian-context"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "codex-protocol",
+  "pretty_assertions",
+@@ -3381,7 +3382,7 @@
+ 
+ [[package]]
+ name = "codex-guardian-v2"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "anyhow",
+  "codex-analytics",
+@@ -3411,7 +3412,7 @@
+ 
+ [[package]]
+ name = "codex-history"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "anyhow",
+  "codex-protocol",
+@@ -3423,7 +3424,7 @@
+ 
+ [[package]]
+ name = "codex-history-notes-extension"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "codex-api",
+  "codex-client",
+@@ -3447,7 +3448,7 @@
+ 
+ [[package]]
+ name = "codex-home"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "codex-extension-api",
+  "codex-utils-absolute-path",
+@@ -3458,7 +3459,7 @@
+ 
+ [[package]]
+ name = "codex-hooks"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "anyhow",
+  "async-channel",
+@@ -3471,11 +3472,13 @@
+  "codex-utils-path-uri",
+  "codex-utils-pty",
+  "futures",
++ "libc",
+  "pretty_assertions",
+  "regex",
+  "schemars 0.8.22",
+  "serde",
+  "serde_json",
++ "sha2 0.10.9",
+  "tempfile",
+  "tokio",
+  "tracing",
+@@ -3484,7 +3487,7 @@
+ 
+ [[package]]
+ name = "codex-http-client"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "bytes",
+  "codex-utils-cargo-bin",
+@@ -3516,7 +3519,7 @@
+ 
+ [[package]]
+ name = "codex-image-generation-extension"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "base64 0.22.1",
+  "codex-api",
+@@ -3543,7 +3546,7 @@
+ 
+ [[package]]
+ name = "codex-install-context"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "codex-utils-absolute-path",
+  "codex-utils-home-dir",
+@@ -3556,7 +3559,7 @@
+ 
+ [[package]]
+ name = "codex-keyring-store"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "keyring",
+  "tracing",
+@@ -3564,7 +3567,7 @@
+ 
+ [[package]]
+ name = "codex-linux-sandbox"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "clap",
+  "codex-core",
+@@ -3591,7 +3594,7 @@
+ 
+ [[package]]
+ name = "codex-lmstudio"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "codex-core",
+  "codex-http-client",
+@@ -3605,7 +3608,7 @@
+ 
+ [[package]]
+ name = "codex-login"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "anyhow",
+  "base64 0.22.1",
+@@ -3648,7 +3651,7 @@
+ 
+ [[package]]
+ name = "codex-mcp"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "anyhow",
+  "arc-swap",
+@@ -3688,7 +3691,7 @@
+ 
+ [[package]]
+ name = "codex-mcp-extension"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "anyhow",
+  "axum",
+@@ -3719,7 +3722,7 @@
+ 
+ [[package]]
+ name = "codex-mcp-server"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "anyhow",
+  "app_test_support",
+@@ -3758,7 +3761,7 @@
+ 
+ [[package]]
+ name = "codex-memories-extension"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "codex-core",
+  "codex-extension-api",
+@@ -3779,7 +3782,7 @@
+ 
+ [[package]]
+ name = "codex-memories-read"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "codex-protocol",
+  "codex-shell-command",
+@@ -3789,7 +3792,7 @@
+ 
+ [[package]]
+ name = "codex-memories-write"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "anyhow",
+  "chrono",
+@@ -3826,7 +3829,7 @@
+ 
+ [[package]]
+ name = "codex-message-history"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "codex-config",
+  "memchr",
+@@ -3840,7 +3843,7 @@
+ 
+ [[package]]
+ name = "codex-model-provider"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "codex-agent-identity",
+  "codex-api",
+@@ -3864,7 +3867,7 @@
+ 
+ [[package]]
+ name = "codex-model-provider-info"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "codex-api",
+  "codex-protocol",
+@@ -3881,7 +3884,7 @@
+ 
+ [[package]]
+ name = "codex-models-manager"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "chrono",
+  "codex-collaboration-mode-templates",
+@@ -3901,7 +3904,7 @@
+ 
+ [[package]]
+ name = "codex-network-proxy"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "anyhow",
+  "base64 0.22.1",
+@@ -3939,7 +3942,7 @@
+ 
+ [[package]]
+ name = "codex-ollama"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "assert_matches",
+  "async-stream",
+@@ -3959,7 +3962,7 @@
+ 
+ [[package]]
+ name = "codex-otel"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "chrono",
+  "codex-api",
+@@ -3992,7 +3995,7 @@
+ 
+ [[package]]
+ name = "codex-otel-trace-websocket"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "anyhow",
+  "axum",
+@@ -4003,7 +4006,7 @@
+ 
+ [[package]]
+ name = "codex-plugin"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "codex-config",
+  "codex-protocol",
+@@ -4017,7 +4020,7 @@
+ 
+ [[package]]
+ name = "codex-process-hardening"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "libc",
+  "pretty_assertions",
+@@ -4025,7 +4028,7 @@
+ 
+ [[package]]
+ name = "codex-prompts"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "anyhow",
+  "codex-context-fragments",
+@@ -4039,7 +4042,7 @@
+ 
+ [[package]]
+ name = "codex-protocol"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "anyhow",
+  "chardetng",
+@@ -4083,7 +4086,7 @@
+ 
+ [[package]]
+ name = "codex-queue-extension"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "anyhow",
+  "codex-core",
+@@ -4104,7 +4107,7 @@
+ 
+ [[package]]
+ name = "codex-realtime-webrtc"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "anyhow",
+  "codex-install-context",
+@@ -4117,7 +4120,7 @@
+ 
+ [[package]]
+ name = "codex-response-debug-context"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "base64 0.22.1",
+  "codex-api",
+@@ -4128,7 +4131,7 @@
+ 
+ [[package]]
+ name = "codex-responses-api-proxy"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "anyhow",
+  "clap",
+@@ -4145,7 +4148,7 @@
+ 
+ [[package]]
+ name = "codex-rmcp-client"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "anyhow",
+  "axum",
+@@ -4191,7 +4194,7 @@
+ 
+ [[package]]
+ name = "codex-rollout"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "anyhow",
+  "chrono",
+@@ -4218,7 +4221,7 @@
+ 
+ [[package]]
+ name = "codex-rollout-trace"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "anyhow",
+  "codex-code-mode",
+@@ -4234,7 +4237,7 @@
+ 
+ [[package]]
+ name = "codex-sandboxing"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "anyhow",
+  "appcontainer_common",
+@@ -4261,7 +4264,7 @@
+ 
+ [[package]]
+ name = "codex-secrets"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "age",
+  "anyhow",
+@@ -4282,7 +4285,7 @@
+ 
+ [[package]]
+ name = "codex-shell-command"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "anyhow",
+  "base64 0.22.1",
+@@ -4305,7 +4308,7 @@
+ 
+ [[package]]
+ name = "codex-shell-escalation"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "anyhow",
+  "clap",
+@@ -4325,7 +4328,7 @@
+ 
+ [[package]]
+ name = "codex-skills"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "codex-protocol",
+  "codex-shell-command",
+@@ -4342,7 +4345,7 @@
+ 
+ [[package]]
+ name = "codex-skills-extension"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "assert_matches",
+  "codex-analytics",
+@@ -4379,7 +4382,7 @@
+ 
+ [[package]]
+ name = "codex-state"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "anyhow",
+  "chrono",
+@@ -4403,7 +4406,7 @@
+ 
+ [[package]]
+ name = "codex-stdio-to-uds"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "anyhow",
+  "codex-uds",
+@@ -4415,7 +4418,7 @@
+ 
+ [[package]]
+ name = "codex-terminal-detection"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "pretty_assertions",
+  "tracing",
+@@ -4423,7 +4426,7 @@
+ 
+ [[package]]
+ name = "codex-test-binary-support"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "codex-arg0",
+  "tempfile",
+@@ -4431,7 +4434,7 @@
+ 
+ [[package]]
+ name = "codex-thread-manager-sample"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "anyhow",
+  "clap",
+@@ -4442,7 +4445,7 @@
+ 
+ [[package]]
+ name = "codex-thread-store"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "chrono",
+  "codex-app-server-protocol",
+@@ -4472,7 +4475,7 @@
+ 
+ [[package]]
+ name = "codex-tools"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "bitflags 2.13.1",
+  "codex-code-mode",
+@@ -4497,7 +4500,7 @@
+ 
+ [[package]]
+ name = "codex-tui"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "anyhow",
+  "app_test_support",
+@@ -4610,7 +4613,7 @@
+ 
+ [[package]]
+ name = "codex-uds"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "async-io",
+  "pretty_assertions",
+@@ -4622,7 +4625,7 @@
+ 
+ [[package]]
+ name = "codex-utils-absolute-path"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "dirs",
+  "dunce",
+@@ -4636,14 +4639,14 @@
+ 
+ [[package]]
+ name = "codex-utils-approval-presets"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "codex-protocol",
+ ]
+ 
+ [[package]]
+ name = "codex-utils-audio"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "base64 0.22.1",
+  "codex-protocol",
+@@ -4657,7 +4660,7 @@
+ 
+ [[package]]
+ name = "codex-utils-cache"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "lru",
+  "sha1 0.10.6",
+@@ -4666,7 +4669,7 @@
+ 
+ [[package]]
+ name = "codex-utils-cargo-bin"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "assert_cmd",
+  "runfiles",
+@@ -4675,7 +4678,7 @@
+ 
+ [[package]]
+ name = "codex-utils-cli"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "clap",
+  "codex-protocol",
+@@ -4687,15 +4690,15 @@
+ 
+ [[package]]
+ name = "codex-utils-elapsed"
+-version = "0.0.0"
++version = "0.153.4"
+ 
+ [[package]]
+ name = "codex-utils-fuzzy-match"
+-version = "0.0.0"
++version = "0.153.4"
+ 
+ [[package]]
+ name = "codex-utils-git-discovery"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "codex-git-utils",
+  "codex-utils-absolute-path",
+@@ -4708,7 +4711,7 @@
+ 
+ [[package]]
+ name = "codex-utils-home-dir"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "codex-utils-absolute-path",
+  "dirs",
+@@ -4718,7 +4721,7 @@
+ 
+ [[package]]
+ name = "codex-utils-image"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "base64 0.22.1",
+  "codex-utils-cache",
+@@ -4731,7 +4734,7 @@
+ 
+ [[package]]
+ name = "codex-utils-json-to-toml"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "pretty_assertions",
+  "serde_json",
+@@ -4740,7 +4743,7 @@
+ 
+ [[package]]
+ name = "codex-utils-oss"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "codex-core",
+  "codex-lmstudio",
+@@ -4750,7 +4753,7 @@
+ 
+ [[package]]
+ name = "codex-utils-output-truncation"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "codex-protocol",
+  "codex-utils-string",
+@@ -4759,7 +4762,7 @@
+ 
+ [[package]]
+ name = "codex-utils-path"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "codex-utils-absolute-path",
+  "dunce",
+@@ -4769,7 +4772,7 @@
+ 
+ [[package]]
+ name = "codex-utils-path-uri"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "base64 0.22.1",
+  "codex-utils-absolute-path",
+@@ -4785,7 +4788,7 @@
+ 
+ [[package]]
+ name = "codex-utils-plugins"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "codex-exec-server",
+  "codex-exec-server-protocol",
+@@ -4799,7 +4802,7 @@
+ 
+ [[package]]
+ name = "codex-utils-pty"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "anyhow",
+  "filedescriptor",
+@@ -4815,7 +4818,7 @@
+ 
+ [[package]]
+ name = "codex-utils-readiness"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "assert_matches",
+  "thiserror 2.0.18",
+@@ -4825,7 +4828,7 @@
+ 
+ [[package]]
+ name = "codex-utils-redacted-string"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "schemars 0.8.22",
+  "serde",
+@@ -4833,14 +4836,14 @@
+ 
+ [[package]]
+ name = "codex-utils-rustls-provider"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "rustls",
+ ]
+ 
+ [[package]]
+ name = "codex-utils-sandbox-summary"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "codex-protocol",
+  "codex-utils-absolute-path",
+@@ -4849,7 +4852,7 @@
+ 
+ [[package]]
+ name = "codex-utils-sleep-inhibitor"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "core-foundation 0.9.4",
+  "libc",
+@@ -4859,14 +4862,14 @@
+ 
+ [[package]]
+ name = "codex-utils-stream-parser"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "pretty_assertions",
+ ]
+ 
+ [[package]]
+ name = "codex-utils-string"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "pretty_assertions",
+  "regex-lite",
+@@ -4876,14 +4879,14 @@
+ 
+ [[package]]
+ name = "codex-utils-template"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "pretty_assertions",
+ ]
+ 
+ [[package]]
+ name = "codex-v8-poc"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "pretty_assertions",
+  "v8",
+@@ -4891,7 +4894,7 @@
+ 
+ [[package]]
+ name = "codex-voice-host"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "anyhow",
+  "codex-install-context",
+@@ -4905,7 +4908,7 @@
+ 
+ [[package]]
+ name = "codex-web-search-extension"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "codex-api",
+  "codex-core",
+@@ -4926,7 +4929,7 @@
+ 
+ [[package]]
+ name = "codex-websocket-client"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "codex-http-client",
+  "codex-utils-rustls-provider",
+@@ -4942,7 +4945,7 @@
+ 
+ [[package]]
+ name = "codex-windows-sandbox"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "anyhow",
+  "base64 0.22.1",
+@@ -4968,7 +4971,7 @@
+ 
+ [[package]]
+ name = "codex-workload-identity"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "codex-http-client",
+  "pretty_assertions",
+@@ -4983,7 +4986,7 @@
+ 
+ [[package]]
+ name = "codex-worktree"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "anyhow",
+  "codex-git-utils",
+@@ -5222,7 +5225,7 @@
+ 
+ [[package]]
+ name = "core_test_support"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "anyhow",
+  "assert_cmd",
+@@ -9520,7 +9523,7 @@
+ 
+ [[package]]
+ name = "mcp_test_support"
+-version = "0.0.0"
++version = "0.153.4"
+ dependencies = [
+  "anyhow",
+  "codex-login",
+--- a/codex-rs/app-server/src/main.rs
++++ b/codex-rs/app-server/src/main.rs
+@@ -63,6 +63,13 @@
+ }
+ 
+ fn main() -> anyhow::Result<()> {
++    if std::env::args_os().skip(1).eq([std::ffi::OsString::from(
++        "--demoncoder-compaction-capability",
++    )]) {
++        println!("{}", codex_hooks::managed_compaction_capability());
++        return Ok(());
++    }
++    codex_hooks::initialize_managed_compaction()?;
+     let remote_control_disabled = codex_app_server::take_remote_control_disabled_env();
+     arg0_dispatch_or_else(move |arg0_paths: Arg0DispatchPaths| async move {
+         let AppServerArgs {
+--- a/codex-rs/cli/Cargo.toml
++++ b/codex-rs/cli/Cargo.toml
+@@ -39,6 +39,7 @@
+ codex-utils-cli = { workspace = true }
+ codex-config = { workspace = true }
+ codex-core = { workspace = true }
++codex-hooks = { workspace = true }
+ codex-core-plugins = { workspace = true }
+ codex-history = { workspace = true }
+ codex-home = { workspace = true }
+--- a/codex-rs/cli/src/main.rs
++++ b/codex-rs/cli/src/main.rs
+@@ -1036,6 +1036,22 @@
+ }
+ 
+ fn main() -> anyhow::Result<()> {
++    if std::env::args_os().skip(1).eq([std::ffi::OsString::from(
++        "--demoncoder-model-hook-capability",
++    )]) {
++        println!(
++            "{}",
++            serde_json::json!({"protocol":"demoncoder-model-hook-v1","source_version":"0.153.4"})
++        );
++        return Ok(());
++    }
++    if std::env::args_os().skip(1).eq([std::ffi::OsString::from(
++        "--demoncoder-compaction-capability",
++    )]) {
++        println!("{}", codex_hooks::managed_compaction_capability());
++        return Ok(());
++    }
++    codex_hooks::initialize_managed_compaction()?;
+     let remote_control_disabled = codex_app_server::take_remote_control_disabled_env();
+     arg0_dispatch_or_else(move |arg0_paths: Arg0DispatchPaths| async move {
+         cli_main(arg0_paths, remote_control_disabled).await?;
+--- a/codex-rs/codex-home/src/instructions/mod.rs
++++ b/codex-rs/codex-home/src/instructions/mod.rs
+@@ -22,6 +22,11 @@
+     }
+ 
+     async fn load_from_codex_home(&self) -> LoadedUserInstructions {
++        // A managed hook receives only host-supplied snapshot evidence. Keep
++        // the original Codex home for authentication, but never load its prose.
++        if std::env::var_os("CODEX_DEMONCODER_MODEL_HOOK").is_some_and(|value| value == "v1") {
++            return LoadedUserInstructions::default();
++        }
+         let mut warnings = Vec::new();
+         for candidate in [LOCAL_AGENTS_MD_FILENAME, DEFAULT_AGENTS_MD_FILENAME] {
+             let path = self.codex_home.join(candidate);
+--- a/codex-rs/core/src/config/mod.rs
++++ b/codex-rs/core/src/config/mod.rs
+@@ -3150,6 +3150,19 @@
+     ) -> std::io::Result<Self> {
+         // Keep the large config-construction future off small test thread stacks.
+         Box::pin(async move {
++        // This process-wide host mode survives configuration refresh. Preserve
++        // authentication and managed access restrictions; replace only ambient
++        // model context and the legacy executable notification callback.
++        if std::env::var_os("CODEX_DEMONCODER_MODEL_HOOK")
++            .is_some_and(|value| value == "v1")
++        {
++            cfg.model_instructions_file = None;
++            cfg.experimental_compact_prompt_file = None;
++            cfg.instructions = None;
++            cfg.developer_instructions = None;
++            cfg.project_doc_max_bytes = Some(0);
++            cfg.notify = None;
++        }
+         if cfg.experimental_thread_store_endpoint.is_some() {
+             return Err(std::io::Error::new(
+                 std::io::ErrorKind::InvalidInput,
+--- a/codex-rs/hooks/Cargo.toml
++++ b/codex-rs/hooks/Cargo.toml
+@@ -27,6 +27,7 @@
+ schemars = { workspace = true }
+ serde = { workspace = true, features = ["derive"] }
+ serde_json = { workspace = true }
++sha2 = { workspace = true }
+ tokio = { workspace = true, features = ["fs", "io-util", "process", "sync", "time"] }
+ tracing = { workspace = true }
+ uuid = { workspace = true, features = ["v4"] }
+@@ -38,3 +39,6 @@
+ 
+ [target.'cfg(any(unix, windows))'.dependencies]
+ codex-utils-pty = { workspace = true }
++
++[target.'cfg(unix)'.dependencies]
++libc = { workspace = true }
+--- a/codex-rs/hooks/src/engine/command_runner.rs
++++ b/codex-rs/hooks/src/engine/command_runner.rs
+@@ -328,6 +328,126 @@
+     }
+ }
+ 
++/// Managed relays have a total deadline and bounded output; ordinary hooks retain their runner.
++pub(crate) async fn run_managed_command(
++    runtime: &CommandHookRuntime,
++    handler: &ConfiguredHandler,
++    input_json: &str,
++    cwd: &Path,
++) -> HandlerRunResult {
++    use anyhow::Context;
++    let started_at = chrono::Utc::now().timestamp();
++    let started = Instant::now();
++    let exchange = async {
++        anyhow::ensure!(
++            input_json.len() <= 1_048_576,
++            "managed relay input exceeds limit"
++        );
++        let ConfiguredHandlerKind::Command {
++            command,
++            env,
++            r#async: false,
++        } = &handler.kind
++        else {
++            anyhow::bail!("managed relay must be a synchronous command");
++        };
++        anyhow::ensure!(
++            env.is_empty(),
++            "managed relay environment override is forbidden"
++        );
++        // The admitted command cannot be redirected through refreshed hooks.shell settings.
++        #[cfg(unix)]
++        let shell = CommandShell {
++            program: "/bin/sh".to_string(),
++            args: vec!["-c".to_string()],
++        };
++        #[cfg(not(unix))]
++        let shell = CommandShell {
++            program: "cmd.exe".to_string(),
++            args: vec!["/C".to_string()],
++        };
++        let mut command = build_command(&shell, command, &runtime.environment, env);
++        command
++            .current_dir(cwd)
++            .stdin(Stdio::piped())
++            .stdout(Stdio::piped())
++            .stderr(Stdio::piped())
++            .kill_on_drop(true);
++        #[cfg(unix)]
++        command.process_group(0);
++        #[cfg(windows)]
++        let job = JobObject::create().context("create managed relay process tree")?;
++        #[cfg(windows)]
++        let mut child = job
++            .spawn_contained(&mut command)
++            .context("spawn managed relay")?;
++        #[cfg(not(windows))]
++        let mut child = command.spawn().context("spawn managed relay")?;
++        // Unlike ordinary observer hooks, a managed relay cannot leave detached children.
++        let _tree = ProcessTreeGuard {
++            process_id: child.id(),
++            #[cfg(windows)]
++            job: Some(job),
++        };
++        let mut stdin = child
++            .stdin
++            .take()
++            .context("managed relay stdin unavailable")?;
++        let stdout = child
++            .stdout
++            .take()
++            .context("managed relay stdout unavailable")?;
++        let stderr = child
++            .stderr
++            .take()
++            .context("managed relay stderr unavailable")?;
++        let (_, stdout, stderr, status) = tokio::try_join!(
++            async {
++                stdin.write_all(input_json.as_bytes()).await?;
++                stdin.shutdown().await?;
++                drop(stdin);
++                Ok::<_, anyhow::Error>(())
++            },
++            read_managed_output(stdout),
++            read_managed_output(stderr),
++            async { Ok::<_, anyhow::Error>(child.wait().await?) },
++        )?;
++        Ok::<_, anyhow::Error>((status, stdout, stderr))
++    };
++    let completion = match timeout(Duration::from_secs(handler.timeout_sec), exchange).await {
++        Ok(Ok((status, stdout, stderr))) => CommandRunCompletion {
++            exit_code: status.code(),
++            stdout,
++            stderr,
++            error: None,
++            outcome: "completed",
++        },
++        result => CommandRunCompletion {
++            exit_code: None,
++            stdout: String::new(),
++            stderr: String::new(),
++            error: Some(match result {
++                Ok(Err(error)) => format!("managed relay exchange failed: {error}"),
++                Err(_) => "managed relay total deadline expired".to_string(),
++                Ok(Ok(_)) => unreachable!(),
++            }),
++            outcome: "managed_error",
++        },
++    };
++    finish_command_run(started_at, started, completion)
++}
++
++async fn read_managed_output(reader: impl tokio::io::AsyncRead + Unpin) -> anyhow::Result<String> {
++    use tokio::io::AsyncReadExt;
++    let mut bytes = Vec::new();
++    reader.take(65_537).read_to_end(&mut bytes).await?;
++    anyhow::ensure!(
++        bytes.len() <= 65_536,
++        "managed relay output exceeds 65536 bytes"
++    );
++    Ok(String::from_utf8(bytes)?)
++}
++
+ // Needed only until command hooks move to the exec server, which owns process-tree cleanup.
+ struct ProcessTreeGuard {
+     process_id: Option<u32>,
+--- a/codex-rs/hooks/src/engine/command_runner_tests.rs
++++ b/codex-rs/hooks/src/engine/command_runner_tests.rs
+@@ -534,3 +534,56 @@
+         "shutdown must not deliver a late async result"
+     );
+ }
++
++#[cfg(unix)]
++#[tokio::test]
++async fn managed_runner_bounds_output_and_the_complete_exchange() {
++    let temp = tempdir().unwrap();
++    let (sender, _receiver) = async_channel::unbounded();
++    let runtime = CommandHookRuntime::new(
++        CommandShell {
++            program: "/bin/sh".to_string(),
++            args: vec!["-c".to_string()],
++        },
++        Arc::new(std::env::vars_os().collect()),
++        ThreadId::new(),
++        sender,
++    );
++    for (command, input) in [
++        ("python3 -c 'print(\"x\"*65537)'", "{}".to_string()),
++        (
++            "python3 -c 'import sys;sys.stderr.write(\"x\"*65537)'",
++            "{}".to_string(),
++        ),
++        ("sleep 30", "x".repeat(1_048_576)),
++    ] {
++        let handler = ConfiguredHandler {
++            builtin: false,
++            event_name: HookEventName::PreCompact,
++            matcher: None,
++            timeout_sec: 1,
++            status_message: None,
++            additional_context_limit: Default::default(),
++            source_path: AbsolutePathBuf::try_from(temp.path().join("hooks.json"))
++                .unwrap()
++                .into(),
++            source: HookSource::SessionFlags,
++            display_order: 0,
++            kind: ConfiguredHandlerKind::Command {
++                command: command.to_string(),
++                env: HashMap::new(),
++                r#async: false,
++            },
++        };
++        let result = timeout(
++            Duration::from_secs(2),
++            super::run_managed_command(&runtime, &handler, &input, temp.path()),
++        )
++        .await
++        .expect("total managed deadline includes writing stdin");
++        assert!(
++            result.error.is_some(),
++            "managed exchange unexpectedly succeeded: {command}"
++        );
++    }
++}
+--- a/codex-rs/hooks/src/events/compact.rs
++++ b/codex-rs/hooks/src/events/compact.rs
+@@ -121,7 +121,9 @@
+     }
+ }
+ 
+-fn pre_command_input_json(request: &PreCompactRequest) -> Result<String, serde_json::Error> {
++pub(crate) fn pre_command_input_json(
++    request: &PreCompactRequest,
++) -> Result<String, serde_json::Error> {
+     let subagent = SubagentCommandInputFields::from(request.subagent.as_ref());
+     serde_json::to_string(&PreCompactCommandInput {
+         session_id: request.session_id.to_string(),
+@@ -202,7 +204,9 @@
+     }
+ }
+ 
+-fn post_command_input_json(request: &PostCompactRequest) -> Result<String, serde_json::Error> {
++pub(crate) fn post_command_input_json(
++    request: &PostCompactRequest,
++) -> Result<String, serde_json::Error> {
+     let subagent = SubagentCommandInputFields::from(request.subagent.as_ref());
+     serde_json::to_string(&PostCompactCommandInput {
+         session_id: request.session_id.to_string(),
+--- a/codex-rs/hooks/src/lib.rs
++++ b/codex-rs/hooks/src/lib.rs
+@@ -3,6 +3,7 @@
+ mod engine;
+ pub(crate) mod events;
+ mod legacy_notify;
++mod managed_compaction;
+ mod mcp;
+ mod output_spill;
+ mod registry;
+@@ -77,6 +78,8 @@
+ pub use events::user_prompt_submit::UserPromptSubmitOutcome;
+ pub use events::user_prompt_submit::UserPromptSubmitRequest;
+ pub use legacy_notify::legacy_notify_json;
++pub use managed_compaction::initialize_managed_compaction;
++pub use managed_compaction::managed_compaction_capability;
+ pub use mcp::HookMcpCall;
+ pub use mcp::HookMcpExecutor;
+ pub use registry::HookListOutcome;
+--- /dev/null
++++ b/codex-rs/hooks/src/managed_compaction.rs
+@@ -0,0 +1,345 @@
++use crate::engine::ConfiguredHandler;
++use crate::engine::ConfiguredHandlerKind;
++use anyhow::Context;
++use codex_protocol::protocol::HookEventName;
++use codex_protocol::protocol::HookSource;
++use codex_utils_absolute_path::AbsolutePathBuf;
++use serde::Deserialize;
++use serde::Serialize;
++use sha2::Digest;
++use std::io::Read;
++use std::path::PathBuf;
++use std::sync::Arc;
++use std::sync::OnceLock;
++
++pub(crate) const PROTOCOL: &str = "demoncoder-compaction-v1";
++
++#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
++#[serde(deny_unknown_fields)]
++pub(crate) struct Acknowledgment {
++    pub protocol: String,
++    pub challenge: String,
++    pub hook_event_name: String,
++    pub session_id: String,
++    pub turn_id: String,
++}
++
++#[derive(Deserialize)]
++#[serde(deny_unknown_fields)]
++struct Response {
++    #[serde(rename = "continue")]
++    proceed: bool,
++    #[serde(rename = "demonCoderCompaction")]
++    acknowledgment: Acknowledgment,
++    #[serde(rename = "stopReason")]
++    stop_reason: Option<String>,
++}
++
++fn decode_ack(stdout: &str, expected: &Acknowledgment) -> anyhow::Result<Option<String>> {
++    let response: Response = serde_json::from_str(stdout)?;
++    anyhow::ensure!(
++        response.acknowledgment == *expected,
++        "managed compaction acknowledgment does not match the pending operation"
++    );
++    Ok((!response.proceed).then(|| {
++        response
++            .stop_reason
++            .unwrap_or_else(|| "managed compaction relay denied continuation".to_string())
++    }))
++}
++
++#[derive(Debug, Deserialize)]
++#[serde(deny_unknown_fields)]
++struct Requirement {
++    protocol: String,
++    source_path: PathBuf,
++    source_sha256: String,
++    command: String,
++}
++
++#[derive(Debug, Deserialize)]
++#[serde(deny_unknown_fields)]
++struct Declaration {
++    hooks: CompactEvents,
++}
++
++#[derive(Debug, Deserialize)]
++#[serde(deny_unknown_fields)]
++struct CompactEvents {
++    #[serde(rename = "PreCompact")]
++    pre: Vec<CompactGroup>,
++    #[serde(rename = "PostCompact")]
++    post: Vec<CompactGroup>,
++}
++
++#[derive(Debug, Deserialize)]
++#[serde(deny_unknown_fields)]
++struct CompactGroup {
++    hooks: Vec<CompactCommand>,
++}
++
++#[derive(Debug, Deserialize)]
++#[serde(deny_unknown_fields)]
++struct CompactCommand {
++    #[serde(rename = "type")]
++    kind: String,
++    command: String,
++    timeout: u64,
++    #[serde(default)]
++    r#async: bool,
++}
++
++fn validate_declaration(requirement: &Requirement, bytes: &[u8]) -> anyhow::Result<Declaration> {
++    anyhow::ensure!(
++        requirement.protocol == PROTOCOL,
++        "unsupported managed compaction protocol"
++    );
++    anyhow::ensure!(
++        requirement.source_path.is_absolute(),
++        "managed compaction source must be absolute"
++    );
++    anyhow::ensure!(
++        !requirement.command.trim().is_empty(),
++        "managed compaction command is empty"
++    );
++    anyhow::ensure!(
++        bytes.len() <= 1_048_576,
++        "managed compaction declaration is too large"
++    );
++    anyhow::ensure!(
++        format!("{:x}", sha2::Sha256::digest(bytes)) == requirement.source_sha256,
++        "untrusted managed compaction source hash"
++    );
++    let declaration: Declaration = serde_json::from_slice(bytes)?;
++    for groups in [&declaration.hooks.pre, &declaration.hooks.post] {
++        anyhow::ensure!(
++            groups.len() == 1 && groups[0].hooks.len() == 1,
++            "managed compaction requires exactly one handler per boundary"
++        );
++        let handler = &groups[0].hooks[0];
++        anyhow::ensure!(
++            handler.kind == "command" && handler.command == requirement.command && !handler.r#async,
++            "managed compaction requires the exact synchronous relay command"
++        );
++        anyhow::ensure!(
++            (1..=120).contains(&handler.timeout),
++            "managed compaction timeout must be 1..=120 seconds"
++        );
++    }
++    Ok(declaration)
++}
++
++const ENVIRONMENT_VARIABLE: &str = "CODEX_DEMONCODER_COMPACTION_RELAY";
++static STARTUP: OnceLock<Result<Option<Arc<ManagedCompaction>>, String>> = OnceLock::new();
++
++/// Capture the required relay before any backend session starts. Errors remain fail-closed.
++pub fn initialize_managed_compaction() -> anyhow::Result<()> {
++    STARTUP
++        .get_or_init(|| match std::env::var(ENVIRONMENT_VARIABLE) {
++            Ok(raw) => ManagedCompaction::load(&raw)
++                .map(Arc::new)
++                .map(Some)
++                .map_err(|error| error.to_string()),
++            Err(std::env::VarError::NotPresent) => Ok(None),
++            Err(error) => Err(format!("invalid managed compaction requirement: {error}")),
++        })
++        .as_ref()
++        .map(|_| ())
++        .map_err(|error| anyhow::anyhow!("{error}"))
++}
++
++/// Identifies this integration; production qualification must also verify the binary digest.
++pub fn managed_compaction_capability() -> &'static str {
++    r#"{"protocol":"demoncoder-compaction-v1","source_version":"0.153.4","patch_version":1}"#
++}
++
++pub(crate) fn startup_snapshot() -> anyhow::Result<Option<Arc<ManagedCompaction>>> {
++    STARTUP
++        .get()
++        .cloned()
++        .unwrap_or(Ok(None))
++        .map_err(anyhow::Error::msg)
++}
++
++#[derive(Debug)]
++pub(crate) struct ManagedCompaction {
++    pub(crate) pre: ConfiguredHandler,
++    pub(crate) post: ConfiguredHandler,
++}
++
++impl ManagedCompaction {
++    pub(crate) async fn run(
++        &self,
++        engine: &crate::engine::ClaudeHooksEngine,
++        handler: &ConfiguredHandler,
++        input: Result<String, serde_json::Error>,
++        cwd: &std::path::Path,
++        session_id: String,
++        turn_id: String,
++    ) -> crate::StatelessHookOutcome {
++        use crate::engine::dispatcher;
++        use codex_protocol::protocol::HookCompletedEvent;
++        use codex_protocol::protocol::HookOutputEntry;
++        use codex_protocol::protocol::HookOutputEntryKind;
++        use codex_protocol::protocol::HookRunStatus;
++        let expected = Acknowledgment {
++            protocol: PROTOCOL.to_string(),
++            challenge: uuid::Uuid::new_v4().to_string(),
++            hook_event_name: dispatcher::hook_event_name_label(handler.event_name).to_string(),
++            session_id,
++            turn_id: turn_id.clone(),
++        };
++        let input = input.and_then(|input| {
++            let mut input: serde_json::Value = serde_json::from_str(&input)?;
++            input["demonCoderCompaction"] =
++                serde_json::json!({"protocol":PROTOCOL, "challenge":expected.challenge});
++            serde_json::to_string(&input)
++        });
++        let result = match input {
++            Ok(input) => {
++                crate::engine::command_runner::run_managed_command(
++                    &engine.command_runtime,
++                    handler,
++                    &input,
++                    cwd,
++                )
++                .await
++            }
++            Err(error) => crate::engine::HandlerRunResult {
++                started_at: chrono::Utc::now().timestamp(),
++                completed_at: chrono::Utc::now().timestamp(),
++                duration_ms: 0,
++                exit_code: None,
++                stdout: String::new(),
++                stderr: String::new(),
++                error: Some(format!("serialize managed relay request: {error}")),
++            },
++        };
++        let decision = match &result.error {
++            Some(error) => Err(anyhow::anyhow!("{error}")),
++            None if result.exit_code != Some(0) => {
++                Err(anyhow::anyhow!("managed relay did not exit successfully"))
++            }
++            None => decode_ack(&result.stdout, &expected),
++        };
++        let (status, stop_reason) = match decision {
++            Ok(None) => (HookRunStatus::Completed, None),
++            Ok(Some(reason)) => (HookRunStatus::Stopped, Some(reason)),
++            Err(error) => (
++                HookRunStatus::Failed,
++                Some(format!(
++                    "{} required relay acknowledgment failed: {error}",
++                    expected.hook_event_name
++                )),
++            ),
++        };
++        let entries = stop_reason
++            .iter()
++            .map(|reason| HookOutputEntry {
++                kind: if status == HookRunStatus::Stopped {
++                    HookOutputEntryKind::Stop
++                } else {
++                    HookOutputEntryKind::Error
++                },
++                text: reason.clone(),
++            })
++            .collect();
++        crate::StatelessHookOutcome {
++            should_stop: stop_reason.is_some(),
++            stop_reason,
++            hook_events: vec![HookCompletedEvent {
++                turn_id: Some(turn_id),
++                run: dispatcher::completed_summary(handler, &result, status, entries),
++            }],
++        }
++    }
++
++    pub(crate) fn load(raw: &str) -> anyhow::Result<Self> {
++        anyhow::ensure!(
++            raw.len() <= 65_536,
++            "managed compaction requirement is too large"
++        );
++        let requirement: Requirement =
++            serde_json::from_str(raw).context("invalid managed compaction requirement")?;
++        anyhow::ensure!(
++            requirement.source_path.is_absolute(),
++            "managed compaction source must be absolute"
++        );
++        anyhow::ensure!(
++            std::fs::symlink_metadata(&requirement.source_path)
++                .context("inspect required managed compaction source")?
++                .file_type()
++                .is_file(),
++            "managed compaction source must be a regular file, not a symlink"
++        );
++        let mut options = std::fs::OpenOptions::new();
++        options.read(true);
++        #[cfg(unix)]
++        {
++            use std::os::unix::fs::OpenOptionsExt;
++            // A replacement FIFO must not block open; a replacement symlink must not be followed.
++            options.custom_flags(libc::O_NONBLOCK | libc::O_NOFOLLOW);
++        }
++        #[cfg(windows)]
++        {
++            use std::os::windows::fs::OpenOptionsExt;
++            const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
++            options.custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
++        }
++        let file = options
++            .open(&requirement.source_path)
++            .context("open required managed compaction source")?;
++        anyhow::ensure!(
++            file.metadata()
++                .context("inspect opened managed compaction source")?
++                .is_file(),
++            "opened managed compaction source is not a regular file"
++        );
++        let mut bytes = Vec::new();
++        file.take(1_048_577)
++            .read_to_end(&mut bytes)
++            .context("read required managed compaction source")?;
++        let declaration = validate_declaration(&requirement, &bytes)?;
++        let source_path = AbsolutePathBuf::try_from(requirement.source_path)?;
++        let mut handlers = [
++            (HookEventName::PreCompact, declaration.hooks.pre),
++            (HookEventName::PostCompact, declaration.hooks.post),
++        ]
++        .into_iter()
++        .enumerate()
++        .map(|(order, (event_name, groups))| {
++            let handler = groups
++                .into_iter()
++                .next()
++                .expect("validated group")
++                .hooks
++                .into_iter()
++                .next()
++                .expect("validated handler");
++            ConfiguredHandler {
++                builtin: false,
++                event_name,
++                matcher: None,
++                timeout_sec: handler.timeout,
++                status_message: None,
++                additional_context_limit: Default::default(),
++                source_path: source_path.clone().into(),
++                source: HookSource::SessionFlags,
++                display_order: order as i64,
++                kind: ConfiguredHandlerKind::Command {
++                    command: handler.command,
++                    env: Default::default(),
++                    r#async: false,
++                },
++            }
++        });
++        Ok(Self {
++            pre: handlers.next().expect("pre handler"),
++            post: handlers.next().expect("post handler"),
++        })
++    }
++}
++
++#[cfg(test)]
++#[path = "managed_compaction_tests.rs"]
++mod tests;
+--- /dev/null
++++ b/codex-rs/hooks/src/managed_compaction_tests.rs
+@@ -0,0 +1,129 @@
++use super::*;
++use serde_json::json;
++
++fn expected() -> Acknowledgment {
++    Acknowledgment {
++        protocol: PROTOCOL.to_string(),
++        challenge: "fresh-challenge".to_string(),
++        hook_event_name: "PreCompact".to_string(),
++        session_id: "session-1".to_string(),
++        turn_id: "turn-1".to_string(),
++    }
++}
++
++#[test]
++fn acknowledgment_requires_explicit_fresh_typed_decision() {
++    for event in ["PreCompact", "PostCompact"] {
++        let mut expected = expected();
++        expected.hook_event_name = event.to_string();
++        let valid = json!({"continue": true, "demonCoderCompaction": expected});
++        assert_eq!(decode_ack(&valid.to_string(), &expected).unwrap(), None);
++        let mut invalid = vec![
++            "".to_string(),
++            "logged".to_string(),
++            "{".to_string(),
++            "null".to_string(),
++            "{}".to_string(),
++            r#"{"continue":true}"#.to_string(),
++        ];
++        for key in [
++            "protocol",
++            "challenge",
++            "hook_event_name",
++            "session_id",
++            "turn_id",
++        ] {
++            let mut stale = valid.clone();
++            stale["demonCoderCompaction"][key] = json!("different");
++            invalid.push(stale.to_string());
++        }
++        let mut extra = valid.clone();
++        extra["extra"] = json!(true);
++        invalid.push(extra.to_string());
++        let mut extra = valid.clone();
++        extra["demonCoderCompaction"]["extra"] = json!(true);
++        invalid.push(extra.to_string());
++        let mut wrong_type = valid.clone();
++        wrong_type["continue"] = json!("true");
++        invalid.push(wrong_type.to_string());
++        invalid.push(format!("{valid}\n{valid}"));
++        for output in invalid {
++            assert!(
++                decode_ack(&output, &expected).is_err(),
++                "accepted {output:?}"
++            );
++        }
++        let denied = json!({"continue": false, "stopReason":"policy denied", "demonCoderCompaction":expected});
++        assert_eq!(
++            decode_ack(&denied.to_string(), &expected).unwrap(),
++            Some("policy denied".to_string())
++        );
++    }
++}
++
++fn declaration() -> serde_json::Value {
++    let group = json!([{ "hooks": [{ "type": "command", "command": "relay", "timeout": 65 }] }]);
++    json!({ "hooks": {"PreCompact": group, "PostCompact": group} })
++}
++
++fn requirement(bytes: &[u8]) -> Requirement {
++    Requirement {
++        protocol: PROTOCOL.to_string(),
++        source_path: std::env::temp_dir().join("private-hooks.json"),
++        source_sha256: format!("{:x}", sha2::Sha256::digest(bytes)),
++        command: "relay".to_string(),
++    }
++}
++
++#[test]
++fn declaration_requires_hash_identity_and_both_synchronous_boundaries() {
++    let bytes = serde_json::to_vec(&declaration()).unwrap();
++    assert!(validate_declaration(&requirement(&bytes), &bytes).is_ok());
++    let mut req = requirement(&bytes);
++    req.source_sha256 = "0".repeat(64);
++    assert!(
++        validate_declaration(&req, &bytes).is_err(),
++        "accepted untrusted source hash"
++    );
++    let mut req = requirement(&bytes);
++    req.command = "substituted".to_string();
++    assert!(validate_declaration(&req, &bytes).is_err());
++    let mut req = requirement(&bytes);
++    req.source_path = PathBuf::from("relative.json");
++    assert!(validate_declaration(&req, &bytes).is_err());
++    let mut req = requirement(&bytes);
++    req.protocol = "other".to_string();
++    assert!(validate_declaration(&req, &bytes).is_err());
++    for event in ["PreCompact", "PostCompact"] {
++        for (field, value) in [
++            ("async", json!(true)),
++            ("command", json!("different")),
++            ("type", json!("mcp_tool")),
++            ("timeout", json!(0)),
++            ("timeout", json!(121)),
++            ("env", json!({})),
++            ("enabled", json!(false)),
++        ] {
++            let mut changed = declaration();
++            changed["hooks"][event][0]["hooks"][0][field] = value;
++            let bytes = serde_json::to_vec(&changed).unwrap();
++            assert!(
++                validate_declaration(&requirement(&bytes), &bytes).is_err(),
++                "accepted {changed}"
++            );
++        }
++        for groups in [
++            json!([]),
++            json!([{"hooks":[]}]),
++            json!([
++                declaration()["hooks"][event][0],
++                declaration()["hooks"][event][0]
++            ]),
++        ] {
++            let mut changed = declaration();
++            changed["hooks"][event] = groups;
++            let bytes = serde_json::to_vec(&changed).unwrap();
++            assert!(validate_declaration(&requirement(&bytes), &bytes).is_err());
++        }
++    }
++}
+--- /dev/null
++++ b/codex-rs/hooks/src/managed_registry_tests.rs
+@@ -0,0 +1,129 @@
++use super::*;
++use crate::managed_compaction::ManagedCompaction;
++use codex_utils_absolute_path::AbsolutePathBuf;
++use pretty_assertions::assert_eq;
++use serde_json::json;
++use sha2::Digest;
++
++struct NoMcp;
++impl crate::HookMcpExecutor for NoMcp {
++    fn execute(
++        &self,
++        _: crate::HookMcpCall,
++    ) -> futures::future::BoxFuture<'_, anyhow::Result<String>> {
++        Box::pin(async { anyhow::bail!("unexpected MCP execution") })
++    }
++}
++
++#[cfg(unix)]
++#[tokio::test]
++async fn managed_boundaries_require_ack_when_ordinary_hooks_are_disabled() {
++    for mode in [
++        "allow",
++        "deny",
++        "empty",
++        "plain",
++        "malformed",
++        "nonzero",
++        "crash",
++        "timeout",
++        "stale",
++        "wrong_event",
++    ] {
++        let temp = tempfile::tempdir().unwrap();
++        let script = temp.path().join("relay.py");
++        std::fs::write(
++            &script,
++            r#"import json,os,signal,sys,time
++req=json.load(sys.stdin)
++mode=sys.argv[1]
++with open(os.path.join(req['cwd'],'requests.jsonl'),'a') as f: f.write(json.dumps(req)+'\n')
++if mode=='empty': sys.exit(0)
++if mode=='plain': print('done'); sys.exit(0)
++if mode=='malformed': print('{'); sys.exit(0)
++if mode=='nonzero': sys.exit(3)
++if mode=='crash': os.kill(os.getpid(),signal.SIGKILL)
++if mode=='timeout': time.sleep(30)
++ack=dict(req['demonCoderCompaction'])
++ack.update({k:req[k] for k in ['session_id','turn_id','hook_event_name']})
++if mode=='stale': ack['challenge']='old'
++if mode=='wrong_event': ack['hook_event_name']='different'
++print(json.dumps({'continue':mode!='deny','demonCoderCompaction':ack}))
++"#,
++        )
++        .unwrap();
++        let command = format!("python3 '{}' {mode}", script.display());
++        let group = json!([{ "hooks": [{"type":"command", "command":command, "timeout":1}] }]);
++        let bytes =
++            serde_json::to_vec(&json!({"hooks":{"PreCompact":group,"PostCompact":group}})).unwrap();
++        let source = temp.path().join("hooks.json");
++        std::fs::write(&source, &bytes).unwrap();
++        let requirement = json!({"protocol":"demoncoder-compaction-v1", "source_path":source,
++            "source_sha256":format!("{:x}",sha2::Sha256::digest(&bytes)),"command":command});
++        let managed = Arc::new(ManagedCompaction::load(&requirement.to_string()).unwrap());
++        let (sender, _receiver) = async_channel::unbounded();
++        let environment = Arc::new(std::env::vars_os().collect());
++        let thread_id = ThreadId::new();
++        let hooks = Hooks::from_config(
++            HooksConfig::default(),
++            Arc::new(NoMcp),
++            Arc::clone(&environment),
++            Some(managed),
++            |shell| CommandHookRuntime::new(shell, environment, thread_id, sender),
++        );
++        // Later file deletion and settings refresh cannot remove the captured required relay.
++        std::fs::remove_file(source).unwrap();
++        let hooks = hooks.reconfigured(HooksConfig {
++            feature_enabled: false,
++            shell_program: Some("/invalid/configured/shell".to_string()),
++            legacy_notify_argv: Some(vec!["unexpected-notify".to_string()]),
++            ..Default::default()
++        });
++        let cwd = AbsolutePathBuf::try_from(temp.path()).unwrap();
++        let pre = hooks
++            .run_pre_compact(PreCompactRequest {
++                session_id: thread_id,
++                turn_id: "turn-1".to_string(),
++                subagent: None,
++                cwd: cwd.clone(),
++                transcript_path: None,
++                model: "test".to_string(),
++                trigger: "auto".to_string(),
++            })
++            .await;
++        let post = hooks
++            .run_post_compact(PostCompactRequest {
++                session_id: thread_id,
++                turn_id: "turn-1".to_string(),
++                subagent: None,
++                cwd,
++                transcript_path: None,
++                model: "test".to_string(),
++                trigger: "auto".to_string(),
++            })
++            .await;
++        assert_eq!(
++            (pre.should_stop, post.should_stop),
++            (mode != "allow", mode != "allow"),
++            "mode={mode}"
++        );
++        assert_eq!(
++            (pre.hook_events.len(), post.hook_events.len()),
++            (1, 1),
++            "mode={mode}"
++        );
++        assert!(hooks.after_agent.is_empty());
++        let requests: Vec<serde_json::Value> =
++            std::fs::read_to_string(temp.path().join("requests.jsonl"))
++                .unwrap()
++                .lines()
++                .map(|line| serde_json::from_str(line).unwrap())
++                .collect();
++        assert_ne!(
++            requests[0]["demonCoderCompaction"]["challenge"],
++            requests[1]["demonCoderCompaction"]["challenge"]
++        );
++        assert_eq!(requests[0]["hook_event_name"], "PreCompact");
++        assert_eq!(requests[1]["hook_event_name"], "PostCompact");
++    }
++}
+--- a/codex-rs/hooks/src/registry.rs
++++ b/codex-rs/hooks/src/registry.rs
+@@ -63,6 +63,7 @@
+     environment: Arc<Vec<(OsString, OsString)>>,
+     after_agent: Vec<Hook>,
+     engine: ClaudeHooksEngine,
++    managed_compaction: Option<Arc<crate::managed_compaction::ManagedCompaction>>,
+ }
+ 
+ impl Hooks {
+@@ -75,9 +76,13 @@
+     ) -> anyhow::Result<(Self, Receiver<codex_protocol::protocol::HookCompletedEvent>)> {
+         let (result_sender, result_receiver) = async_channel::unbounded();
+         let environment = Arc::new(std::env::vars_os().collect());
+-        let hooks = Self::from_config(config, mcp_executor, Arc::clone(&environment), |shell| {
+-            CommandHookRuntime::new(shell, environment, thread_id, result_sender)
+-        });
++        let hooks = Self::from_config(
++            config,
++            mcp_executor,
++            Arc::clone(&environment),
++            crate::managed_compaction::startup_snapshot()?,
++            |shell| CommandHookRuntime::new(shell, environment, thread_id, result_sender),
++        );
+         let required_load_errors = hooks.engine.required_load_errors();
+         if !required_load_errors.is_empty() {
+             anyhow::bail!(
+@@ -94,22 +99,32 @@
+             config,
+             Arc::clone(&self.engine.mcp_executor),
+             Arc::clone(&self.environment),
++            self.managed_compaction.clone(),
+             |shell| self.engine.command_runtime.reconfigured(shell),
+         )
+     }
+ 
+     pub fn with_executor_hooks(&self, executor_hooks: Vec<ExecutorPluginHookSource>) -> Self {
+         let mut hooks = self.clone();
+-        hooks.engine.set_executor_hooks(executor_hooks);
++        if self.managed_compaction.is_none() {
++            hooks.engine.set_executor_hooks(executor_hooks);
++        }
+         hooks
+     }
+ 
+     fn from_config(
+-        config: HooksConfig,
++        mut config: HooksConfig,
+         mcp_executor: Arc<dyn HookMcpExecutor>,
+         environment: Arc<Vec<(OsString, OsString)>>,
++        managed_compaction: Option<Arc<crate::managed_compaction::ManagedCompaction>>,
+         build_runtime: impl FnOnce(CommandShell) -> CommandHookRuntime,
+     ) -> Self {
++        if managed_compaction.is_some() {
++            config.feature_enabled = false;
++            config.plugin_hook_sources.clear();
++            config.plugin_hook_load_warnings.clear();
++            config.legacy_notify_argv = None;
++        }
+         let after_agent = config
+             .legacy_notify_argv
+             .filter(|argv| !argv.is_empty() && !argv[0].is_empty())
+@@ -133,6 +148,7 @@
+             environment,
+             after_agent,
+             engine,
++            managed_compaction,
+         }
+     }
+ 
+@@ -228,10 +244,30 @@
+         &self,
+         request: &PreCompactRequest,
+     ) -> Vec<codex_protocol::protocol::HookRunSummary> {
++        if let Some(managed) = &self.managed_compaction {
++            return vec![crate::engine::dispatcher::running_summary(&managed.pre)];
++        }
+         self.engine.preview_pre_compact(request)
+     }
+ 
+     pub async fn run_pre_compact(&self, request: PreCompactRequest) -> PreCompactOutcome {
++        if let Some(managed) = &self.managed_compaction {
++            let outcome = managed
++                .run(
++                    &self.engine,
++                    &managed.pre,
++                    crate::events::compact::pre_command_input_json(&request),
++                    request.cwd.as_path(),
++                    request.session_id.to_string(),
++                    request.turn_id,
++                )
++                .await;
++            return PreCompactOutcome {
++                hook_events: outcome.hook_events,
++                should_stop: outcome.should_stop,
++                stop_reason: outcome.stop_reason,
++            };
++        }
+         self.engine.run_pre_compact(request).await
+     }
+ 
+@@ -239,10 +275,25 @@
+         &self,
+         request: &PostCompactRequest,
+     ) -> Vec<codex_protocol::protocol::HookRunSummary> {
++        if let Some(managed) = &self.managed_compaction {
++            return vec![crate::engine::dispatcher::running_summary(&managed.post)];
++        }
+         self.engine.preview_post_compact(request)
+     }
+ 
+     pub async fn run_post_compact(&self, request: PostCompactRequest) -> StatelessHookOutcome {
++        if let Some(managed) = &self.managed_compaction {
++            return managed
++                .run(
++                    &self.engine,
++                    &managed.post,
++                    crate::events::compact::post_command_input_json(&request),
++                    request.cwd.as_path(),
++                    request.session_id.to_string(),
++                    request.turn_id,
++                )
++                .await;
++        }
+         self.engine.run_post_compact(request).await
+     }
+ 
+@@ -321,3 +372,7 @@
+     scrub_non_inheritable_env_vars(command.as_std_mut());
+     Some(command)
+ }
++
++#[cfg(test)]
++#[path = "managed_registry_tests.rs"]
++mod managed_tests;

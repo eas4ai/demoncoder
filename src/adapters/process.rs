@@ -12,6 +12,9 @@ use tokio::{
     process::{Child, ChildStdin, ChildStdout},
 };
 
+/// Complete newline-delimited JSON frame budget, including the newline.
+pub(super) const RESPONSE_FRAME_LIMIT: usize = 4 * 1024 * 1024;
+
 pub struct BackendProcess {
     child: Child,
     stdin: ChildStdin,
@@ -38,9 +41,64 @@ impl BackendProcess {
         workspace: &Path,
         auth_env: &[&str],
     ) -> Result<Self> {
-        let mut command = tokio::process::Command::new(binary);
+        Self::spawn_with_environment(binary, args, workspace, auth_env, &[])
+    }
+
+    pub fn spawn_with_environment(
+        binary: &Path,
+        args: &[String],
+        workspace: &Path,
+        auth_env: &[&str],
+        environment: &[(&str, &str)],
+    ) -> Result<Self> {
+        Self::spawn_inner(binary, args, workspace, auth_env, environment, None)
+    }
+
+    pub fn spawn_supervised(
+        binary: &Path,
+        args: &[String],
+        workspace: &Path,
+        auth_env: &[&str],
+        supervisor: &Path,
+    ) -> Result<Self> {
+        Self::spawn_inner(binary, args, workspace, auth_env, &[], Some(supervisor))
+    }
+
+    pub fn spawn_supervised_with_environment(
+        binary: &Path,
+        args: &[String],
+        workspace: &Path,
+        auth_env: &[&str],
+        environment: &[(&str, &str)],
+        supervisor: &Path,
+    ) -> Result<Self> {
+        Self::spawn_inner(
+            binary,
+            args,
+            workspace,
+            auth_env,
+            environment,
+            Some(supervisor),
+        )
+    }
+
+    fn spawn_inner(
+        binary: &Path,
+        args: &[String],
+        workspace: &Path,
+        auth_env: &[&str],
+        environment: &[(&str, &str)],
+        supervisor: Option<&Path>,
+    ) -> Result<Self> {
+        let mut command = tokio::process::Command::new(supervisor.unwrap_or(binary));
+        if supervisor.is_some() {
+            command
+                .arg("--supervise-backend")
+                .arg(serde_json::to_string(&(binary, args, std::process::id()))?);
+        } else {
+            command.args(args);
+        }
         command
-            .args(args)
             .current_dir(workspace)
             .env_clear()
             .stdin(Stdio::piped())
@@ -65,8 +123,26 @@ impl BackendProcess {
                 command.env(name, value);
             }
         }
+        command.envs(environment.iter().copied());
+        let leased_stdin = if supervisor.is_some() {
+            let (reader, writer) = rustix::pipe::pipe_with(rustix::pipe::PipeFlags::CLOEXEC)?;
+            let lease = writer.try_clone()?;
+            // stderr is a private write lease, never a diagnostic stream. Both
+            // owners retain stdin until either can kill the entire group.
+            command
+                .stdin(Stdio::from(reader))
+                .stderr(Stdio::from(lease));
+            Some(ChildStdin::from_std(std::process::ChildStdin::from(
+                writer,
+            ))?)
+        } else {
+            None
+        };
         let mut child = command.spawn().context("start backend executable")?;
-        let stdin = child.stdin.take().context("backend stdin unavailable")?;
+        let stdin = match leased_stdin {
+            Some(stdin) => stdin,
+            None => child.stdin.take().context("backend stdin unavailable")?,
+        };
         let stdout = BufReader::new(child.stdout.take().context("backend stdout unavailable")?);
         Ok(Self {
             child,
@@ -87,7 +163,7 @@ impl BackendProcess {
     }
 
     pub async fn receive(&mut self) -> Result<Value> {
-        self.receive_limited(4 * 1024 * 1024).await
+        self.receive_limited(RESPONSE_FRAME_LIMIT).await
     }
 
     pub async fn finite_json(&mut self, limit: usize) -> Result<Value> {
@@ -158,6 +234,27 @@ impl BackendProcess {
         self.last_response_bytes
     }
 
+    /// Observe leader death without reaping its reserved process-group ID.
+    pub async fn wait_for_exit(&self) -> Result<()> {
+        use rustix::process::{WaitId, WaitIdOptions, waitid};
+        let pid = self
+            .child
+            .id()
+            .and_then(|id| Pid::from_raw(id as i32))
+            .context("backend process unavailable")?;
+        loop {
+            if waitid(
+                WaitId::Pid(pid),
+                WaitIdOptions::EXITED | WaitIdOptions::NOWAIT | WaitIdOptions::NOHANG,
+            )?
+            .is_some()
+            {
+                bail!("backend transport exited during lifecycle callback");
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+    }
+
     pub async fn stop(&mut self) -> Result<()> {
         // Signal before reaping: the unreaped leader reserves this group ID,
         // including when it has exited while one of its helpers is still alive.
@@ -188,9 +285,60 @@ impl Drop for BackendProcess {
     }
 }
 
+pub(crate) async fn stop_backend_and_services(
+    process: &mut Option<BackendProcess>,
+    services: impl std::future::Future<Output = Result<()>>,
+) -> Result<()> {
+    // A pending SDK callback must lose its backend owner before unrelated
+    // cleanup can wait or fail. Drop also kills the group if stop fails.
+    let backend = match process.take() {
+        Some(mut process) => process.stop().await,
+        None => Ok(()),
+    };
+    let services = services.await;
+    match (backend, services) {
+        (Err(backend), Err(services)) => {
+            Err(backend.context(format!("service cleanup also failed: {services:#}")))
+        }
+        (Err(error), _) | (_, Err(error)) => Err(error),
+        _ => Ok(()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn failed_service_cleanup_cannot_leave_a_backend_alive() -> Result<()> {
+        let workspace = tempfile::tempdir()?;
+        let mut process = Some(BackendProcess::spawn(
+            Path::new("/usr/bin/python3"),
+            &[
+                "-u".into(),
+                "-c".into(),
+                "import time; print('{}',flush=True); time.sleep(60)".into(),
+            ],
+            workspace.path(),
+            &[],
+        )?);
+        process.as_mut().unwrap().receive().await?;
+        let pid = process.as_ref().unwrap().child.id().unwrap();
+        let result = stop_backend_and_services(&mut process, async {
+            anyhow::ensure!(!running(pid), "backend survived into unrelated cleanup");
+            bail!("injected service cleanup failure")
+        })
+        .await;
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("injected service cleanup failure")
+        );
+        assert!(process.is_none());
+        assert!(!running(pid));
+        Ok(())
+    }
 
     #[tokio::test]
     async fn finite_status_preserves_group_cleanup_and_rejects_failed_exit() -> Result<()> {

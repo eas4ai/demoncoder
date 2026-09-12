@@ -15,6 +15,9 @@ use std::{
 };
 use tokio::process::Command;
 
+mod hook;
+pub(crate) use hook::{HookCommand, HookView};
+
 const RUNTIME_PATHS: &[&str] = &[
     "/usr/bin",
     "/usr/lib",
@@ -93,7 +96,7 @@ impl WorktreeAccess {
             std::fs::read_link(format!("/proc/self/fd/{}", root.as_raw_fd()))? == workspace,
             "worktree moved; reopen it"
         );
-        let masks = self.inspect(root, workspace, cancelled)?;
+        let masks = self.inspect(root, workspace, cancelled, |_| false)?;
         let mut command = Command::new("/bin/bash");
         command
             .args([
@@ -179,6 +182,7 @@ exec "$@""#,
         root: &File,
         workspace: &Path,
         cancelled: &AtomicBool,
+        excluded: impl Fn(&Path) -> bool,
     ) -> Result<Vec<(PathBuf, bool)>> {
         let mut pending = vec![workspace.to_path_buf()];
         let mut masks = Vec::new();
@@ -207,7 +211,8 @@ exec "$@""#,
                 let protected = path
                     .file_name()
                     .is_some_and(|n| n == ".git" || n == ".demoncoder")
-                    || self.credentials.iter().any(|p| path.starts_with(p));
+                    || self.credentials.iter().any(|p| path.starts_with(p))
+                    || excluded(path.strip_prefix(workspace)?);
                 if protected {
                     ensure!(!meta.is_symlink(), "protected worktree entry is a symlink");
                     masks.push((path, meta.is_dir()));

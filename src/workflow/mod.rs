@@ -117,7 +117,7 @@ impl WorkflowSession {
                 .operations
                 .iter()
                 .filter(|o| o.id > record.checkpoint_cursor && o.phase == "worker")
-                .filter_map(|o| o.result.clone())
+                .filter_map(|o| o.model_result().cloned())
                 .collect();
             inner.restore(checkpoint, &results)?;
         }
@@ -169,6 +169,7 @@ impl WorkflowSession {
         if retain_native && let Some(checkpoint) = self.inner.checkpoint() {
             replacement.restore(&checkpoint, &[])?;
         }
+        self.runtime.stop_observers(None, false).await?;
         self.runtime
             .bind_creator(&selection.connection, replacement.checkpoint())?;
         if let Err(error) = self.inner.close().await {
@@ -327,6 +328,8 @@ impl WorkflowSession {
                 self.task.as_ref().is_none_or(|t| t.accepted.is_some()),
                 "current task is not accepted; continue it or use /abandon before starting another"
             );
+            self.runtime.stop_task_observers().await?;
+            self.runtime.quiesce_observer_writers("worker").await?;
             let snapshot = self.snapshot().await?;
             let (objective, linkage) = if let Some(candidate) = improvement {
                 match self
@@ -373,6 +376,12 @@ impl WorkflowSession {
                     !self.runtime.record()?.recovery_pending,
                     "reconcile interrupted or changed work before acceptance"
                 );
+                self.runtime.quiesce_observer_writers("worker").await?;
+                self.runtime.stop_task_observers().await?;
+                ensure!(
+                    !self.runtime.record()?.recovery_pending,
+                    "observer cancellation needs reconciliation before acceptance"
+                );
                 let snapshot = self.snapshot().await?;
                 self.task
                     .as_mut()
@@ -408,6 +417,7 @@ impl WorkflowSession {
                 self.review(commands, events).await
             }
             "/abandon" => {
+                self.runtime.stop_task_observers().await?;
                 self.runtime.archive()?;
                 self.task = None;
                 events
@@ -455,6 +465,8 @@ impl WorkflowSession {
         commands: &mut mpsc::Receiver<Command>,
         events: &EventSink,
     ) -> Result<TurnEnd> {
+        let submitted_events = events.with_submitted_prompt(prompt.clone());
+        let events = &submitted_events;
         let runtime = self.runtime.clone();
         let root = self.workspace.clone();
         let objective = self
@@ -501,6 +513,11 @@ impl WorkflowSession {
         } else {
             self.inner.turn(prompt, commands, events).await
         };
+        // Post-tool correction is admitted by the durable loop owner. Refresh
+        // before any outer save so local task state cannot erase that correction.
+        let authoritative = self.runtime.record()?;
+        self.task = authoritative.task;
+        self.next_id = authoritative.next_task;
         self.inner.settle_interruption()?;
         events.checkpoint(self.inner.checkpoint())?;
         if let Some(task) = &mut self.task {
@@ -514,6 +531,7 @@ impl WorkflowSession {
         commands: &mut mpsc::Receiver<Command>,
         events: &EventSink,
     ) -> Result<TurnEnd> {
+        self.runtime.quiesce_observer_writers("worker").await?;
         let before = self.snapshot().await?;
         let task = self.task.as_mut().context("no task to verify")?;
         task.start_verification()?;
@@ -527,7 +545,7 @@ impl WorkflowSession {
         self.runtime
             .save_task(&self.task, self.next_id, Some(&before.digest))?;
         self.runtime.begin_phase("verification", None)?;
-        let events = events.for_phase("verification");
+        let events = events.for_phase("verification").for_commands()?;
         for (index, command) in check_commands.into_iter().enumerate() {
             let call = ToolCall {
                 id: format!("verify-{task_id}-{generation}-{index}"),
@@ -537,7 +555,7 @@ impl WorkflowSession {
             let result = {
                 let run = tokio::time::timeout(
                     self.runtime.remaining()?,
-                    executor.execute(call, &events),
+                    executor.execute_for_evidence(call, &events),
                 );
                 tokio::pin!(run);
                 loop {
@@ -545,7 +563,8 @@ impl WorkflowSession {
                         biased;
                         command = commands.recv() => match command {
                             Some(Command::Cancel) => return Ok(TurnEnd::Cancelled),
-                            Some(Command::Shutdown) | None => return Ok(TurnEnd::Shutdown),
+                            Some(Command::Shutdown) => return Ok(TurnEnd::Shutdown),
+                            None => return Ok(TurnEnd::CommandsClosed),
                             Some(Command::Submit {reply, ..}) => { let _ = reply.send(Err("Verification is running; draft retained. Cancel or wait for it to finish.")); },
                             Some(Command::Prompt(_)) => events.emit_advisory(Event::Error { message: "Verification is running; submit after it stops.".into() })?,
                         },
@@ -609,6 +628,7 @@ impl WorkflowSession {
             matches!(config.adapter.as_str(), "openai-api" | "anthropic-api"),
             "task reviewer must use a native API connection with enforceable call admission"
         );
+        self.runtime.quiesce_observer_writers("worker").await?;
         let after = self.snapshot().await?;
         let task = self.task.as_mut().context("no task to review")?;
         task.start_review()?;
@@ -641,7 +661,8 @@ impl WorkflowSession {
                     biased;
                     command = commands.recv() => match command {
                         Some(Command::Cancel) => return Ok(TurnEnd::Cancelled),
-                        Some(Command::Shutdown) | None => return Ok(TurnEnd::Shutdown),
+                        Some(Command::Shutdown) => return Ok(TurnEnd::Shutdown),
+                            None => return Ok(TurnEnd::CommandsClosed),
                         Some(Command::Submit {reply, ..}) => { let _ = reply.send(Err("Review is running; draft retained. Cancel or wait for it to finish.")); },
                         Some(Command::Prompt(_)) => events.emit_advisory(Event::Error { message: "Review is running; submit after it stops.".into() })?,
                     },
@@ -685,6 +706,48 @@ impl WorkflowSession {
 
 #[async_trait]
 impl Session for WorkflowSession {
+    fn native_lifetime(&self) -> bool {
+        self.inner.native_lifetime()
+    }
+    fn open_lifetime(&mut self, _: crate::session::SessionStart, events: &EventSink) -> Result<()> {
+        self.inner.open_lifetime(
+            if self.resumed {
+                crate::session::SessionStart::Resume
+            } else {
+                crate::session::SessionStart::Startup
+            },
+            &events
+                .clone()
+                .with_runtime(self.runtime.clone())
+                .with_identity(&self.connection),
+        )
+    }
+    async fn session_start(
+        &mut self,
+        _: crate::session::SessionStart,
+        events: &EventSink,
+    ) -> Result<()> {
+        self.inner
+            .session_start(
+                if self.resumed {
+                    crate::session::SessionStart::Resume
+                } else {
+                    crate::session::SessionStart::Startup
+                },
+                &events
+                    .clone()
+                    .with_runtime(self.runtime.clone())
+                    .with_identity(&self.connection),
+            )
+            .await
+    }
+    async fn session_end(
+        &mut self,
+        reason: crate::session::SessionEnd,
+        events: &EventSink,
+    ) -> Result<()> {
+        self.inner.session_end(reason, events).await
+    }
     fn admit(&mut self, prompt: &str) -> Result<()> {
         self.admitted_creator = None;
         let task = self.runtime.record()?.task;
@@ -716,11 +779,11 @@ impl Session for WorkflowSession {
                     .operations
                     .iter()
                     .filter(|operation| !operation.phase.starts_with("agent:"))
-                    .filter_map(|o| o.result.clone())
+                    .filter_map(|o| o.model_result().cloned())
                     .map(|result| Event::RetainedTool { result }),
             );
             if record.recovery_pending {
-                events.push(Event::Error {message:"Interrupted work has uncertain results. Inspect the workspace and use /reconcile EXPLANATION before continuing. Nothing was replayed.".into()});
+                events.push(Event::Error {message:"Interrupted work needs inspection. Completed tool results are retained. Nothing was replayed. Inspect the workspace and use /reconcile EXPLANATION before continuing.".into()});
             }
         }
         Ok(events)
@@ -765,7 +828,10 @@ impl Session for WorkflowSession {
         self.runtime.save_task(&self.task, self.next_id, None)?;
         self.runtime.finish_phase()?;
         if let Some(candidate) = outcome_candidate
-            && !matches!(&result, Ok(TurnEnd::Cancelled | TurnEnd::Shutdown))
+            && !matches!(
+                &result,
+                Ok(TurnEnd::Cancelled | TurnEnd::Shutdown | TurnEnd::CommandsClosed)
+            )
             && let Some(end) = self
                 .retain_improvement_outcome(candidate, commands, &events)
                 .await?
@@ -778,10 +844,56 @@ impl Session for WorkflowSession {
         self.publish(&events).await?;
         result
     }
+    fn observer_notification(&self) -> Result<Option<std::sync::Arc<tokio::sync::Notify>>> {
+        self.runtime.observer_notification().map(Some)
+    }
+    fn observer_ready(&self) -> Result<bool> {
+        self.runtime.has_observer_rewake("worker")
+    }
+    async fn observer_turn(
+        &mut self,
+        commands: &mut mpsc::Receiver<Command>,
+        events: &EventSink,
+    ) -> Result<TurnEnd> {
+        let Some(delivery) = self.runtime.reserve_observer_context(
+            "worker",
+            Some(&runtime::Identity::from(&self.connection)),
+            true,
+        )?
+        else {
+            return Ok(TurnEnd::Complete);
+        };
+        // This typed path never enters the developer control parser or allocates work.
+        let events = events.with_identity(&self.connection).with_plugin_prompt();
+        let result = tokio::time::timeout(
+            self.runtime.remaining()?,
+            self.inner.turn(delivery.text.clone(), commands, &events),
+        )
+        .await
+        .context("original observer rewake allowance exhausted")
+        .and_then(|r| r);
+        self.inner.settle_interruption()?;
+        events.checkpoint(self.inner.checkpoint())?;
+        if matches!(result, Ok(TurnEnd::Complete)) {
+            self.runtime.complete_observer_context(&delivery)?;
+        }
+        let record = self.runtime.record()?;
+        self.task = record.task;
+        self.next_id = record.next_task;
+        if let Some(task) = &mut self.task {
+            task.stopped = true;
+        }
+        self.runtime.save_task(&self.task, self.next_id, None)?;
+        self.runtime.finish_phase()?;
+        result
+    }
     async fn close(&mut self) -> Result<()> {
-        self.inner.close().await
+        let observers = self.runtime.stop_observers(None, false).await;
+        let inner = self.inner.close().await;
+        observers.and(inner)
     }
     async fn cancel_background(&mut self) -> Result<()> {
+        self.runtime.stop_task_observers().await?;
         if self.runtime.record()?.delegation.is_none() {
             return Ok(());
         }

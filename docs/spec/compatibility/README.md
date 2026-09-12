@@ -1,8 +1,8 @@
 # Reproducing the plugin compatibility inventory
 
-Status: Draft 2026-09-09
+Status: Agreed 2026-09-09
 
-Profile v1 revision 2 is the normative, frozen compatibility baseline. These
+Profile v1 revision 3 is the normative, frozen compatibility baseline. These
 tools verify the documentary inventory; they do not execute plugins or establish
 runtime compatibility. All feature families and real package fixtures remain
 required by PCOMP-004.
@@ -33,7 +33,7 @@ node docs/spec/compatibility/build-source-schemas.mjs /path/to/codex /path/to/po
 node docs/spec/compatibility/check-hook-semantics.mjs /path/to/ajv
 ```
 
-The two builders accept `--write` only when intentionally revising the draft
+The two builders accept `--write` only when intentionally revising the agreed
 inventory. A source change requires new source identities and review, not simply
 regenerating away a failed check. No unknown TypeScript construct or unresolved
 reference is silently flattened into an untyped field.
@@ -62,3 +62,6 @@ The application must additionally prove parsing, actual effects, blocking,
 recovery and deliberate policy differences through its production paths on all
 four connections. These source/type/table checks are not substitutes for those
 tests, installed package smoke cases or real backend/connector qualification.
+
+Revision 3 corrects only Codex SessionEnd MCP applicability, as recorded in
+[the compatibility contract](../plugin-compatibility.md#profile-v1-revision-3-correction).

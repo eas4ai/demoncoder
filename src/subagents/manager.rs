@@ -93,9 +93,13 @@ impl Manager {
                 )?,
                 "agent workspace must exclude private connection settings"
             );
+            // Non-tool gates keep immutable declarations; the actual child
+            // runtime binds them to this assignment before any runner executes.
+            let non_tools = connection.access.non_tools.clone();
             connection.access = crate::tools::AccessPolicy::worktree_only(
                 connection.access.credential_paths.clone(),
             );
+            connection.access.non_tools = non_tools;
         }
         runtime.configure_delegation(
             DelegationIdentity {
@@ -549,6 +553,10 @@ impl Manager {
             }
         }.await;
         // Dropping the operation stops tools; close also shuts down backend owners.
+        let observers = self
+            .runtime
+            .stop_observers(Some(&format!("agent:{id}")), false)
+            .await;
         let closed = match session.as_mut() {
             Some(session) => tokio::time::timeout(Duration::from_secs(1), session.close())
                 .await
@@ -561,7 +569,7 @@ impl Manager {
                 return;
             }
         }
-        let result = result.and(closed);
+        let result = result.and(observers).and(closed);
         let transition = self.finish_job(id, &job, result);
         if transition.is_ok() {
             guard.armed = false;
@@ -571,6 +579,7 @@ impl Manager {
     }
 
     fn finish_job(&self, id: u64, job: &Job, result: Result<()>) -> Result<()> {
+        let session = self.runtime.plugin_session()?;
         self.runtime.update(|record| {
             let prefix = format!("agent:{id}:");
             let cancelled = record
@@ -579,6 +588,7 @@ impl Manager {
                 .find(|agent| agent.id == id)
                 .is_some_and(|agent| agent.status == AgentStatus::Cancelled);
             if cancelled {
+                crate::workflow::runtime::budget_accounting::mark_missing(record, &session, |o| o.phase.starts_with(&prefix) && !o.complete);
                 for operation in &mut record.operations {
                     if operation.phase.starts_with(&prefix) && !operation.complete {
                         operation.reconciled = true;
@@ -605,6 +615,7 @@ impl Manager {
                     agent.outcome = "Integration stopped before durable completion. Inspect the parent workspace and retained child result; nothing will replay automatically.".into();
                     hold_stage(agent);
                 }
+                Ok(()) if matches!(agent.status, AgentStatus::Uncertain | AgentStatus::Cancelled) => { hold_stage(agent); }
                 Ok(()) if agent.orchestration.is_none() => {
                     if matches!(job, Job::Work) {
                         agent.status = AgentStatus::Stopped;
@@ -637,7 +648,7 @@ impl Manager {
                 }
                 Err(error) => {
                     agent.status = if uncertain
-                        || agent.status == AgentStatus::Preparing
+                        || matches!(agent.status, AgentStatus::Preparing | AgentStatus::Uncertain)
                     {
                         AgentStatus::Uncertain
                     } else {
@@ -763,6 +774,8 @@ impl Manager {
         session: &mut Option<Box<dyn Session>>,
         correction: Option<(u32, String)>,
     ) -> Result<()> {
+        let phase = format!("agent:{id}:worker");
+        let owner = self.runtime.observer_phase_owner(&phase)?;
         let agent = self.record(id)?;
         let identity = agent.worktree.as_ref().context("agent has no worktree")?;
         let prompt = match correction {
@@ -806,10 +819,35 @@ impl Manager {
         let (_sender, mut commands) = mpsc::channel(1);
         let session = session.as_mut().expect("worker session opened");
         let worker_events = events.with_identity(&self.connection_for(id)?);
+        self.runtime
+            .reopen_observer_admission(&format!("agent:{id}:worker"))?;
         ensure!(
             session.turn(prompt, &mut commands, &worker_events).await? == TurnEnd::Complete,
             "child did not complete"
         );
+        loop {
+            self.runtime.quiesce_observer_writers(&phase).await?;
+            self.runtime.drain_observers(&phase, &owner).await?;
+            let Some(delivery) =
+                self.runtime
+                    .reserve_observer_context(&phase, Some(&agent.identity), true)?
+            else {
+                break;
+            };
+            // The retained supervision ledger admitted this exact child, not a
+            // developer command or a new assignment/parent phase.
+            self.runtime.reopen_observer_admission(&phase)?;
+            ensure!(
+                session
+                    .turn(delivery.text.clone(), &mut commands, &worker_events)
+                    .await?
+                    == TurnEnd::Complete,
+                "child observer continuation did not complete"
+            );
+            session.settle_interruption()?;
+            events.checkpoint(session.checkpoint())?;
+            self.runtime.complete_observer_context(&delivery)?;
+        }
         session.settle_interruption()?;
         events.checkpoint(session.checkpoint())?;
         Ok(())
@@ -842,10 +880,12 @@ impl Manager {
         let connection = self.connection_for(id)?;
         let executor = ToolExecutor::with_policy(&identity.root, &connection.access)?;
         executor.set_intent(&agent.request.objective);
-        let check_events = events.for_phase(&format!("agent:{id}:checking"));
+        let check_events = events
+            .for_phase(&format!("agent:{id}:checking"))
+            .for_commands()?;
         for (index, command) in agent.commands.iter().enumerate() {
             let result = executor
-                .execute(
+                .execute_for_evidence(
                     ToolCall {
                         id: format!(
                             "agent-{id}-orchestration-{}-{index}",
@@ -1072,6 +1112,8 @@ impl Manager {
     }
 
     async fn validate(&self, id: u64, events: &EventSink) -> Result<()> {
+        let command_events = events.for_commands()?;
+        let events = &command_events;
         let agent = self.record(id)?;
         let identity = agent.worktree.as_ref().context("agent has no worktree")?;
         let before = worktree::inspect(identity).await?;
@@ -1086,7 +1128,7 @@ impl Manager {
         executor.set_intent(&agent.request.objective);
         for (index, command) in agent.commands.iter().enumerate() {
             let result = executor
-                .execute(
+                .execute_for_evidence(
                     ToolCall {
                         id: format!("agent-{id}-verify-{}-{index}", agent.validation_generation),
                         name: "bash".into(),
@@ -1276,10 +1318,14 @@ impl Manager {
             });
             (active, retained)
         };
+        let observers = self
+            .runtime
+            .stop_observers(Some(&format!("agent:{id}")), false)
+            .await;
         if let Some(active) = active {
             stop(active).await;
         }
-        retained
+        retained.and(observers)
     }
 
     pub async fn cancel_all(&self) -> Result<()> {
@@ -1292,8 +1338,9 @@ impl Manager {
             let active = std::mem::take(&mut *registered);
             (retained, active)
         };
+        let observers = self.runtime.stop_observers(Some("agent"), false).await;
         futures_util::future::join_all(active.into_values().map(stop)).await;
-        retained
+        retained.and(observers)
     }
 
     fn mark_stopping(&self) -> Result<()> {
@@ -1378,8 +1425,12 @@ impl Manager {
                 "Preparation was interrupted; no complete worktree identity was recorded.".into()
             }
         };
-        self.runtime.update(|record| {
+        let session = self.runtime.plugin_session()?;
+        self.runtime.update(|target| {
+            let mut staged = target.clone();
+            let record = &mut staged;
             let prefix = format!("agent:{id}:");
+            crate::workflow::runtime::budget_accounting::mark_missing(record, &session, |o| o.phase.starts_with(&prefix) && !o.complete);
             for operation in &mut record.operations { if operation.phase.starts_with(&prefix) && !operation.complete { operation.reconciled = true; } }
             let agent = record.agents.iter_mut().find(|agent| agent.id == id).context("agent disappeared")?;
             ensure!(agent.decisions.len() < 128, "agent inspection history is full");
@@ -1390,6 +1441,7 @@ impl Manager {
                 state.stage = OrchestrationStage::Held;
                 state.reason = agent.outcome.clone();
             }
+            *target = staged;
             Ok(())
         })
     }
@@ -1416,7 +1468,12 @@ struct Interrupted {
 impl Drop for Interrupted {
     fn drop(&mut self) {
         if self.armed {
+            let session = self.runtime.plugin_session();
             let _ = self.runtime.update(|record| {
+                if let Ok(session) = &session {
+                    let prefix = format!("agent:{}:", self.id);
+                    crate::workflow::runtime::budget_accounting::mark_missing(record, session, |o| o.phase.starts_with(&prefix) && !o.complete && !o.reconciled);
+                }
                 let agent = record.agents.iter_mut().find(|agent| agent.id == self.id).context("agent disappeared")?;
                 if self.integration && agent.status != AgentStatus::Integrated {
                     record.recovery_pending = true;
@@ -1546,6 +1603,8 @@ impl ToolExtension for ParentTools {
 
 #[cfg(test)]
 mod tests {
+    include!("manager/observer_tests.rs");
+    include!("manager/non_tool_tests.rs");
     use super::*;
     use crate::workflow::{
         allocation::{Allocation, Limits},
@@ -1616,7 +1675,69 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn cancelled_and_reconciled_child_models_mark_original_usage_unknown() {
+        for cancelled in [true, false] {
+            let fixture = integration_fixture(false).await;
+            fixture
+                .runtime
+                .update_agent(1, |a| {
+                    a.status = AgentStatus::Running;
+                    Ok(())
+                })
+                .unwrap();
+            let id = fixture.runtime.begin_model("agent:1:worker").unwrap();
+            fixture
+                .runtime
+                .update_agent(1, |a| {
+                    a.status = if cancelled {
+                        AgentStatus::Cancelled
+                    } else {
+                        AgentStatus::Uncertain
+                    };
+                    Ok(())
+                })
+                .unwrap();
+            if cancelled {
+                fixture
+                    .manager
+                    .finish_job(1, &Job::Work, Err(anyhow::anyhow!("cancelled")))
+                    .unwrap();
+            } else {
+                fixture
+                    .manager
+                    .reconcile(1, "Inspected child work without retry")
+                    .await
+                    .unwrap();
+            }
+            let record = fixture.runtime.record().unwrap();
+            assert!(
+                record
+                    .operations
+                    .iter()
+                    .find(|o| o.id == id)
+                    .unwrap()
+                    .reconciled
+            );
+            assert!(
+                !record
+                    .operations
+                    .iter()
+                    .find(|o| o.id == id)
+                    .unwrap()
+                    .usage_reported
+            );
+            assert!(record.allocation.unwrap().usage.unknown_input);
+        }
+    }
+
     async fn integration_fixture(orchestrated: bool) -> IntegrationFixture {
+        integration_fixture_with_record(orchestrated, "record").await
+    }
+    async fn integration_fixture_with_record(
+        orchestrated: bool,
+        record_name: &str,
+    ) -> IntegrationFixture {
         let root = tempfile::tempdir().unwrap();
         let workspace_root = root.path().join("workspace");
         std::fs::create_dir(&workspace_root).unwrap();
@@ -1642,7 +1763,11 @@ mod tests {
         let plan = worktree::build_delta(&identity, &request, &snapshot.digest)
             .await
             .unwrap();
-        let connection = connection();
+        let mut connection = connection();
+        if record_name != "record" {
+            connection.endpoint = Some("http://127.0.0.1:9/v1/responses".into());
+            connection.api_key = Some("test-key".into());
+        }
         let identity_record = Identity::from(&connection);
         let orchestration = orchestrated.then(|| {
             let mut state = OrchestrationState::new(Vec::new());
@@ -1688,8 +1813,13 @@ mod tests {
             decisions: Vec::new(),
             orchestration,
         };
-        let record_root = root.path().join("record");
+        let record_root = root.path().join(record_name);
+        std::fs::create_dir_all(record_root.parent().unwrap()).unwrap();
         let record = Record {
+            task_allocation_epoch: 0,
+            retired_task_allocations: Vec::new(),
+            unattributed_usage: None,
+            plugin_activations: Vec::new(),
             capture_scope: Default::default(),
             workspace: workspace_root.clone(),
             identity: identity_record,
@@ -1707,6 +1837,7 @@ mod tests {
             archived: Vec::new(),
             next_task: 2,
             allocation: Some(Allocation::new(Limits::default()).unwrap()),
+            session_hook_allowance: None,
             checkpoint: None,
             checkpoint_cursor: 0,
             operations: Vec::new(),
@@ -1784,6 +1915,10 @@ mod tests {
         std::fs::create_dir(&workspace_root).unwrap();
         let connection = connection();
         let record = Record {
+            task_allocation_epoch: 0,
+            retired_task_allocations: Vec::new(),
+            unattributed_usage: None,
+            plugin_activations: Vec::new(),
             capture_scope: Default::default(),
             workspace: workspace_root.clone(),
             identity: Identity::from(&connection),
@@ -1801,6 +1936,7 @@ mod tests {
             archived: Vec::new(),
             next_task: 2,
             allocation: Some(Allocation::new(Limits::default()).unwrap()),
+            session_hook_allowance: None,
             checkpoint: None,
             checkpoint_cursor: 0,
             operations: Vec::new(),
@@ -1888,6 +2024,10 @@ mod tests {
         let identity = Identity::from(&connection);
         let agents_root = root.path().join("record/agents");
         let record = Record {
+            task_allocation_epoch: 0,
+            retired_task_allocations: Vec::new(),
+            unattributed_usage: None,
+            plugin_activations: Vec::new(),
             capture_scope: Default::default(),
             workspace: workspace_root.clone(),
             identity: identity.clone(),
@@ -1905,6 +2045,7 @@ mod tests {
             archived: Vec::new(),
             next_task: 2,
             allocation: Some(Allocation::new(Limits::default()).unwrap()),
+            session_hook_allowance: None,
             checkpoint: None,
             checkpoint_cursor: 0,
             operations: Vec::new(),

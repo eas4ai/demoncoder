@@ -14,6 +14,17 @@ pub struct Args {
     /// Internal host-tool process lifetime protocol.
     #[arg(long, hide = true, allow_hyphen_values = true)]
     pub supervise_bash: Option<String>,
+    /// Internal confined plugin command lifetime protocol.
+    #[arg(long, hide = true, allow_hyphen_values = true)]
+    pub supervise_hook: Option<String>,
+    /// Internal backend stdin lifetime lease.
+    #[arg(long, hide = true)]
+    pub supervise_backend: Option<String>,
+    /// Internal authenticated managed-backend lifecycle transport.
+    #[arg(long, hide = true)]
+    pub codex_compaction_relay: Option<PathBuf>,
+    #[arg(long, hide = true)]
+    pub codex_ordinary_relay: Option<PathBuf>,
     /// Print the application version.
     #[arg(short = 'v', long = "version", visible_short_alias = 'V', action = clap::ArgAction::Version)]
     pub version: Option<bool>,
@@ -93,6 +104,15 @@ pub struct Args {
     /// Total tool admissions across worker and verification.
     #[arg(long, default_value_t = 128, value_parser = clap::value_parser!(u64).range(1..=4096))]
     pub task_tool_calls: u64,
+    /// Explicit cumulative wall-clock seconds for session hooks, including time between turns.
+    #[arg(long, requires_all = ["session_hook_model_calls", "session_hook_tool_calls"], value_parser = clap::value_parser!(u64).range(1..=86400))]
+    pub session_hook_seconds: Option<u64>,
+    /// Explicit session-hook slots for native model calls or external backend invocations; backend-internal calls remain unknown.
+    #[arg(long, requires_all = ["session_hook_seconds", "session_hook_tool_calls"], value_parser = clap::value_parser!(u64).range(0..=4096))]
+    pub session_hook_model_calls: Option<u64>,
+    /// Explicit session-hook allowance for host-observed Agent inspection tool admissions; remote internal tools remain unknown.
+    #[arg(long, requires_all = ["session_hook_seconds", "session_hook_model_calls"], value_parser = clap::value_parser!(u64).range(0..=4096))]
+    pub session_hook_tool_calls: Option<u64>,
     /// Make a named connection available for confined worktree subagents; repeat as needed.
     #[arg(long = "agent-connection")]
     pub agent_connections: Vec<String>,
@@ -296,6 +316,28 @@ pub struct Selection {
 }
 
 impl Args {
+    pub fn session_hook_limits(&self) -> Result<Option<crate::workflow::allocation::Limits>> {
+        match (
+            self.session_hook_seconds,
+            self.session_hook_model_calls,
+            self.session_hook_tool_calls,
+        ) {
+            (None, None, None) => Ok(None),
+            (Some(seconds), Some(model_calls), Some(tool_calls)) => {
+                let limits = crate::workflow::allocation::Limits {
+                    seconds,
+                    model_calls,
+                    tool_calls,
+                };
+                limits.validate_session_hooks()?;
+                Ok(Some(limits))
+            }
+            _ => bail!(
+                "session hooks require all three explicit options: --session-hook-seconds, --session-hook-model-calls and --session-hook-tool-calls; omit all three to grant no allowance"
+            ),
+        }
+    }
+
     pub fn workflow_settings(&self) -> Result<crate::workflow::Settings> {
         anyhow::ensure!(
             self.task_token_limit.is_none() && self.task_cost_limit.is_none(),

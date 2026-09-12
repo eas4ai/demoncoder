@@ -153,6 +153,30 @@ async fn control(
 
 #[async_trait]
 impl Session for DelegatingSession {
+    fn native_lifetime(&self) -> bool {
+        self.inner.native_lifetime()
+    }
+    fn open_lifetime(
+        &mut self,
+        source: crate::session::SessionStart,
+        events: &EventSink,
+    ) -> Result<()> {
+        self.inner.open_lifetime(source, events)
+    }
+    async fn session_start(
+        &mut self,
+        source: crate::session::SessionStart,
+        events: &EventSink,
+    ) -> Result<()> {
+        self.inner.session_start(source, events).await
+    }
+    async fn session_end(
+        &mut self,
+        reason: crate::session::SessionEnd,
+        events: &EventSink,
+    ) -> Result<()> {
+        self.inner.session_end(reason, events).await
+    }
     fn admit(&mut self, prompt: &str) -> Result<()> {
         if !is_agent_control(prompt) {
             self.inner.admit(prompt)?;
@@ -181,7 +205,8 @@ impl Session for DelegatingSession {
                     biased;
                     command = commands.recv() => match command {
                         Some(Command::Cancel) => { self.manager.cancel_all().await?; return Ok(TurnEnd::Cancelled); },
-                        Some(Command::Shutdown) | None => { self.manager.cancel_all().await?; return Ok(TurnEnd::Shutdown); },
+                        Some(Command::Shutdown) => { self.manager.cancel_all().await?; return Ok(TurnEnd::Shutdown); },
+                        None => { self.manager.cancel_all().await?; return Ok(TurnEnd::CommandsClosed); },
                         Some(Command::Submit { reply, .. }) => { let _ = reply.send(Err("Agent control is running; draft retained.")); },
                         Some(Command::Prompt(_)) => events.emit_advisory(Event::Error { message: "Agent control is running; submit after it finishes.".into() })?,
                     },
@@ -198,7 +223,7 @@ impl Session for DelegatingSession {
                 tokio::select! {
                     biased;
                     command = commands.recv() => {
-                        let command = match command { Some(command) => command, None => Command::Shutdown };
+                        let command = match command { Some(command) => command, None => break Ok(TurnEnd::CommandsClosed) };
                         let text = match &command { Command::Prompt(text) | Command::Submit {text, ..} => Some(text.as_str()), _ => None };
                         if let Some(text) = text.filter(|text| is_agent_control(text)) {
                             let outcome = control(&self.manager, text, true, events).await;
@@ -228,8 +253,24 @@ impl Session for DelegatingSession {
         }
         outcome
     }
+    fn observer_notification(&self) -> Result<Option<Arc<tokio::sync::Notify>>> {
+        self.inner.observer_notification()
+    }
+    fn observer_ready(&self) -> Result<bool> {
+        self.inner.observer_ready()
+    }
+    async fn observer_turn(
+        &mut self,
+        commands: &mut mpsc::Receiver<Command>,
+        events: &EventSink,
+    ) -> Result<TurnEnd> {
+        self.manager.ensure_parent_available()?;
+        self.inner.observer_turn(commands, events).await
+    }
     async fn cancel_background(&mut self) -> Result<()> {
-        self.manager.cancel_all().await
+        let (parent, children) =
+            tokio::join!(self.inner.cancel_background(), self.manager.cancel_all());
+        parent.and(children)
     }
     async fn close(&mut self) -> Result<()> {
         let children = self.manager.cancel_all().await;

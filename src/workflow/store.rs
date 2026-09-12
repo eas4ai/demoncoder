@@ -78,6 +78,42 @@ impl Store {
         let parent = open_directory(parent)?;
         fs::mkdirat(&parent, name, Mode::from_raw_mode(0o700))
             .context("create session directory")?;
+        Self::initialize_created(directory, parent)
+    }
+
+    /// Reserve a fresh private directory without reopening any existing candidate.
+    pub fn create_unique(directory: &Path, prefix: &str) -> Result<Self> {
+        Self::create_unique_with(directory, prefix, Self::initialize_created)
+    }
+
+    fn create_unique_with(
+        directory: &Path,
+        prefix: &str,
+        initialize: impl FnOnce(&Path, File) -> Result<Self>,
+    ) -> Result<Self> {
+        ensure!(
+            Path::new(prefix).file_name() == Some(std::ffi::OsStr::new(prefix)),
+            "session prefix must be one nonempty normal name component"
+        );
+        let parent = open_directory(directory)?;
+        validate_directory(&parent)?;
+        for suffix in 0..128 {
+            let name = format!("{prefix}-{suffix}");
+            match fs::mkdirat(&parent, name.as_str(), Mode::from_raw_mode(0o700)) {
+                Ok(()) => return initialize(&directory.join(name), parent),
+                Err(rustix::io::Errno::EXIST) => continue,
+                Err(error) => return Err(error).context("create session directory"),
+            }
+        }
+        bail!(
+            "session directory name allocation exhausted after 128 candidates; start a new invocation"
+        )
+    }
+
+    fn initialize_created(directory: &Path, parent: File) -> Result<Self> {
+        let name = directory
+            .file_name()
+            .context("session directory needs a name")?;
         let dir: File = fs::openat(
             &parent,
             name,
@@ -131,6 +167,11 @@ impl Store {
 
     pub fn directory(&self) -> &Path {
         &self.directory
+    }
+
+    #[cfg_attr(test, allow(dead_code))]
+    pub(crate) fn state_path(&self) -> PathBuf {
+        self.directory.join(STATE)
     }
 
     pub fn read(&self) -> Result<Value> {
@@ -364,5 +405,147 @@ mod durability_tests {
             Store::open(&directory).unwrap().read().unwrap(),
             json!("after")
         );
+    }
+}
+
+#[cfg(test)]
+mod unique_directory_tests {
+    use super::*;
+    use std::os::unix::fs::{PermissionsExt, symlink};
+
+    #[test]
+    fn unique_creation_preserves_existing_record_and_skips_symlink_without_following() {
+        let root = tempfile::tempdir().unwrap();
+        private_directory(root.path()).unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        std::fs::write(outside.path().join("marker"), "unchanged").unwrap();
+        let first = root.path().join("same-clock-0");
+        let mut existing = Store::create(&first).unwrap();
+        existing
+            .write(&serde_json::json!({"retained":true}))
+            .unwrap();
+        let before = std::fs::read(first.join(STATE)).unwrap();
+        let link = root.path().join("same-clock-1");
+        symlink(outside.path(), &link).unwrap();
+        let mut created = Store::create_unique(root.path(), "same-clock").unwrap();
+        assert_eq!(created.directory(), root.path().join("same-clock-2"));
+        assert_eq!(
+            std::fs::metadata(created.directory())
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o7777,
+            0o700
+        );
+        created.write(&serde_json::json!({"new":true})).unwrap();
+        assert!(Store::open(created.directory()).is_err());
+        assert!(
+            Store::create(&first).is_err(),
+            "exact-name creation reused an existing record"
+        );
+        assert_eq!(std::fs::read(first.join(STATE)).unwrap(), before);
+        assert_eq!(std::fs::read_link(&link).unwrap(), outside.path());
+        assert_eq!(
+            std::fs::read_to_string(outside.path().join("marker")).unwrap(),
+            "unchanged"
+        );
+        assert_eq!(std::fs::read_dir(outside.path()).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn unique_creation_bounds_collisions_and_refuses_invalid_prefixes() {
+        let root = tempfile::tempdir().unwrap();
+        let parent = root.path().join("sessions");
+        std::fs::create_dir(&parent).unwrap();
+        std::fs::set_permissions(&parent, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let absolute = root.path().join("absolute");
+        for prefix in [
+            "",
+            ".",
+            "..",
+            "../escape",
+            absolute.to_str().unwrap(),
+            "nested/path",
+            "nested/",
+        ] {
+            assert!(
+                Store::create_unique(&parent, prefix).is_err(),
+                "invalid prefix accepted: {prefix}"
+            );
+            assert_eq!(std::fs::read_dir(&parent).unwrap().count(), 0);
+            assert_eq!(std::fs::read_dir(root.path()).unwrap().count(), 1);
+        }
+        for suffix in 0..128 {
+            std::fs::create_dir(parent.join(format!("occupied-{suffix}"))).unwrap();
+        }
+        let error = Store::create_unique(&parent, "occupied").err().unwrap();
+        assert!(error.to_string().contains("128"));
+        assert_eq!(std::fs::read_dir(&parent).unwrap().count(), 128);
+        assert!(!parent.join("occupied-128").exists());
+    }
+
+    #[test]
+    fn unique_creation_never_retries_initialization_already_exists_errors() {
+        let root = tempfile::tempdir().unwrap();
+        private_directory(root.path()).unwrap();
+        let mut initialized = 0;
+        let error = Store::create_unique_with(root.path(), "owned", |directory, parent| {
+            initialized += 1;
+            // Produce the real lock-file EEXIST after successful mkdirat.
+            std::fs::write(directory.join("lock"), "retained collision evidence")?;
+            Store::initialize_created(directory, parent)
+        })
+        .err()
+        .unwrap();
+        assert_eq!(initialized, 1);
+        assert!(format!("{error:#}").contains("create session lock"));
+        assert_eq!(
+            error.downcast_ref::<rustix::io::Errno>(),
+            Some(&rustix::io::Errno::EXIST)
+        );
+        assert_eq!(
+            std::fs::read_to_string(root.path().join("owned-0/lock")).unwrap(),
+            "retained collision evidence"
+        );
+        assert!(!root.path().join("owned-1").exists());
+    }
+
+    #[test]
+    fn unique_creation_propagates_other_mkdir_errors_before_initialization() {
+        let root = tempfile::tempdir().unwrap();
+        private_directory(root.path()).unwrap();
+        let error = Store::create_unique_with(root.path(), &"a".repeat(300), |_, _| {
+            panic!("failed directory reservation reached initialization")
+        })
+        .err()
+        .unwrap();
+        assert_eq!(
+            error.downcast_ref::<rustix::io::Errno>(),
+            Some(&rustix::io::Errno::NAMETOOLONG)
+        );
+        assert!(format!("{error:#}").contains("create session directory"));
+        assert_eq!(std::fs::read_dir(root.path()).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn unique_creation_keeps_the_pinned_parent_when_its_path_is_replaced() {
+        let root = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let parent_path = root.path().join("sessions");
+        let moved = root.path().join("moved");
+        std::fs::create_dir(&parent_path).unwrap();
+        std::fs::set_permissions(&parent_path, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let mut created = Store::create_unique_with(&parent_path, "pinned", |directory, parent| {
+            std::fs::rename(&parent_path, &moved)?;
+            symlink(outside.path(), &parent_path)?;
+            Store::initialize_created(directory, parent)
+        })
+        .unwrap();
+        created.write(&serde_json::json!({"pinned":true})).unwrap();
+        assert_eq!(
+            Store::read_snapshot(&moved.join("pinned-0")).unwrap()["pinned"],
+            true
+        );
+        assert_eq!(std::fs::read_dir(outside.path()).unwrap().count(), 0);
     }
 }
