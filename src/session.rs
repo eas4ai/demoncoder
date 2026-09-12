@@ -11,6 +11,9 @@ use crate::{
 
 pub const ADAPTER_INTERFACE_VERSION: u32 = 1;
 
+/// Native end observation and owned command cleanup share this bound.
+pub(crate) const NATIVE_END_BUDGET: std::time::Duration = std::time::Duration::from_secs(5);
+
 /// Result sent when the session owner accepts or rejects a submitted draft.
 pub type PromptAdmission = std::result::Result<(), &'static str>;
 pub(crate) const CORRECTION_CAPACITY: usize = 32;
@@ -435,6 +438,33 @@ async fn start_lifetime(
     Ok(None)
 }
 
+/// Finish the application worker, including queue backpressure in the deadline.
+/// The outer result reports timeout; the inner result preserves worker errors.
+pub async fn shutdown(
+    commands: mpsc::Sender<Command>,
+    mut worker: tokio::task::JoinHandle<Result<()>>,
+    native_lifetime: bool,
+) -> Result<Result<()>> {
+    let shutdown = async {
+        let _ = commands.send(Command::Shutdown).await;
+        (&mut worker).await.context("session runtime failed")?
+    };
+    let budget = std::time::Duration::from_secs(3)
+        + if native_lifetime {
+            NATIVE_END_BUDGET
+        } else {
+            std::time::Duration::ZERO
+        };
+    match tokio::time::timeout(budget, shutdown).await {
+        Ok(result) => Ok(result),
+        Err(error) => {
+            worker.abort();
+            let _ = worker.await;
+            Err(error).context("session shutdown timed out")
+        }
+    }
+}
+
 pub async fn run(
     mut session: Box<dyn Session>,
     mut commands: mpsc::Receiver<Command>,
@@ -588,7 +618,7 @@ pub async fn run(
             )
             .await;
             if let Err(error) = events
-                .drain_lifetime_commands(ended + std::time::Duration::from_secs(5))
+                .drain_lifetime_commands(ended + NATIVE_END_BUDGET)
                 .await
             {
                 let _ = events.lifetime_diagnostic(format!(

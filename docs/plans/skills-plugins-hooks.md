@@ -16,7 +16,7 @@
 - Pending: Exercise the complete public management and coding workflows.
 - Pending: Run full conformance, installed/live cases, adversarial review and Cairn checks.
 
-Latest lifecycle prerequisite: native and external Submit/Stop framing and
+Earlier qualified lifecycle prerequisite: native and external Submit/Stop framing and
 ownership are verified. The final shared/Codex integration passes 815 Rust tests
 (17 ignored), 43 actual backend/local-peer cases (21 Codex, 22 Claude), 30 host
 compaction cases, and fresh specification and quality reviews. Source qualification
@@ -25,6 +25,14 @@ cases, 53 compaction cases and four model-isolation cases. The full-context and
 controlled-peer fixes retain their negative controls and earlier failed runs.
 Complete lifecycle/package conformance remains open. See
 [the integration review](../reviews/plugin-codex-external-non-tool-runtime.md).
+
+Latest verified prerequisites add native provider-failure observations, original
+native session lifetime ownership, and the application shutdown reservation.
+The current Rust candidate passes 873 tests (17 ignored), the separate terminal
+output-limit suite passes three cases, and fresh shutdown specification and quality
+reviews pass. Earlier installed/live-source evidence retains its original candidate;
+it is not silently refreshed by these Rust checks. See the
+[shutdown integration review](../reviews/plugin-native-shutdown-envelope.md).
 
 Only the parent records Cairn decisions, changes declarations and commits evidence. Workers own bounded files; they do not change the selected scope or evidence. A test fixture may model a provider, but its report must say controlled transport. Source/type checks, successful parsing and test registration never establish runtime delivery.
 
@@ -403,6 +411,20 @@ session commands need session-owned lifetime policy and remain unavailable here;
 they are not silently converted to synchronous execution. Those behaviors,
 additional startup effects, Interrupt, outer timeout and actual source events
 remain in this same commitment.
+
+### Application shutdown deadline integration repair
+
+Decision: [reserve the native observation budget](../decisions/reserve-outer-shutdown-time-for-native-lifetime-observations-and-resource-cleanup.md).
+Follow-up inspection of `main` found its three-second worker-abort deadline can
+cut across the five-second native end observation budget. The repair is verified:
+the application preserves three seconds of ordinary cleanup and reserves the
+native five-second bound for initially native sessions, including after replacement.
+External-only sessions keep three seconds. Tests exercise the exact helper main
+calls with a confined command, delayed resource cleanup, queued quit, worker errors
+and joined timeout aborts. The full Rust run passes 873 tests (17 ignored), formatting
+and lint pass, and fresh specification and quality reviews pass. The review records
+static diagnostics and remaining evidence limits. This does not complete lifecycle
+dispatch or replace the remaining session-allowance work.
 
 ### Durable synchronous one-shot prerequisite
 

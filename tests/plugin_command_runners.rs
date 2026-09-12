@@ -1078,11 +1078,7 @@ async fn native_session_end_command_outlives_task_deadline_without_spending_it()
 
 #[tokio::test]
 async fn native_session_end_whole_deadline_reaps_command_and_detached_descendant() {
-    use demoncoder::{
-        events::Event,
-        plugins::hook_types::HookEvent,
-        session::{self, Command},
-    };
+    use demoncoder::{events::Event, plugins::hook_types::HookEvent, session};
     let _fixture_lock = FIXTURES.lock().await;
     let mut fixture = Fixture::new();
     std::fs::write(fixture.root.path().join("lifetime.txt"), "").unwrap();
@@ -1108,33 +1104,35 @@ time.sleep(100)
         executor,
     );
     let (sender, receiver) = mpsc::channel(4);
-    let events = fixture.events.clone();
-    let controls = async {
-        while !matches!(
-            fixture._receiver.recv().await.unwrap().event,
-            Event::Ready { .. }
-        ) {}
-        let start = std::time::Instant::now();
-        sender.send(Command::Shutdown).await.unwrap();
+    let native_lifetime = native.native_lifetime();
+    let worker = tokio::spawn(session::run(
+        Box::new(native),
+        receiver,
+        fixture.events.clone(),
+    ));
+    while !matches!(
+        fixture._receiver.recv().await.unwrap().event,
+        Event::Ready { .. }
+    ) {}
+    let start = std::time::Instant::now();
+    let observe = async {
         while std::fs::read_to_string(fixture.root.path().join("lifetime.txt"))
             .unwrap()
             .is_empty()
         {
             tokio::time::sleep(Duration::from_millis(5)).await;
         }
-        let owners = sandbox_owners(&format!(
+        sandbox_owners(&format!(
             "lifetime-{}",
             fixture.root.path().file_name().unwrap().to_string_lossy()
-        ));
-        (start, owners)
+        ))
     };
-    let (result, (start, (_supervisor, namespace))) =
-        tokio::time::timeout(Duration::from_secs(6), async {
-            tokio::join!(session::run(Box::new(native), receiver, events), controls)
-        })
-        .await
-        .unwrap();
-    result.unwrap();
+    let (result, (_supervisor, namespace)) = tokio::time::timeout(Duration::from_secs(6), async {
+        tokio::join!(session::shutdown(sender, worker, native_lifetime), observe)
+    })
+    .await
+    .unwrap();
+    result.unwrap().unwrap();
     assert!(start.elapsed() < Duration::from_millis(5300));
     assert!(
         namespace.stopped(),
@@ -3820,4 +3818,189 @@ async fn native_turn_codex_missing_model_holds_before_command_or_model_io() {
     assert!(receipt.hold.is_some());
     assert!(format!("{:?}", receipt.hooks[0].outcome).contains("requires the actual native model"));
     assert!(!format!("{:?}", receipt.hooks[0].outcome).contains("AssertionError"));
+}
+
+// Delegate every lifetime boundary to the real native session. Only ordinary
+// resource close is delayed, to model cleanup after native observations finish.
+struct DelayedNativeClose {
+    native: NativeSession,
+    closed: Arc<std::sync::atomic::AtomicBool>,
+}
+#[async_trait::async_trait]
+impl Session for DelayedNativeClose {
+    fn owner(&self) -> &'static str {
+        self.native.owner()
+    }
+    fn native_lifetime(&self) -> bool {
+        self.native.native_lifetime()
+    }
+    fn open_lifetime(
+        &mut self,
+        source: demoncoder::session::SessionStart,
+        events: &EventSink,
+    ) -> anyhow::Result<()> {
+        self.native.open_lifetime(source, events)
+    }
+    async fn session_start(
+        &mut self,
+        source: demoncoder::session::SessionStart,
+        events: &EventSink,
+    ) -> anyhow::Result<()> {
+        self.native.session_start(source, events).await
+    }
+    async fn session_end(
+        &mut self,
+        reason: demoncoder::session::SessionEnd,
+        events: &EventSink,
+    ) -> anyhow::Result<()> {
+        self.native.session_end(reason, events).await
+    }
+    async fn turn(
+        &mut self,
+        prompt: String,
+        commands: &mut mpsc::Receiver<demoncoder::session::Command>,
+        events: &EventSink,
+    ) -> anyhow::Result<demoncoder::session::TurnEnd> {
+        self.native.turn(prompt, commands, events).await
+    }
+    async fn close(&mut self) -> anyhow::Result<()> {
+        tokio::time::sleep(Duration::from_millis(2500)).await;
+        self.native.close().await?;
+        self.closed.store(true, std::sync::atomic::Ordering::SeqCst);
+        Ok(())
+    }
+}
+
+#[tokio::test]
+async fn application_shutdown_reserves_native_end_and_ordinary_close_time() {
+    use demoncoder::{
+        events::Event, plugins::hook_types::HookEvent, session, workflow::runtime::HostInvocation,
+    };
+    use std::sync::atomic::{AtomicBool, Ordering};
+    let _lock = FIXTURES.lock().await;
+    let mut fixture = Fixture::new();
+    std::fs::write(fixture.root.path().join("lifetime.txt"), "").unwrap();
+    let executor = lifetime_executor(
+        &fixture,
+        HookEvent::SessionEnd,
+        "import time\ntime.sleep(1)\nopen('lifetime.txt','a').write('end')\nprint('{}')\n",
+    );
+    let closed = Arc::new(AtomicBool::new(false));
+    let native = DelayedNativeClose {
+        native: NativeSession::with_tools(Box::new(ActualAssistant), executor),
+        closed: closed.clone(),
+    };
+    let initial_native_lifetime = native.native_lifetime();
+    let (sender, receiver) = mpsc::channel(4);
+    let worker = tokio::spawn(session::run(
+        Box::new(native),
+        receiver,
+        fixture.events.clone(),
+    ));
+    while !matches!(
+        fixture._receiver.recv().await.unwrap().event,
+        Event::Ready { .. }
+    ) {}
+    let started = tokio::time::Instant::now();
+    let result = session::shutdown(sender, worker, initial_native_lifetime).await;
+    assert!(
+        result.is_ok(),
+        "outer deadline cut off native cleanup: {result:?}"
+    );
+    result.unwrap().unwrap();
+    assert!(started.elapsed() > Duration::from_secs(3));
+    assert!(started.elapsed() < Duration::from_secs(8));
+    assert!(closed.load(Ordering::SeqCst));
+    assert_eq!(
+        std::fs::read_to_string(fixture.root.path().join("lifetime.txt")).unwrap(),
+        "end"
+    );
+    let record = fixture.record();
+    assert!(record.operations.iter().any(|op| matches!(&op.host_invocation,
+        Some(HostInvocation::NativeSession(lifetime)) if lifetime.end == Some(session::SessionEnd::Shutdown))));
+    assert!(record.operations.iter().any(|op| matches!(&op.host_invocation,
+        Some(HostInvocation::Lifecycle(receipt)) if receipt.settled && receipt.hooks.iter().any(|hook| matches!(&hook.outcome, Some(RawOutcome::Command { exit_code: Some(0), .. }))))));
+}
+
+#[tokio::test]
+async fn application_shutdown_keeps_initial_native_reservation_after_external_replacement() {
+    use demoncoder::{
+        events::Event,
+        session::{self, Command, TurnEnd},
+        workflow::runtime::HostInvocation,
+    };
+    use std::sync::atomic::{AtomicBool, Ordering};
+    struct SlowExternalClose(Arc<AtomicBool>);
+    #[async_trait::async_trait]
+    impl Session for SlowExternalClose {
+        fn owner(&self) -> &'static str {
+            "external-resource"
+        }
+        async fn turn(
+            &mut self,
+            _: String,
+            _: &mut mpsc::Receiver<Command>,
+            _: &EventSink,
+        ) -> anyhow::Result<TurnEnd> {
+            Ok(TurnEnd::Complete)
+        }
+        async fn close(&mut self) -> anyhow::Result<()> {
+            tokio::time::sleep(Duration::from_millis(3500)).await;
+            self.0.store(true, Ordering::SeqCst);
+            Ok(())
+        }
+    }
+    let _lock = FIXTURES.lock().await;
+    let mut fixture = Fixture::new();
+    let closed = Arc::new(AtomicBool::new(false));
+    let replacement = SlowExternalClose(closed.clone());
+    assert!(!replacement.native_lifetime());
+    let session = ReplaceNative {
+        current: Box::new(NativeSession::with_tools(
+            Box::new(ActualAssistant),
+            fixture.executor(vec![], false),
+        )),
+        replacement: Some(Box::new(replacement)),
+    };
+    let initial_native_lifetime = session.native_lifetime();
+    assert!(initial_native_lifetime);
+    let (sender, receiver) = mpsc::channel(4);
+    let worker = tokio::spawn(session::run(
+        Box::new(session),
+        receiver,
+        fixture.events.clone(),
+    ));
+    while !matches!(
+        fixture._receiver.recv().await.unwrap().event,
+        Event::Ready { .. }
+    ) {}
+    sender
+        .send(Command::Prompt("replace".into()))
+        .await
+        .unwrap();
+    while !matches!(
+        fixture._receiver.recv().await.unwrap().event,
+        Event::TurnFinished { .. }
+    ) {}
+    session::shutdown(sender, worker, initial_native_lifetime)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(closed.load(Ordering::SeqCst));
+    let record = fixture.record();
+    let lifetime = record
+        .operations
+        .iter()
+        .find_map(|op| match &op.host_invocation {
+            Some(HostInvocation::NativeSession(lifetime)) => Some(lifetime),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(lifetime.end, Some(session::SessionEnd::Shutdown));
+    assert!(
+        lifetime
+            .diagnostics
+            .iter()
+            .any(|d| d.contains("SessionEnd observation unavailable"))
+    );
 }

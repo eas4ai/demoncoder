@@ -2,7 +2,7 @@
 use super::{HostInvocation, Identity, Operation, Record, SharedRuntime};
 use crate::{
     plugins::receipts::*,
-    session::{SessionEnd, SessionStart},
+    session::{NATIVE_END_BUDGET, SessionEnd, SessionStart},
 };
 use anyhow::{Context, Result, ensure};
 use std::{
@@ -170,7 +170,7 @@ impl SharedRuntime {
                 "native session termination already recorded"
             );
             owner.end = Some(reason);
-            owner.deadline = Some(Instant::now() + Duration::from_secs(5));
+            owner.deadline = Some(Instant::now() + NATIVE_END_BUDGET);
             Ok(())
         })
     }

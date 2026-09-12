@@ -1,13 +1,6 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 use clap::Parser;
-use demoncoder::{
-    adapters,
-    config::Args,
-    events::EventSink,
-    session::{self, Command},
-    startup, terminal,
-};
-use std::time::Duration;
+use demoncoder::{adapters, config::Args, events::EventSink, session, startup, terminal};
 use tokio::sync::mpsc;
 
 #[tokio::main]
@@ -79,7 +72,8 @@ async fn main() -> Result<()> {
     let (event_tx, event_rx) = mpsc::channel(256);
     let sink = EventSink::new(selection.name.clone(), event_tx, args.event_log.as_deref())?
         .with_runtime(runtime.clone());
-    let mut worker = tokio::spawn(session::run(session, command_rx, sink));
+    let native_lifetime = session.native_lifetime();
+    let worker = tokio::spawn(session::run(session, command_rx, sink));
     let label = format!(
         "{} · {}",
         selection.name,
@@ -102,19 +96,6 @@ async fn main() -> Result<()> {
         live_settings,
     )
     .await;
-    // Queue submission belongs inside the deadline too: a stopped consumer must
-    // not trap quit before the cleanup timeout even starts.
-    let shutdown = async {
-        let _ = command_tx.send(Command::Shutdown).await;
-        (&mut worker).await.context("session runtime failed")?
-    };
-    let worker_result = match tokio::time::timeout(Duration::from_secs(3), shutdown).await {
-        Ok(result) => result,
-        Err(error) => {
-            worker.abort();
-            let _ = worker.await;
-            return Err(error).context("session shutdown timed out");
-        }
-    };
+    let worker_result = session::shutdown(command_tx, worker, native_lifetime).await?;
     ui_result.and(worker_result)
 }

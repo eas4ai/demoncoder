@@ -383,3 +383,84 @@ async fn drained_subscription_corrections_still_count_toward_the_turn_limit() {
         );
     }
 }
+
+#[tokio::test]
+async fn application_shutdown_bounds_queue_and_worker_and_joins_abort() {
+    // Cover a blocked send and a delivered quit with a stuck worker, under both
+    // initial lifetime envelopes. Dropping the guard proves abort was joined.
+    let mut cases = Vec::new();
+    for native in [false, true] {
+        for full in [false, true] {
+            cases.push(tokio::spawn(async move {
+                struct Dropped(Arc<AtomicBool>);
+                impl Drop for Dropped {
+                    fn drop(&mut self) {
+                        self.0.store(true, Ordering::SeqCst);
+                    }
+                }
+                let dropped = Arc::new(AtomicBool::new(false));
+                let (sender, mut receiver) = mpsc::channel(1);
+                if full {
+                    sender.try_send(Command::Cancel).unwrap();
+                }
+                let (ready, running) = tokio::sync::oneshot::channel();
+                let guard = Dropped(dropped.clone());
+                let worker = tokio::spawn(async move {
+                    let _guard = guard;
+                    ready.send(()).unwrap();
+                    if !full {
+                        assert!(matches!(receiver.recv().await, Some(Command::Shutdown)));
+                    }
+                    // Keep the receiver alive so a full-queue send cannot resolve.
+                    pending::<()>().await;
+                    drop(receiver);
+                    Ok(())
+                });
+                running.await.unwrap();
+                let started = tokio::time::Instant::now();
+                let result = demoncoder::session::shutdown(sender, worker, native).await;
+                assert_eq!(
+                    result.unwrap_err().to_string(),
+                    "session shutdown timed out"
+                );
+                let seconds = if native { 8 } else { 3 };
+                assert!(started.elapsed() >= Duration::from_secs(seconds));
+                assert!(started.elapsed() < Duration::from_secs(seconds + 1));
+                assert!(dropped.load(Ordering::SeqCst));
+            }));
+        }
+    }
+    for case in cases {
+        case.await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn application_shutdown_preserves_worker_and_join_errors() {
+    let (sender, receiver) = mpsc::channel(1);
+    drop(receiver);
+    let worker = tokio::spawn(async { anyhow::bail!("original close error") });
+    assert_eq!(
+        demoncoder::session::shutdown(sender, worker, false)
+            .await
+            .unwrap()
+            .unwrap_err()
+            .to_string(),
+        "original close error"
+    );
+    let (sender, receiver) = mpsc::channel(1);
+    drop(receiver);
+    let worker = tokio::spawn(async {
+        panic!("worker panic");
+        #[allow(unreachable_code)]
+        Ok(())
+    });
+    assert_eq!(
+        demoncoder::session::shutdown(sender, worker, false)
+            .await
+            .unwrap()
+            .unwrap_err()
+            .to_string(),
+        "session runtime failed"
+    );
+}
