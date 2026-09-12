@@ -29,6 +29,9 @@ pub struct ObserverReceipt {
     pub rewake: bool,
     /// Launch protocol is separate from the eventual command outcome.
     pub launch_marker: Option<serde_json::Value>,
+    /// Existing native request that reserved this context; not a new model grant.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub delivery_operation: Option<u64>,
 }
 
 /// Trusted runner configuration; source output cannot mint this eligibility.
@@ -53,12 +56,10 @@ pub(crate) async fn dispatch(
     let lease = runtime.admit_observer(&invocation, config, runner.mutates_workspace())?;
     invocation.events = invocation.events.for_observer();
     invocation.observer = Some(lease.clone());
-    if config.declared || config.rewake {
-        lease.transfer(None)?;
-    }
     let (sender, mut result) = tokio::sync::oneshot::channel();
     struct PendingTransfer(
         std::sync::Arc<crate::workflow::runtime::plugin_observer::ObserverLease>,
+        bool,
     );
     impl Drop for PendingTransfer {
         fn drop(&mut self) {
@@ -68,10 +69,16 @@ pub(crate) async fn dispatch(
                 .load(std::sync::atomic::Ordering::Acquire)
             {
                 self.0.revoke();
+            } else if !self.1 {
+                self.0.abandoned();
             }
         }
     }
-    let _pending = PendingTransfer(lease.clone());
+    let mut pending = PendingTransfer(lease.clone(), false);
+    if config.declared || config.rewake {
+        lease.transfer(None)?;
+        lease.validate()?;
+    }
     let owner = lease.clone();
     let handle = tokio::spawn(async move {
         struct Completion {
@@ -116,7 +123,8 @@ pub(crate) async fn dispatch(
         }
     });
     runtime.retain_observer_job(&lease, handle)?;
-    if lease.transferred.load(std::sync::atomic::Ordering::Acquire) {
+    pending.1 = true;
+    if lease.transferred.load(std::sync::atomic::Ordering::Acquire) && lease.validate().is_ok() {
         return Ok(None);
     }
     tokio::select! {

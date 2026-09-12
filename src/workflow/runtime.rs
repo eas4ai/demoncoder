@@ -498,11 +498,19 @@ impl SharedRuntime {
     pub(crate) fn update<T>(&self, f: impl FnOnce(&mut Record) -> Result<T>) -> Result<T> {
         self.update_guarded(|_| Ok(()), f)
     }
-    fn update_without_observers<T>(&self, f: impl FnOnce(&mut Record) -> Result<T>) -> Result<T> {
+    fn update_without_observers<T>(
+        &self,
+        tasks_only: bool,
+        f: impl FnOnce(&mut Record) -> Result<T>,
+    ) -> Result<T> {
         self.update_guarded(
             |runtime| {
                 ensure!(
-                    runtime.observers.stopped(),
+                    if tasks_only {
+                        runtime.observers.tasks_stopped()
+                    } else {
+                        runtime.observers.stopped()
+                    },
                     "stop original observers before changing owner or allocation"
                 );
                 Ok(())
@@ -527,6 +535,8 @@ impl SharedRuntime {
         let result = f(&mut runtime.record)?;
         #[cfg(test)]
         plugin_admission::session_models::invalidate_at_checkpoint(&mut runtime.record);
+        #[cfg(test)]
+        plugin_observer::session_tests::invalidate_at_checkpoint(&mut runtime.record);
         if let Some(allocation) = &mut runtime.record.allocation {
             allocation.checkpoint_time();
         }
@@ -555,7 +565,7 @@ impl SharedRuntime {
         connection: &Connection,
         checkpoint: Option<Value>,
     ) -> Result<()> {
-        self.update_without_observers(|record| {
+        self.update_without_observers(false, |record| {
             ensure!(
                 !record.recovery_pending && record.phase.is_none(),
                 "reconcile interrupted work before changing its model"
@@ -624,7 +634,7 @@ impl SharedRuntime {
 
     pub fn allocate(&self, limits: Limits, reviewer: Option<&Connection>) -> Result<()> {
         let session = self.plugin_session()?;
-        self.update_without_observers(|r| {
+        self.update_without_observers(true, |r| {
             ensure_children_settled(r)?;
             budget_accounting::replace(r, &session, Allocation::new(limits)?)?;
             r.reviewer_identity = reviewer.map(Identity::from);
@@ -634,7 +644,7 @@ impl SharedRuntime {
 
     pub fn archive(&self) -> Result<()> {
         let session = self.plugin_session()?;
-        self.update_without_observers(|r| {
+        self.update_without_observers(true, |r| {
             ensure_children_settled(r)?;
             ensure!(
                 r.archived.len() < 32,

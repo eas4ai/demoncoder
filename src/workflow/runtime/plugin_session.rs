@@ -161,7 +161,8 @@ impl SharedRuntime {
         if let Some(authority) = &owner.authority {
             authority.cancel_services()?;
         }
-        Ok(())
+        drop(runtime);
+        self.cancel_native_observers(id, false)
     }
     pub(crate) fn validate_native_end_policy(
         &self,
@@ -257,12 +258,13 @@ impl SharedRuntime {
             owner.end = Some(reason);
             owner.deadline = Some(Instant::now() + NATIVE_END_BUDGET);
             Ok(())
-        })
+        })?;
+        self.cancel_native_observers(id, true)
     }
 
     /// Revoke before waiting for cleanup; an aborted host calls this from Drop too.
     pub(crate) fn finalize_native_session(&self, id: u64) -> Result<()> {
-        let runtime = self
+        let mut runtime = self
             .0
             .lock()
             .map_err(|_| anyhow::anyhow!("native session lock failed"))?;
@@ -270,6 +272,7 @@ impl SharedRuntime {
         if let Some(authority) = &owner.authority {
             authority.live.store(false, Ordering::Release);
         }
+        runtime.observers.revoke_native(id, false);
         Ok(())
     }
 

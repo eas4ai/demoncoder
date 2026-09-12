@@ -440,6 +440,7 @@ impl EventSink {
     pub(crate) async fn drain_lifetime_commands(
         &self,
         deadline: tokio::time::Instant,
+        transferred: bool,
     ) -> Result<()> {
         let retained = self
             .host_lifetime
@@ -454,7 +455,25 @@ impl EventSink {
         {
             runtime
                 .upgrade()?
-                .drain_native_session_commands(id, deadline)
+                .drain_native_session_commands(id, deadline, transferred)
+                .await?;
+        }
+        Ok(())
+    }
+    pub(crate) async fn join_lifetime_observers(
+        &self,
+        deadline: tokio::time::Instant,
+    ) -> Result<()> {
+        let retained = self
+            .host_lifetime
+            .lock()
+            .map_err(|_| anyhow::anyhow!("native lifetime lock failed"))?
+            .clone();
+        if let Some(owner) = retained {
+            owner
+                .runtime
+                .upgrade()?
+                .join_native_observers(owner.operation, deadline)
                 .await?;
         }
         Ok(())
@@ -556,6 +575,68 @@ impl EventSink {
             .as_ref()
             .context("observer delivery runtime missing")?
             .complete_observer_context(delivery)
+    }
+    pub(crate) fn native_observer_context(
+        &self,
+    ) -> Result<Option<crate::workflow::runtime::plugin_observer::NativeContextDelivery>> {
+        if self.phase != "worker"
+            || self.native_turn.is_none()
+            || self.hook_model.is_some()
+            || self.oracle_source.is_some()
+        {
+            return Ok(None);
+        }
+        let retained = self
+            .host_lifetime
+            .lock()
+            .map_err(|_| anyhow::anyhow!("native lifetime lock failed"))?
+            .clone();
+        let Some(owner) = retained else {
+            return Ok(None);
+        };
+        let runtime = owner.runtime.upgrade()?;
+        let record = runtime.record()?;
+        let identity = self.identity.as_ref().unwrap_or(&record.identity);
+        runtime.reserve_native_observer_context(
+            owner.operation,
+            self.invocation
+                .context("native context request not admitted")?,
+            identity,
+        )
+    }
+    pub(crate) fn validate_native_observer_context(
+        &self,
+        delivery: &crate::workflow::runtime::plugin_observer::NativeContextDelivery,
+    ) -> Result<()> {
+        let runtime = self
+            .runtime
+            .as_ref()
+            .context("native context runtime missing")?;
+        if let Err(error) = runtime.validate_native_observer_context(delivery) {
+            runtime.hold()?;
+            return Err(error).context(
+                "session context already entered the model checkpoint; delivery remains uncertain",
+            );
+        }
+        Ok(())
+    }
+    pub(crate) fn prepare_native_observer_context(
+        &self,
+        delivery: &crate::workflow::runtime::plugin_observer::NativeContextDelivery,
+    ) -> Result<bool> {
+        self.runtime
+            .as_ref()
+            .context("native context runtime missing")?
+            .prepare_native_observer_context(delivery)
+    }
+    pub(crate) fn complete_native_observer_context(
+        &self,
+        delivery: &crate::workflow::runtime::plugin_observer::NativeContextDelivery,
+    ) -> Result<()> {
+        self.runtime
+            .as_ref()
+            .context("native context runtime missing")?
+            .complete_native_observer_context(delivery)
     }
     pub(crate) fn for_observer(&self) -> Self {
         Self {

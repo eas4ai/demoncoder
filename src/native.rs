@@ -347,6 +347,16 @@ impl NativeSession {
             }
             let admission = events.begin_model()?;
             let invocation_events = events.for_invocation(admission);
+            let mut session_context = invocation_events.native_observer_context()?;
+            if let Some(delivery) = &session_context
+                && !invocation_events.prepare_native_observer_context(delivery)?
+            {
+                session_context = None;
+            }
+            if let Some(delivery) = &session_context {
+                self.model.prompt(delivery.text.clone());
+                events.checkpoint(self.checkpoint())?;
+            }
             let response_events = if self
                 .tools
                 .has_non_tool_plan(crate::plugins::hook_types::HookEvent::Stop)
@@ -359,6 +369,9 @@ impl NativeSession {
                 invocation_events.clone()
             };
             let calls = {
+                if let Some(delivery) = &session_context {
+                    invocation_events.validate_native_observer_context(delivery)?;
+                }
                 let response = self.model.response(&response_events);
                 tokio::pin!(response);
                 loop {
@@ -376,6 +389,9 @@ impl NativeSession {
             let calls = match calls {
                 Ok(calls) => {
                     settled?;
+                    if let Some(delivery) = &session_context {
+                        invocation_events.complete_native_observer_context(delivery)?;
+                    }
                     calls
                 }
                 Err(error) => {

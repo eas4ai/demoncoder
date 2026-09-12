@@ -42,6 +42,150 @@ fn transferred_hook(case: &DispatchCase) -> crate::plugins::receipts::HookReceip
         .unwrap()
         .clone()
 }
+
+struct BlockingFirstLine {
+    pause: std::sync::Mutex<
+        Option<(
+            tokio::sync::oneshot::Sender<()>,
+            std::sync::mpsc::Receiver<()>,
+        )>,
+    >,
+    finished: Arc<std::sync::atomic::AtomicBool>,
+    effects: Arc<AtomicUsize>,
+}
+#[async_trait::async_trait]
+impl HookRunner for BlockingFirstLine {
+    fn observer_config(&self) -> Option<ObserverConfig> {
+        Some(ObserverConfig {
+            declared: false,
+            rewake: false,
+            timeout_ms: 5000,
+        })
+    }
+    async fn run(&self, invocation: &HookInvocation) -> Result<RawOutcome> {
+        let owner = invocation.observer.as_ref().unwrap().clone();
+        let (entered, release) = self.pause.lock().unwrap().take().unwrap();
+        let effects = self.effects.clone();
+        let finished = self.finished.clone();
+        tokio::task::spawn_blocking(move || {
+            crate::workflow::runtime::plugin_observer::session_tests::hold_next_transfer_publication(entered, release);
+            let result = owner.transfer(Some(json!({"async":true})))
+                .and_then(|()| owner.validate())
+                .map(|_| { effects.fetch_add(1, Ordering::SeqCst); });
+            finished.store(true, Ordering::Release);
+            result
+        }).await??;
+        Ok(RawOutcome::Command {
+            exit_code: Some(0),
+            stdout: b"{}".to_vec(),
+            stderr: vec![],
+        })
+    }
+}
+#[tokio::test]
+async fn observer_first_line_publication_remains_valid_to_real_dispatch_monitor() {
+    let case = DispatchCase::new(HookEvent::PostToolUse);
+    let (entered, reached) = tokio::sync::oneshot::channel();
+    let (release, released) = std::sync::mpsc::channel();
+    let finished = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let effects = Arc::new(AtomicUsize::new(0));
+    let mut declaration = case.declaration(false);
+    declaration.class = HandlerClass::Observer;
+    declaration.required_gate = false;
+    declaration.identity.dialect = HookDialect::Claude;
+    declaration.concurrent_group = Some("source-group".into());
+    let pending = case.dispatch(
+        0,
+        Registration {
+            declaration,
+            runner: Arc::new(BlockingFirstLine {
+                pause: std::sync::Mutex::new(Some((entered, released))),
+                finished: finished.clone(),
+                effects: effects.clone(),
+            }),
+            revalidation: None,
+        },
+    );
+    tokio::pin!(pending);
+    let mut reached = reached;
+    let before_pause = tokio::select! {
+        biased;
+        result = &mut reached => { result.unwrap(); None },
+        result = &mut pending => {
+            // A rejected monitor may finish in the same poll as the barrier.
+            // Still join that callback before reporting the premature result.
+            tokio::time::timeout(Duration::from_secs(2), &mut reached).await.unwrap().unwrap();
+            Some(result)
+        },
+    };
+    // The blocking first-line callback is held after persistence while the
+    // production dispatch monitor gets multiple opportunities to validate it.
+    let early = if before_pause.is_some() {
+        before_pause
+    } else {
+        tokio::select! {
+            result = &mut pending => Some(result),
+            _ = tokio::time::sleep(Duration::from_millis(30)) => None,
+        }
+    };
+    release.send(()).unwrap();
+    let premature = early.is_some();
+    let result = match early {
+        Some(result) => result,
+        None => pending.await,
+    };
+    tokio::time::timeout(Duration::from_secs(2), async {
+        while !finished.load(Ordering::Acquire) {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    let cleanup = case.runtime.stop_observers(None, false).await;
+    assert!(
+        !premature,
+        "production monitor rejected the first-line durable receipt before local publication"
+    );
+    cleanup.unwrap();
+    result.unwrap();
+    assert_eq!(effects.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        transferred_hook(&case).observer.unwrap().status,
+        Status::Completed
+    );
+    case.verify_originals();
+}
+
+#[tokio::test]
+async fn observer_delivery_rejects_equal_clock_replacement_budget_epoch() {
+    let case = DispatchCase::new(HookEvent::PostToolUse);
+    let release = Arc::new(tokio::sync::Notify::new());
+    case.dispatch(0, observer(&case, release.clone(), false))
+        .await
+        .unwrap();
+    release.notify_one();
+    tokio::time::timeout(Duration::from_secs(2), async {
+        while transferred_hook(&case).outcome.is_none() {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    let session = case.runtime.plugin_session().unwrap();
+    case.runtime
+        .update(|record| {
+            let original = record.allocation.as_ref().unwrap().clone();
+            crate::workflow::runtime::budget_accounting::replace(record, &session, original)
+        })
+        .unwrap();
+    assert!(
+        case.runtime
+            .reserve_observer_context("worker", None, false)
+            .unwrap()
+            .is_none(),
+        "old observer delivered under replacement epoch with identical clocks and limits"
+    );
+}
 #[tokio::test]
 async fn observer_transfer_releases_both_dispatchers_before_actual_once_completion() {
     for event in [HookEvent::PreToolUse, HookEvent::PostToolUse] {

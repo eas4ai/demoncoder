@@ -31,11 +31,15 @@ native session lifetime ownership, the application shutdown reservation, explici
 session-hook allowance persistence with atomic session directory creation, exact
 operation budget/usage attribution including ordinary Oracle ownership, native
 session Prompt/Agent execution from the original explicit grant, and native
-session HTTP/MCP execution with owned lifetime cleanup. The current Rust
-candidate passes 964 tests (17 ignored), the separate terminal output-limit suite
+session HTTP/MCP execution with owned lifetime cleanup, and original-owner native
+async session commands with bounded context delivery. The current Rust
+candidate passes 991 tests (17 ignored), the separate terminal output-limit suite
 passes three cases, and fresh specification and quality reviews pass. Earlier
 installed/live-source evidence retains its original candidate; these Rust checks
-do not refresh it. See the [transport lifetime review](../reviews/plugin-session-http-mcp-lifetime.md)
+do not refresh it. The [async session review](../reviews/plugin-session-async-commands.md)
+retains the repaired transfer/settlement/publication findings, actual shutdown
+controls, static nonpasses and the existing intermittent mount-setup follow-up.
+See the [transport lifetime review](../reviews/plugin-session-http-mcp-lifetime.md)
 for corrected idle-write authority, cleanup controls and final verification. The
 [model allowance review](../reviews/plugin-session-model-allowance.md) retains its
 corrected authority findings, static non-passes and evidence-capture limits.
@@ -43,6 +47,11 @@ The [attribution review](../reviews/plugin-operation-budget-attribution.md) reta
 the earlier Oracle findings and unexplained crash.
 
 Only the parent records Cairn decisions, changes declarations and commits evidence. Workers own bounded files; they do not change the selected scope or evidence. A test fixture may model a provider, but its report must say controlled transport. Source/type checks, successful parsing and test registration never establish runtime delivery.
+
+For subsequent bounded tasks, finish focused behavioral checks and specification
+review before starting the complete regression suite. Once specification passes,
+run that suite alongside quality review. This catches review repairs before the
+expensive broad run while preserving every required check before completion.
 
 The implementation worktree is on `feature/skills-plugins-hooks`. The source references remain read-only. Source copies or patches introduced into the deliverable retain their revision, hash and license. Add newly created package/backend artifact paths to the mechanism's inputs before checking them.
 
@@ -419,6 +428,26 @@ session commands need session-owned lifetime policy and remain unavailable here;
 they are not silently converted to synchronous execution. Those commands,
 additional startup effects, Interrupt, outer timeout and actual source events
 remain in this same commitment.
+
+### Native asynchronous session commands
+
+Decision: [retain the original grant and live host](../decisions/own-native-asynchronous-session-commands-with-their-original-grant-and-host-lifetime.md).
+Implemented and independently verified within the existing lifecycle-dispatch item. Explicit
+native async commands require original session time and must release startup
+readiness after durable transfer. Completion can contribute bounded attributed
+context only to an already admitted native model request. Native rewake remains
+outside the supported source declaration, and command execution adds no model or
+Agent inspection-tool debit.
+
+At final termination, revoke startup jobs and withhold their context; retain
+unknown-effect holds. Terminal jobs share the existing two-second observation
+window and three-second cleanup reserve. Compiled controls and real host tests
+verify exact transfer, actual cleanup, bounded once/restart behavior, task
+independence, writer quiescence and the intended request boundary. The final
+candidate passes 991 Rust tests and three terminal cases, with SPEC and QUALITY
+approval. The [review record](../reviews/plugin-session-async-commands.md) retains
+actual controls, repaired findings, historical failures, final artifact identities
+and qualification limits. The full lifecycle-dispatch item remains open.
 
 ### Native session HTTP and MCP lifetime integration
 

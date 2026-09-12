@@ -448,6 +448,7 @@ impl SharedRuntime {
         &self,
         lifetime: u64,
         deadline: tokio::time::Instant,
+        transferred: bool,
     ) -> Result<()> {
         let record = self.record()?;
         super::plugin_session::lifetime(&record, lifetime)?;
@@ -462,15 +463,20 @@ impl SharedRuntime {
             .collect();
         let tracker = self.once_live()?;
         loop {
+            let excluded = if transferred {
+                Default::default()
+            } else {
+                self.transferred_native_observers(lifetime)?
+            };
             let live = {
                 let mut tracker = tracker
                     .lock()
                     .map_err(|_| anyhow::anyhow!("command cleanup owner lock failed"))?;
                 tracker.runners.retain(|_, lease| lease.strong_count() > 0);
-                tracker
-                    .runners
-                    .keys()
-                    .any(|key| operations.contains(&key.operation))
+                tracker.runners.keys().any(|key| {
+                    operations.contains(&key.operation)
+                        && !excluded.contains(&(key.operation, key.event.clone(), key.invocation))
+                })
             };
             if !live {
                 return Ok(());

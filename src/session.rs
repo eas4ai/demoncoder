@@ -406,7 +406,7 @@ async fn start_lifetime(
         ));
     }
     if let Err(error) = events
-        .drain_lifetime_commands(started + std::time::Duration::from_secs(30))
+        .drain_lifetime_commands(started + std::time::Duration::from_secs(30), interrupted)
         .await
     {
         let _ = events.lifetime_diagnostic(format!(
@@ -642,10 +642,19 @@ pub async fn run(
             None
         }
     };
+    if matches!(observation, Some(Ok(Ok(()))))
+        && let Err(error) = events
+            .join_lifetime_observers(ended + std::time::Duration::from_secs(2))
+            .await
+    {
+        let _ = events.lifetime_diagnostic(format!(
+            "SessionEnd asynchronous observation incomplete: {error:#}"
+        ));
+    }
     let finalized = events.finalize_host_lifetime();
     if let Some(observation) = observation {
         if let Err(error) = events
-            .drain_lifetime_commands(ended + NATIVE_END_BUDGET)
+            .drain_lifetime_commands(ended + NATIVE_END_BUDGET, true)
             .await
         {
             let _ = events

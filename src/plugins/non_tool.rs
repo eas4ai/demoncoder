@@ -228,9 +228,21 @@ impl NonToolPlan {
                             .plugin_funded_remaining(operation, event)
                             .is_ok_and(|remaining| !remaining.is_zero()),
                     }
-                    || handler.registration.runner.observer_config().is_some())
+                    || handler
+                        .registration
+                        .runner
+                        .observer_config()
+                        .is_some_and(|config| {
+                            !config.declared
+                                || config.rewake
+                                || handler.registration.declaration.identity.runner
+                                    != super::hook_types::HandlerKind::Command
+                                || !runtime
+                                    .plugin_funded_remaining(operation, event)
+                                    .is_ok_and(|remaining| !remaining.is_zero())
+                        }))
             {
-                effects.diagnostics.push(format!("{} observation unavailable: this native lifetime prerequisite supports synchronous native commands only without original session funding; model and transport hooks require that funding, and asynchronous hooks remain unavailable", handler.registration.declaration.identity.declaration));
+                effects.diagnostics.push(format!("{} observation unavailable: native synchronous commands are grant-free; model, transport, and explicitly declared native async commands require their original session grant", handler.registration.declaration.identity.declaration));
                 continue;
             }
             if !handler.matches_non_tool(&facts.subject.occurrence) {
@@ -480,11 +492,17 @@ impl NonToolPlan {
             }
         }
         let boundary = runtime.mutation_boundary(expected_workspace)?;
-        let _guard = tokio::time::timeout(
-            runtime.plugin_remaining(operation, event)?,
-            boundary.lock_owned(),
-        )
-        .await?;
+        let _guard = if validation.is_empty() {
+            None
+        } else {
+            Some(
+                tokio::time::timeout(
+                    runtime.plugin_remaining(operation, event)?,
+                    boundary.lock_owned(),
+                )
+                .await?,
+            )
+        };
         for (reads, previous) in validation {
             let current = super::lifecycle::capture(&self.plan, workspace.clone(), reads).await?;
             if current.root_identity() != previous.root_identity()

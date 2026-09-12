@@ -14,7 +14,7 @@ fn eligible(record: &Record, hook: &HookReceipt, phase: &str, rewake: bool) -> b
                 && fingerprint(record, phase).is_ok_and(|f| f == o.owner)
         })
 }
-fn text(hook: &HookReceipt) -> Result<String> {
+pub(super) fn text(hook: &HookReceipt) -> Result<String> {
     let outcome = hook
         .outcome
         .as_ref()

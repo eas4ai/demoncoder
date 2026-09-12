@@ -106,6 +106,23 @@ impl GateWorkspace {
         roots.dedup();
         roots
     }
+    /// Live authority can be revoked without changing an immutable input snapshot.
+    /// Permitted command writes are not changes to that retained snapshot.
+    pub(crate) fn validate_authority(&self, expected: (u64, u64)) -> Result<(), CaptureError> {
+        use std::os::unix::fs::MetadataExt;
+        for metadata in [self.pinned.metadata(), std::fs::metadata(&self.root)] {
+            let metadata = metadata.map_err(|_| CaptureError::Unavailable)?;
+            if (metadata.dev(), metadata.ino()) != expected {
+                return Err(CaptureError::Unavailable);
+            }
+        }
+        if &protected_paths(&self.root, &self.credentials)?
+            != self.protected.as_ref().map_err(Clone::clone)?
+        {
+            return Err(CaptureError::Unavailable);
+        }
+        Ok(())
+    }
     pub fn capture(
         &self,
         read_set: &GateReadSet,

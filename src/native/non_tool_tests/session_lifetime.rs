@@ -166,7 +166,9 @@ async fn unsupported_lifetime_runners_cannot_prepare_even_with_task_allowance() 
                 .find_map(|o| o.non_tool_receipt())
                 .unwrap()
                 .diagnostics[0]
-                .contains("supports synchronous native commands only")
+                .contains(
+                    "explicitly declared native async commands require their original session grant"
+                )
         );
     }
 }

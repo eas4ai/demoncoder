@@ -328,7 +328,8 @@ impl WorkflowSession {
                 self.task.as_ref().is_none_or(|t| t.accepted.is_some()),
                 "current task is not accepted; continue it or use /abandon before starting another"
             );
-            self.runtime.stop_observers(None, false).await?;
+            self.runtime.stop_task_observers().await?;
+            self.runtime.quiesce_observer_writers("worker").await?;
             let snapshot = self.snapshot().await?;
             let (objective, linkage) = if let Some(candidate) = improvement {
                 match self
@@ -376,7 +377,7 @@ impl WorkflowSession {
                     "reconcile interrupted or changed work before acceptance"
                 );
                 self.runtime.quiesce_observer_writers("worker").await?;
-                self.runtime.stop_observers(None, false).await?;
+                self.runtime.stop_task_observers().await?;
                 ensure!(
                     !self.runtime.record()?.recovery_pending,
                     "observer cancellation needs reconciliation before acceptance"
@@ -416,7 +417,7 @@ impl WorkflowSession {
                 self.review(commands, events).await
             }
             "/abandon" => {
-                self.runtime.stop_observers(None, false).await?;
+                self.runtime.stop_task_observers().await?;
                 self.runtime.archive()?;
                 self.task = None;
                 events
@@ -892,7 +893,7 @@ impl Session for WorkflowSession {
         observers.and(inner)
     }
     async fn cancel_background(&mut self) -> Result<()> {
-        self.runtime.stop_observers(None, false).await?;
+        self.runtime.stop_task_observers().await?;
         if self.runtime.record()?.delegation.is_none() {
             return Ok(());
         }

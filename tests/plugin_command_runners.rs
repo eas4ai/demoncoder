@@ -24,6 +24,9 @@ use tokio::sync::mpsc;
 
 static FIXTURES: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
+#[path = "plugin_command_runners/session_async.rs"]
+mod session_async;
+
 fn lifetime_executor(
     fixture: &Fixture,
     event: demoncoder::plugins::hook_types::HookEvent,
@@ -850,7 +853,9 @@ async fn native_session_configured_async_command_is_unavailable_without_launch_o
         assert!(
             receipt.settled
                 && receipt.hooks.is_empty()
-                && receipt.diagnostics[0].contains("synchronous native commands only")
+                && receipt.diagnostics[0].contains(
+                    "explicitly declared native async commands require their original session grant"
+                )
         );
     }
 }
