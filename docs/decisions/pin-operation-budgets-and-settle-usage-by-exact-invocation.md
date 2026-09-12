@@ -12,4 +12,4 @@ First add exact budget attribution and usage settlement to existing task, delega
 
 ## Realized by
 
-(none yet: recorded, not built)
+- b9c748cd9989dc86cfeee5751d7c16d281be179b Pin operation budgets and settle usage by original invocation
