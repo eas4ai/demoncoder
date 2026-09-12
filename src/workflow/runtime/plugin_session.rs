@@ -130,6 +130,14 @@ impl SharedRuntime {
             let id = record.operations.len() as u64 + 1;
             record.operations.push(Operation {
                 id,
+                budget: Some(if record.session_hook_allowance.is_some() {
+                    super::BudgetRef::SessionHooks {
+                        session: session.clone(),
+                    }
+                } else {
+                    super::BudgetRef::Unallocated
+                }),
+                usage_receipt: None,
                 phase: "native-session".into(),
                 verification: None,
                 call: None,

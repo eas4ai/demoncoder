@@ -271,6 +271,12 @@ impl SharedRuntime {
             .lock()
             .map_err(|_| anyhow::anyhow!("runtime lock failed"))?;
         ensure!(!runtime.failed, "session persistence failed");
+        let session = crate::plugins::admission::digest(&runtime.store.directory())?;
+        super::budget_accounting::active(
+            &runtime.record,
+            &session,
+            &super::budget_accounting::inherited(&runtime.record, id)?,
+        )?;
         if matches!(
             event,
             HookEvent::UserPromptSubmit
@@ -833,6 +839,7 @@ impl SharedRuntime {
         phase: &str,
         identity: Option<&super::Identity>,
     ) -> Result<u64> {
+        let session = self.plugin_session()?;
         self.admission(|target| {
             let mut staged = target.clone();
             ensure_continuation_except(&staged, phase, Some(id), None)?;
@@ -860,7 +867,14 @@ impl SharedRuntime {
                 PostDelivery::Superseded,
                 PostDelivery::CorrectionReserved { invocation },
             )?;
-            let admitted = delegation::begin_backend_record(&mut staged, phase, identity, None)?;
+            let admitted = delegation::begin_backend_record(
+                &mut staged,
+                &session,
+                phase,
+                identity,
+                None,
+                Some(id),
+            )?;
             ensure!(
                 admitted == invocation,
                 "correction backend reservation changed"

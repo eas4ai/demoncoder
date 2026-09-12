@@ -480,8 +480,20 @@ impl SharedRuntime {
                 settled: false,
                 correction_admitted: false,
             };
+            let source = native_session.or(native_turn).or_else(|| {
+                origin
+                    .source
+                    .as_ref()
+                    .map(|s| s.correlation.backend_operation)
+            });
+            let budget = match source {
+                Some(source) => super::budget_accounting::inherited(record, source)?,
+                None => super::budget_accounting::capture(record, &session),
+            };
             record.operations.push(Operation {
                 id,
+                budget: Some(budget),
+                usage_receipt: None,
                 phase: phase.into(),
                 verification: None,
                 call: None,

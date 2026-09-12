@@ -156,6 +156,24 @@ fn overview(out: &mut Pager, record: &Record) -> fmt::Result {
             record.archived.len()
         )?;
     }
+    if let Some(receipt) = &record.unattributed_usage {
+        writeln!(
+            out,
+            "Unresolved usage attribution: {} reports without an exact model/backend recipient; totals retained, no grant charged. {:?}",
+            receipt.reports, receipt.usage
+        )?;
+    }
+    for operation in &record.operations {
+        if let Some(receipt) = &operation.usage_receipt
+            && let Some(reason) = &receipt.unresolved
+        {
+            writeln!(
+                out,
+                "Unresolved usage attribution for operation {}: {:?}; {} reports; missing report {}; totals retained, no grant inferred. {:?}",
+                operation.id, reason, receipt.reports, receipt.missing_report, receipt.usage
+            )?;
+        }
+    }
     lifecycle_report(out, record, None)
 }
 

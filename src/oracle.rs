@@ -61,11 +61,11 @@ Return exactly one JSON object with two fields: "decision" ("allow" or "deny") a
 "#,
         serde_json::to_string(request).context("encode Oracle request")?
     );
+    let (sender, mut receiver) = mpsc::channel(32);
+    let sink = events.oracle_child(sender)?.with_identity(&config);
     let mut session = adapters::builtins()?
         .open(&config, request.workspace)
         .context("open Oracle connection")?;
-    let (sender, mut receiver) = mpsc::channel(32);
-    let sink = events.child("oracle", sender).with_identity(&config);
     let (_commands, mut commands) = mpsc::channel(1);
     let mut text = String::new();
     let outcome = tokio::time::timeout(Duration::from_secs(60), async {

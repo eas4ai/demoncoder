@@ -8,6 +8,9 @@ fn fixture_at(root: &std::path::Path, store: &std::path::Path) -> (SharedRuntime
     let connection: Connection = serde_json::from_value(json!({"adapter":"openai-api"})).unwrap();
     let record:Record=serde_json::from_value(json!({"workspace":root,"identity":Identity::from(&connection),"archived":[],"next_task":1,"checkpoint_cursor":0,"operations":[],"messages":[],"recovery_pending":false,"decisions":[]})).unwrap();
     let runtime = SharedRuntime::for_test(store, record).unwrap();
+    runtime
+        .allocate(crate::workflow::allocation::Limits::default(), None)
+        .unwrap();
     let source = runtime.begin_model("worker").unwrap();
     let call = ToolCall {
         id: "call".into(),
@@ -340,9 +343,6 @@ fn completed_post_owner_cannot_revive_pretool_index_zero_or_borrow_another_sessi
     use std::sync::atomic::AtomicBool;
     let root = tempfile::tempdir().unwrap();
     let (runtime, id, call) = fixture(root.path());
-    runtime
-        .allocate(crate::workflow::allocation::Limits::default(), None)
-        .unwrap();
     let pre = reserve(&runtime, id, &call, 0);
     let snapshot = Arc::new(
         GateWorkspace::open(root.path())
@@ -352,6 +352,7 @@ fn completed_post_owner_cannot_revive_pretool_index_zero_or_borrow_another_sessi
     );
     let tools = crate::tools::ToolExecutor::new(root.path()).unwrap();
     let mut capability = ModelAdmission {
+        budget: runtime.operation_budget(id).unwrap(),
         key: pre.inspected.clone(),
         owner: id,
         invocation: 0,
@@ -428,9 +429,6 @@ fn completed_post_owner_cannot_revive_pretool_index_zero_or_borrow_another_sessi
     capability.key = post.inspected;
     assert!(validate_model_admission(&runtime.record().unwrap(), "hook", &capability).is_ok());
     let (other, other_id, other_call) = fixture_at(root.path(), &root.path().join("other"));
-    other
-        .allocate(crate::workflow::allocation::Limits::default(), None)
-        .unwrap();
     let other_pre = reserve(&other, other_id, &other_call, 0);
     let mut complete = other_pre.clone();
     complete.outcome = Some(RawOutcome::Callback { value: json!({}) });
@@ -484,9 +482,6 @@ fn completed_lifecycle(
     representation: ToolRepresentation,
 ) -> (SharedRuntime, u64, ToolCall) {
     let (runtime, id, call) = fixture(root);
-    runtime
-        .allocate(crate::workflow::allocation::Limits::default(), None)
-        .unwrap();
     runtime
         .freeze_plugin(id, key(&runtime, id, &call), &call, None)
         .unwrap();
@@ -722,4 +717,65 @@ fn reserved_hook_view_rejects_a_receipt_bound_to_a_different_event() {
             "a reserved hook from another event acquired the pre-tool capability"
         );
     }
+}
+
+#[test]
+fn unfunded_causal_tool_cannot_gain_hook_authority_from_later_allocation() {
+    use crate::plugins::{
+        gate_snapshot::{GateReadSet, GateWorkspace},
+        runners::SnapshotInspection,
+    };
+    use std::sync::atomic::AtomicBool;
+    let root = tempfile::tempdir().unwrap();
+    let runtime = SharedRuntime::for_test(
+        &root.path().join("record"),
+        crate::inspection::tests::record(root.path()),
+    )
+    .unwrap();
+    let source = runtime.begin_model("worker").unwrap();
+    let (sender, _receiver) = tokio::sync::mpsc::channel(16);
+    let events = crate::events::EventSink::new("fixture".into(), sender.clone(), None)
+        .unwrap()
+        .with_runtime(runtime.clone())
+        .for_invocation(Some(source));
+    let call = ToolCall {
+        id: "unfunded".into(),
+        name: "read".into(),
+        arguments: json!({"path":"file"}),
+    };
+    let (events, replay) = events.begin_tool(&call).unwrap();
+    assert!(replay.is_none());
+    let (_, id) = events.plugin_context().unwrap();
+    runtime
+        .begin_plugin_plan(id, "plan".into(), vec![])
+        .unwrap();
+    runtime
+        .allocate(crate::workflow::allocation::Limits::default(), None)
+        .unwrap();
+    reserve(&runtime, id, &call, 0);
+    let snapshot = Arc::new(
+        GateWorkspace::open(root.path())
+            .unwrap()
+            .capture(&GateReadSet::default(), &AtomicBool::new(false))
+            .unwrap(),
+    );
+    let tools = crate::tools::ToolExecutor::new(root.path()).unwrap();
+    let snapshot = Arc::new(SnapshotInspection::new(
+        snapshot,
+        tools.hook_host(),
+        65536,
+        65536,
+        4,
+    ));
+    let hook = events
+        .for_hook_model(0, 1, snapshot, Arc::new(AtomicBool::new(false)), sender)
+        .unwrap();
+    assert!(hook.begin_model().is_err());
+    assert!(matches!(
+        runtime.operation_budget(id).unwrap(),
+        crate::workflow::runtime::BudgetRef::Unallocated
+    ));
+    let allocation = runtime.record().unwrap().allocation.unwrap();
+    assert_eq!(allocation.model_calls, 0);
+    assert_eq!(allocation.tool_calls, 0);
 }

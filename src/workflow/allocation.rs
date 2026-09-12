@@ -59,6 +59,19 @@ impl Usage {
         cached: Option<u64>,
         cost: Option<f64>,
     ) -> Result<()> {
+        let mut staged = self.clone();
+        staged.add_staged(input, output, cached, cost)?;
+        *self = staged;
+        Ok(())
+    }
+
+    fn add_staged(
+        &mut self,
+        input: Option<u64>,
+        output: Option<u64>,
+        cached: Option<u64>,
+        cost: Option<f64>,
+    ) -> Result<()> {
         for (value, total, unknown) in [
             (input, &mut self.reported_input, &mut self.unknown_input),
             (output, &mut self.reported_output, &mut self.unknown_output),

@@ -151,6 +151,7 @@ pub struct EventSink {
     native_session_scope: Option<u64>,
     source_lifecycle: Option<crate::plugins::receipts::ObservedCallback>,
     native_turn: Option<u64>,
+    oracle_source: Option<crate::workflow::runtime::OracleSource>,
     assistant_text: Option<Arc<Mutex<AssistantText>>>,
     prompt_origin: Option<PromptOrigin>,
     connection: String,
@@ -227,6 +228,7 @@ impl EventSink {
             native_session_scope: None,
             source_lifecycle: None,
             native_turn: None,
+            oracle_source: None,
             assistant_text: None,
             prompt_origin: None,
             connection,
@@ -401,6 +403,7 @@ impl EventSink {
     pub(crate) fn begin_native_turn(&self) -> Result<Self> {
         // Snapshot reviewers and Oracle sessions are not ordinary worker turns.
         let native_turn = if self.hook_model.is_none()
+            && self.oracle_source.is_none()
             && (self.phase == "worker"
                 || self.phase.starts_with("agent:") && self.phase.ends_with(":worker"))
         {
@@ -543,6 +546,7 @@ impl EventSink {
             prompt_origin: None,
             source_lifecycle: None,
             native_turn: None,
+            oracle_source: None,
             assistant_text: None,
             connection: phase.into(),
             sender,
@@ -563,15 +567,37 @@ impl EventSink {
         }
     }
 
+    pub(crate) fn oracle_child(&self, sender: mpsc::Sender<Envelope>) -> Result<Self> {
+        self.validate_hook_delivery()?;
+        let mut child = self.child("oracle", sender);
+        child.oracle_source = self
+            .runtime
+            .as_ref()
+            .map(|runtime| {
+                runtime.oracle_source(
+                    &self.phase,
+                    self.tool_operation
+                        .context("Oracle requires its admitted tool owner")?,
+                    self.invocation
+                        .context("Oracle requires its original host invocation")?,
+                    &child.phase,
+                )
+            })
+            .transpose()?;
+        Ok(child)
+    }
+
     pub(crate) fn begin_model(&self) -> Result<Option<u64>> {
         self.validate_hook_delivery()?;
         self.runtime
             .as_ref()
             .map(|r| {
-                r.begin_model_owned(
+                r.begin_model_from(
                     &self.phase,
                     self.identity.as_ref(),
                     self.hook_model.as_ref(),
+                    self.native_turn,
+                    self.oracle_source.as_ref(),
                 )
             })
             .transpose()
@@ -582,10 +608,11 @@ impl EventSink {
         self.runtime
             .as_ref()
             .map(|runtime| {
-                runtime.begin_backend_owned(
+                runtime.begin_backend_from(
                     &self.phase,
                     self.identity.as_ref(),
                     self.hook_model.as_ref(),
+                    self.oracle_source.as_ref(),
                 )
             })
             .transpose()
@@ -618,7 +645,7 @@ impl EventSink {
         let invocation = self
             .invocation
             .context("durable tool execution requires a host invocation")?;
-        match runtime.begin_tool(&self.phase, invocation, call)? {
+        match runtime.begin_tool_owned(&self.phase, invocation, call, self.hook_model.as_ref())? {
             crate::workflow::runtime::ToolAdmission::Fresh(id) => Ok((
                 Self {
                     tool_operation: Some(id),
@@ -866,6 +893,7 @@ impl EventSink {
         let mut sink = self.child(&format!("hook:{owner}:{invocation}"), sender);
         sink.hook_model = Some(crate::workflow::runtime::plugin_admission::ModelAdmission {
             key: runtime.plugin_hook_key(owner, self.plugin_event, invocation)?,
+            budget: runtime.operation_budget(owner)?,
             owner,
             event: self.plugin_event,
             invocation,
@@ -906,11 +934,7 @@ impl EventSink {
             .runtime
             .as_ref()
             .context("model hook runtime missing")?;
-        runtime.plugin_runner_owner(hook.owner, hook.event)?;
-        anyhow::ensure!(
-            !runtime.remaining()?.is_zero(),
-            "model hook owner deadline expired"
-        );
+        runtime.validate_hook_model_owner(hook)?;
         Ok(())
     }
 
@@ -935,6 +959,9 @@ impl EventSink {
     }
 
     pub(crate) fn admit_tool(&self, call: &crate::tools::ToolCall) -> Result<()> {
+        if self.hook_model.is_some() {
+            self.validate_hook_delivery()?;
+        }
         if let (Some(runtime), Some(id)) = (&self.runtime, self.tool_operation) {
             runtime.admit_tool(id, call)?;
         }
@@ -942,6 +969,9 @@ impl EventSink {
     }
 
     pub(crate) fn tool_effect(&self) -> Result<()> {
+        if self.hook_model.is_some() {
+            self.validate_hook_delivery()?;
+        }
         if let (Some(runtime), Some(id)) = (&self.runtime, self.tool_operation) {
             runtime.tool_effect(id)?;
         }
@@ -967,6 +997,9 @@ impl EventSink {
         index: usize,
         outcome: Option<Result<&str, &str>>,
     ) -> Result<()> {
+        if outcome.is_none() && self.hook_model.is_some() {
+            self.validate_hook_delivery()?;
+        }
         if let (Some(runtime), Some(id)) = (&self.runtime, self.tool_operation) {
             runtime.tool_observer(id, index, outcome)?;
         }
@@ -1088,7 +1121,7 @@ impl EventSink {
                         | Event::ToolPresentation { .. }
                 )
             {
-                runtime.observe(&envelope.event, &self.phase)?;
+                runtime.observe_invocation(&envelope.event, &self.phase, self.invocation)?;
             }
         }
         if let Some(log) = &self.log {

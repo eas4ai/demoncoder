@@ -130,6 +130,7 @@ pub(super) fn child_fingerprint(
             &worktree.parent_baseline.digest,
             &worktree.child_baseline.digest,
         ),
+        record.task_allocation_epoch,
         allocation.started_ms,
         allocation.deadline_ms,
         &allocation.limits,
@@ -144,6 +145,7 @@ pub(super) fn validate(
     operation: &super::Operation,
     receipt: &super::NonToolReceipt,
 ) -> Result<()> {
+    super::super::budget_accounting::active_operation(record, &receipt.facts.session, operation)?;
     if let Some(id) = receipt.facts.native_session {
         let (identity, workspace) =
             super::super::plugin_session::validate(record, id, &receipt.facts.subject.occurrence)?;

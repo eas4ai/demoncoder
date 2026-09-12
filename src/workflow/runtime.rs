@@ -1,5 +1,9 @@
 //! Durable admissions and results shared by worker, checks, Oracle and reviewer.
+pub(crate) mod budget_accounting;
+pub use budget_accounting::{BudgetRef, RetiredTaskAllocation, UsageReceipt};
 mod delegation;
+mod oracle_source;
+pub(crate) use oracle_source::OracleSource;
 pub(crate) mod plugin_admission;
 pub(crate) mod plugin_lifecycle;
 pub(crate) mod plugin_non_tool;
@@ -141,6 +145,10 @@ pub struct VerificationAttribution {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Operation {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub budget: Option<BudgetRef>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub usage_receipt: Option<UsageReceipt>,
     pub id: u64,
     pub phase: String,
     #[serde(default)]
@@ -168,6 +176,8 @@ pub struct Message {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ArchivedTask {
+    #[serde(default)]
+    pub allocation_epoch: Option<u64>,
     pub task: Task,
     pub allocation: Option<Allocation>,
 }
@@ -183,6 +193,12 @@ pub struct ContextBinding {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Record {
+    #[serde(default)]
+    pub task_allocation_epoch: u64,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub retired_task_allocations: Vec<RetiredTaskAllocation>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unattributed_usage: Option<UsageReceipt>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub plugin_activations: Vec<crate::plugins::once::Activation>,
     pub workspace: PathBuf,
@@ -398,6 +414,9 @@ impl SharedRuntime {
             let name = format!("{}-{}", super::allocation::now_ms()?, std::process::id());
             let store = Store::create_unique(&sessions, &name)?;
             let record = Record {
+                task_allocation_epoch: 0,
+                retired_task_allocations: Vec::new(),
+                unattributed_usage: None,
                 plugin_activations: Vec::new(),
                 workspace: workspace.into(),
                 capture_scope: capture_scope.clone(),
@@ -449,9 +468,10 @@ impl SharedRuntime {
                     .any(Operation::needs_reconciliation))
         {
             record.recovery_pending = true;
-            if let Some(allocation) = &mut record.allocation {
-                allocation.usage.uncertain();
-            }
+            let session = crate::plugins::admission::digest(&store.directory())?;
+            budget_accounting::mark_missing(&mut record, &session, |o| {
+                !o.complete && !o.reconciled
+            });
         }
         if let Some(allocation) = &mut record.allocation {
             allocation.checkpoint_time();
@@ -601,29 +621,38 @@ impl SharedRuntime {
     }
 
     pub fn allocate(&self, limits: Limits, reviewer: Option<&Connection>) -> Result<()> {
+        let session = self.plugin_session()?;
         self.update_without_observers(|r| {
             ensure_children_settled(r)?;
-            r.allocation = Some(Allocation::new(limits)?);
+            budget_accounting::replace(r, &session, Allocation::new(limits)?)?;
             r.reviewer_identity = reviewer.map(Identity::from);
             Ok(())
         })
     }
 
     pub fn archive(&self) -> Result<()> {
+        let session = self.plugin_session()?;
         self.update_without_observers(|r| {
             ensure_children_settled(r)?;
             ensure!(
                 r.archived.len() < 32,
                 "session task history is full; start a new session"
             );
+            if r.delegation.is_none() {
+                budget_accounting::validate_retirement(r, &session)?;
+            }
+            if let Some(allocation) = &mut r.allocation {
+                allocation.checkpoint_time();
+            }
             if let Some(task) = r.task.take() {
                 r.archived.push(ArchivedTask {
                     task,
+                    allocation_epoch: r.allocation.as_ref().map(|_| r.task_allocation_epoch),
                     allocation: r.allocation.clone(),
                 });
             }
             if r.delegation.is_none() {
-                r.allocation = None;
+                budget_accounting::retire(r, &session)?;
             }
             Ok(())
         })
@@ -640,6 +669,7 @@ impl SharedRuntime {
     }
 
     pub fn finish_phase(&self) -> Result<()> {
+        let session = self.plugin_session()?;
         self.update(|r| {
             r.phase = None;
             // Cancellation does not establish a remote request's outcome or
@@ -649,9 +679,9 @@ impl SharedRuntime {
                 .any(|o| o.needs_reconciliation() && delegation::agent_id(&o.phase).is_none())
             {
                 r.recovery_pending = true;
-                if let Some(a) = &mut r.allocation {
-                    a.usage.uncertain();
-                }
+                budget_accounting::mark_missing(r, &session, |o| {
+                    o.needs_reconciliation() && delegation::agent_id(&o.phase).is_none()
+                });
             }
             Ok(())
         })
@@ -669,6 +699,7 @@ impl SharedRuntime {
             !explanation.trim().is_empty() && explanation.len() <= 4096,
             "reconciliation needs an inspection explanation of 1 to 4096 bytes"
         );
+        let session = self.plugin_session()?;
         self.update(|r| {
             ensure!(
                 !r.agents.iter().any(|a| a.status.active()),
@@ -680,6 +711,7 @@ impl SharedRuntime {
                 r.workspace.display(),
                 digest.unwrap_or("ordinary conversation; no acceptance snapshot")
             ));
+            budget_accounting::mark_missing(r, &session, Operation::needs_reconciliation);
             for operation in &mut r.operations {
                 if operation.needs_reconciliation() {
                     operation.reconciled = true;
@@ -721,6 +753,18 @@ impl SharedRuntime {
         identity: Option<&Identity>,
         hook: Option<&plugin_admission::ModelAdmission>,
     ) -> Result<u64> {
+        self.begin_model_from(phase, identity, hook, None, None)
+    }
+
+    pub(crate) fn begin_model_from(
+        &self,
+        phase: &str,
+        identity: Option<&Identity>,
+        hook: Option<&plugin_admission::ModelAdmission>,
+        source: Option<u64>,
+        oracle: Option<&OracleSource>,
+    ) -> Result<u64> {
+        let session = self.plugin_session()?;
         self.admission(|r| {
             delegation::ensure_agent_active(r, phase)?;
             ensure!(
@@ -732,13 +776,44 @@ impl SharedRuntime {
                 "session operation history is full"
             );
             if let Some(hook) = hook {
+                ensure!(
+                    hook.key.session == session,
+                    "model hook belongs to another session"
+                );
                 plugin_admission::validate_model_admission(r, phase, hook)?;
             } else {
                 plugin_lifecycle::ensure_continuation(r, phase)?;
             }
-            if let Some(a) = &mut r.allocation {
-                a.admit(true)?;
-            }
+            let oracle_budget = oracle
+                .map(|source| source.validate(r, &session, phase))
+                .transpose()?;
+            let budget = match (oracle_budget, hook, source) {
+                (Some(budget), _, _) => {
+                    ensure!(
+                        hook.is_none_or(|h| h.budget == budget),
+                        "Oracle hook budget changed"
+                    );
+                    budget
+                }
+                (_, Some(hook), _) => hook.budget.clone(),
+                (_, _, Some(source)) => {
+                    let owner = r
+                        .operations
+                        .iter()
+                        .find(|o| o.id == source)
+                        .context("model causal owner missing")?;
+                    ensure!(
+                        owner.phase == phase
+                            && !owner.complete
+                            && !owner.reconciled
+                            && matches!(owner.host_invocation, Some(HostInvocation::NativeTurn(_))),
+                        "model native turn changed or ended"
+                    );
+                    budget_accounting::inherited(r, source)?
+                }
+                _ => budget_accounting::capture(r, &session),
+            };
+            budget_accounting::admit(r, &session, &budget, true)?;
             let id = r.operations.len() as u64 + 1;
             r.operations.push(Operation {
                 id,
@@ -747,6 +822,8 @@ impl SharedRuntime {
                 call: None,
                 result: None,
                 tool_receipt: None,
+                budget: Some(budget),
+                usage_receipt: None,
                 host_invocation: Some(HostInvocation::Model),
                 complete: false,
                 reconciled: false,
@@ -758,18 +835,24 @@ impl SharedRuntime {
     }
 
     pub fn finish_model(&self, id: u64) -> Result<()> {
+        let session = self.plugin_session()?;
         self.update(|r| {
             let operation = r
                 .operations
-                .iter_mut()
+                .iter()
                 .find(|o| o.id == id)
                 .context("model admission was not recorded")?;
-            operation.complete = true;
-            if !operation.usage_reported
-                && let Some(a) = &mut r.allocation
-            {
-                a.usage.uncertain();
-            }
+            ensure!(
+                budget_accounting::is_model(operation)
+                    || (operation.host_invocation.is_none() && operation.call.is_none()),
+                "operation is not a model or backend invocation"
+            );
+            budget_accounting::mark_missing(r, &session, |o| o.id == id);
+            r.operations
+                .iter_mut()
+                .find(|o| o.id == id)
+                .expect("validated")
+                .complete = true;
             Ok(())
         })
     }
@@ -783,54 +866,77 @@ impl SharedRuntime {
     }
 
     pub fn observe(&self, event: &Event, phase: &str) -> Result<()> {
+        self.observe_from(event, phase, None)
+    }
+
+    fn observe_from(&self, event: &Event, phase: &str, invocation: Option<u64>) -> Result<()> {
         match event {
             Event::ToolReview { .. } => self.update(|r| {
                 ensure!(r.decisions.len() < 128, "session decision history is full");
                 r.decisions.push(serde_json::to_string(event)?);
                 Ok(())
             }),
-            Event::ToolStarted { call } => self.admission(|r| {
-                if let Some(operation) = r.operations.iter().rev().find(|operation| {
-                    operation.phase == phase
-                        && operation
-                            .call
-                            .as_ref()
-                            .is_some_and(|saved| saved.id == call.id)
-                }) {
+            Event::ToolStarted { call } => {
+                let session = self.plugin_session()?;
+                self.admission(|r| {
+                    if let Some(operation) = r.operations.iter().rev().find(|operation| {
+                        operation.phase == phase
+                            && operation
+                                .call
+                                .as_ref()
+                                .is_some_and(|saved| saved.id == call.id)
+                    }) {
+                        ensure!(
+                            operation.call.as_ref() == Some(call),
+                            "tool notice changed an existing request"
+                        );
+                        return Ok(());
+                    }
+                    delegation::ensure_agent_active(r, phase)?;
                     ensure!(
-                        operation.call.as_ref() == Some(call),
-                        "tool notice changed an existing request"
+                        !r.recovery_pending,
+                        "uncertain work needs reconciliation before tool admission"
                     );
-                    return Ok(());
-                }
-                delegation::ensure_agent_active(r, phase)?;
-                ensure!(
-                    !r.recovery_pending,
-                    "uncertain work needs reconciliation before tool admission"
-                );
-                ensure!(
-                    r.operations.len() < 4096,
-                    "session operation history is full"
-                );
-                if let Some(a) = &mut r.allocation {
-                    a.admit(false)?;
-                }
-                let id = r.operations.len() as u64 + 1;
-                r.operations.push(Operation {
-                    id,
-                    phase: phase.into(),
-                    verification: verification_attribution(r, phase)?,
-                    identity: None,
-                    call: Some(call.clone()),
-                    result: None,
-                    tool_receipt: None,
-                    host_invocation: None,
-                    complete: false,
-                    reconciled: false,
-                    usage_reported: false,
-                });
-                Ok(())
-            }),
+                    ensure!(
+                        r.operations.len() < 4096,
+                        "session operation history is full"
+                    );
+                    let source = invocation.and_then(|source| {
+                        r.operations.iter().find(|o| {
+                            o.id == source && o.phase == phase && budget_accounting::is_model(o)
+                        })
+                    });
+                    let unresolved = source.is_none_or(|o| o.budget.is_none());
+                    let budget = source
+                        .and_then(|o| o.budget.clone())
+                        .unwrap_or(BudgetRef::Unallocated);
+                    let usage_receipt = unresolved.then(|| UsageReceipt {
+                        unresolved: Some(
+                            budget_accounting::UnresolvedAttribution::InvalidRecipient,
+                        ),
+                        ..Default::default()
+                    });
+                    let verification = verification_attribution(r, phase)?;
+                    budget_accounting::admit(r, &session, &budget, false)?;
+                    let id = r.operations.len() as u64 + 1;
+                    r.operations.push(Operation {
+                        id,
+                        phase: phase.into(),
+                        verification,
+                        identity: None,
+                        call: Some(call.clone()),
+                        result: None,
+                        tool_receipt: None,
+                        host_invocation: None,
+                        budget: Some(budget),
+                        usage_receipt,
+                        complete: false,
+                        reconciled: false,
+                        usage_reported: false,
+                    });
+                    Ok(())
+                })
+            }
             Event::ToolFinished { result } => self.update(|r| {
                 if let Some(operation) = r.operations.iter().rev().find(|operation| {
                     operation.phase == phase
@@ -875,6 +981,8 @@ impl SharedRuntime {
                         result: Some(result.clone()),
                         tool_receipt: None,
                         host_invocation: None,
+                        budget: Some(BudgetRef::Unallocated),
+                        usage_receipt: None,
                         complete: true,
                         reconciled: false,
                         usage_reported: false,
@@ -882,25 +990,7 @@ impl SharedRuntime {
                 }
                 Ok(())
             }),
-            Event::Usage {
-                input,
-                output,
-                cached,
-                cost_usd,
-            } => self.update(|r| {
-                if let Some(a) = &mut r.allocation {
-                    a.usage.add(*input, *output, *cached, *cost_usd)?;
-                }
-                if let Some(operation) = r
-                    .operations
-                    .iter_mut()
-                    .rev()
-                    .find(|o| !o.complete && o.call.is_none() && o.phase == phase)
-                {
-                    operation.usage_reported = true;
-                }
-                Ok(())
-            }),
+            Event::Usage { .. } => self.observe_invocation(event, phase, None),
             Event::Text { text } if phase == "worker" => {
                 // Streaming fragments are memory-only until the next durable transition.
                 // A crash still retains the admission and the last completed model checkpoint.
@@ -1148,3 +1238,6 @@ mod tests {
         assert_ne!(with_oracle, Identity::from(&connection));
     }
 }
+
+#[cfg(test)]
+mod budget_tests;

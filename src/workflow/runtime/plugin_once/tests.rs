@@ -18,8 +18,16 @@ use std::sync::{Arc, Barrier};
 mod preparation_tests;
 
 fn fixture(root: &std::path::Path, name: &str) -> SharedRuntime {
+    fixture_with_allocation(root, name, None)
+}
+fn fixture_with_allocation(
+    root: &std::path::Path,
+    name: &str,
+    allocation: Option<crate::workflow::allocation::Allocation>,
+) -> SharedRuntime {
     let connection: Connection = serde_json::from_value(json!({"adapter":"openai-api"})).unwrap();
-    let record: Record = serde_json::from_value(json!({"workspace":root,"identity":Identity::from(&connection),"archived":[],"next_task":1,"checkpoint_cursor":0,"operations":[],"messages":[],"recovery_pending":false,"decisions":[]})).unwrap();
+    let mut record: Record = serde_json::from_value(json!({"workspace":root,"identity":Identity::from(&connection),"archived":[],"next_task":1,"checkpoint_cursor":0,"operations":[],"messages":[],"recovery_pending":false,"decisions":[]})).unwrap();
+    record.allocation = allocation;
     let runtime = SharedRuntime::for_test(&root.join(name), record).unwrap();
     runtime.begin_model("worker").unwrap();
     runtime

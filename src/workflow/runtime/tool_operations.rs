@@ -193,6 +193,7 @@ impl SharedRuntime {
         phase: &str,
         identity: Option<&super::Identity>,
     ) -> Result<u64> {
+        let session = self.plugin_session()?;
         self.admission(|record| {
             super::plugin_lifecycle::ensure_continuation(record, phase)?;
             delegation::ensure_agent_active(record, phase)?;
@@ -214,6 +215,8 @@ impl SharedRuntime {
                 call: None,
                 result: None,
                 tool_receipt: None,
+                budget: Some(super::budget_accounting::capture(record, &session)),
+                usage_receipt: None,
                 host_invocation: Some(HostInvocation::Commands),
                 complete: true,
                 reconciled: false,
@@ -223,11 +226,22 @@ impl SharedRuntime {
         })
     }
 
+    #[cfg(test)]
     pub(crate) fn begin_tool(
         &self,
         phase: &str,
         invocation: u64,
         call: &ToolCall,
+    ) -> Result<ToolAdmission> {
+        self.begin_tool_owned(phase, invocation, call, None)
+    }
+
+    pub(crate) fn begin_tool_owned(
+        &self,
+        phase: &str,
+        invocation: u64,
+        call: &ToolCall,
+        hook: Option<&super::plugin_admission::ModelAdmission>,
     ) -> Result<ToolAdmission> {
         ensure!(
             !call.id.is_empty() && call.id.len() <= 256,
@@ -241,6 +255,7 @@ impl SharedRuntime {
             serde_json::to_vec(&call.arguments)?.len() <= 1024 * 1024,
             "tool arguments exceed 1 MiB"
         );
+        let session = self.plugin_session()?;
         let admission = self.update(|record| {
             let source = record.operations.iter().find(|operation| operation.id == invocation)
                 .context("tool requires a durable host invocation")?;
@@ -260,13 +275,17 @@ impl SharedRuntime {
                 record.recovery_pending = true;
                 return Ok(ToolAdmission::Held(reason));
             }
+            if let Some(hook) = hook { super::plugin_admission::validate_model_owner(record, &session, hook)?; }
+            let budget = super::budget_accounting::inherited(record, invocation)?;
+            ensure!(hook.is_none_or(|hook| hook.budget == budget), "tool hook budget differs from its source invocation");
+            super::budget_accounting::active(record, &session, &budget)?;
             super::plugin_lifecycle::ensure_continuation(record, phase)?;
             delegation::ensure_agent_active(record, phase)?;
             ensure!(!record.recovery_pending, "uncertain work needs reconciliation before tool admission");
             ensure!(record.operations.len() < 4096, "session operation history is full");
             let verification = verification_attribution(record, phase)?;
             // Clock uncertainty is an error, not a known budget denial.
-            let denial = if let Some(allocation) = &record.allocation {
+            let denial = if let Some(allocation) = super::budget_accounting::active(record, &session, &budget)? {
                 if allocation.remaining_ms()? == 0 {
                     Some("cumulative task deadline exhausted")
                 } else if allocation.tool_calls >= allocation.limits.tool_calls {
@@ -279,12 +298,11 @@ impl SharedRuntime {
             });
             // Reserve the attempt before gates can have effects. A failed gate
             // still spent this attempt; settled retries spend nothing.
-            let mut allocation = record.allocation.clone();
-            if denied.is_none() && let Some(allocation) = &mut allocation { allocation.admit(false)?; }
+            if denied.is_none() { super::budget_accounting::admit(record, &session, &budget, false)?; }
             let id = record.operations.len() as u64 + 1;
-            record.allocation = allocation;
             record.operations.push(Operation {
                 id, phase: phase.into(), verification, identity: None,
+                budget: Some(budget), usage_receipt: None,
                 call: Some(call.clone()), result: denied.clone(), complete: denied.is_some(),
                 reconciled: false, usage_reported: false,
                 host_invocation: None,
@@ -297,10 +315,12 @@ impl SharedRuntime {
             });
             Ok(match denied { Some(result) => ToolAdmission::Denied(id, result), None => ToolAdmission::Fresh(id) })
         })?;
-        if matches!(admission, ToolAdmission::Fresh(_)) {
+        if let ToolAdmission::Fresh(id) = &admission {
             // Persisted clock rollback also withholds the captured attempt.
             ensure!(
-                !self.remaining()?.is_zero(),
+                !self
+                    .budget_remaining(&self.operation_budget(*id)?)?
+                    .is_zero(),
                 "cumulative task deadline exhausted"
             );
         }
@@ -332,6 +352,14 @@ impl SharedRuntime {
                 "uncertain work needs reconciliation before tool admission"
             );
             delegation::ensure_agent_active(record, &operation.phase)?;
+            if let Some(allocation) =
+                super::budget_accounting::active_operation(record, &session, operation)?
+            {
+                ensure!(
+                    allocation.remaining_ms()? > 0,
+                    "cumulative task deadline exhausted"
+                );
+            }
             super::plugin_admission::validate_final_key(operation, call, &session)?;
             let operation = record
                 .operations
@@ -402,7 +430,9 @@ impl SharedRuntime {
                     .context("admitted tool call missing")?,
                 &session,
             )?;
-            if let Some(allocation) = &record.allocation {
+            if let Some(allocation) =
+                super::budget_accounting::active_operation(record, &session, operation)?
+            {
                 ensure!(
                     allocation.remaining_ms()? > 0,
                     "cumulative task deadline exhausted"
@@ -503,6 +533,7 @@ impl SharedRuntime {
         index: usize,
         outcome: Option<Result<&str, &str>>,
     ) -> Result<()> {
+        let session = self.plugin_session()?;
         let transition = |record: &mut super::Record| {
             if outcome.is_none() {
                 ensure!(
@@ -515,7 +546,9 @@ impl SharedRuntime {
                     .find(|operation| operation.id == id)
                     .context("tool request missing")?;
                 delegation::ensure_agent_active(record, &operation.phase)?;
-                if let Some(allocation) = &record.allocation {
+                if let Some(allocation) =
+                    super::budget_accounting::active_operation(record, &session, operation)?
+                {
                     ensure!(
                         allocation.remaining_ms()? > 0,
                         "cumulative task deadline exhausted"

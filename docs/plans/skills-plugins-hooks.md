@@ -28,12 +28,14 @@ Complete lifecycle/package conformance remains open. See
 
 Latest verified prerequisites add native provider-failure observations, original
 native session lifetime ownership, the application shutdown reservation, and
-explicit session-hook allowance persistence with atomic session directory creation.
-The current Rust candidate passes 894 tests (17 ignored), the separate terminal
-output-limit suite passes three cases, and fresh allowance/storage specification
-and quality reviews pass. Earlier installed/live-source evidence retains its original candidate;
-it is not silently refreshed by these Rust checks. See the
-[allowance persistence review](../reviews/plugin-session-hook-allowance-persistence.md).
+explicit session-hook allowance persistence with atomic session directory creation,
+and exact operation budget/usage attribution including ordinary Oracle ownership.
+The current Rust candidate passes 919 tests (17 ignored), the separate terminal
+output-limit suite passes three cases, and fresh attribution specification and
+quality reviews pass. Earlier installed/live-source evidence retains its original
+candidate; it is not silently refreshed by these Rust checks. See the
+[attribution review](../reviews/plugin-operation-budget-attribution.md) for corrected
+Oracle findings, static non-passes and the prior unexplained crash.
 
 Only the parent records Cairn decisions, changes declarations and commits evidence. Workers own bounded files; they do not change the selected scope or evidence. A test fixture may model a provider, but its report must say controlled transport. Source/type checks, successful parsing and test registration never establish runtime delivery.
 
@@ -412,6 +414,25 @@ session commands need session-owned lifetime policy and remain unavailable here;
 they are not silently converted to synchronous execution. Those behaviors,
 additional startup effects, Interrupt, outer timeout and actual source events
 remain in this same commitment.
+
+### Exact operation budget and usage attribution prerequisite
+
+Decision: [pin accounting to its original invocation](../decisions/pin-operation-budgets-and-settle-usage-by-exact-invocation.md).
+Implementation and verification pass. New causal owners and model/backend/tool operations
+retain an explicit original budget reference, including an unfunded state. Task
+allocation epochs distinguish replacements even with equal limits and timestamps.
+Late and unknown usage settles by exact invocation into the original retained
+allocation; retired accounting cannot admit execution. A bounded set of 32
+referenced retired allocations preserves taskless replacement history. Existing
+archive values remain historical snapshots, and unprovable legacy attribution is
+visible without assigning it to a newer grant. Arithmetic and retention-limit
+failures preserve existing state. Ordinary Oracle review retains its pending tool
+across delayed event delivery, allowing normal completed Model/Commands sources
+while rejecting replacement funding. The corrected parallel regression passes
+919 tests (17 ignored), with Clippy, formatting, three terminal cases and fresh
+specification and quality reviews passing. This action repairs attribution on
+current execution paths; session model and service runner enablement follows.
+See [the review](../reviews/plugin-operation-budget-attribution.md) for proof and limits.
 
 ### Explicit session-hook allowance persistence prerequisite
 

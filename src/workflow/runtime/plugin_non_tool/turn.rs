@@ -41,6 +41,7 @@ impl SharedRuntime {
         identity: Option<&super::super::Identity>,
         origin: NativeTurnOrigin,
     ) -> Result<u64> {
+        let session = self.plugin_session()?;
         self.admission(|record| {
             let bare = phase == "worker" && record.phase.is_none();
             let owner = if bare {
@@ -77,6 +78,8 @@ impl SharedRuntime {
             let id = record.operations.len() as u64 + 1;
             record.operations.push(Operation {
                 id,
+                budget: Some(super::super::budget_accounting::capture(record, &session)),
+                usage_receipt: None,
                 phase: phase.into(),
                 verification: None,
                 call: None,

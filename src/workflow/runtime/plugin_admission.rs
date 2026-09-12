@@ -34,6 +34,7 @@ fn service_fingerprint(record: &Record, session: &std::path::Path, role: &str) -
         &record.workspace,
         &record.identity,
         record.task.as_ref().map(|t| t.id),
+        record.task_allocation_epoch,
         allocation.started_ms,
         allocation.deadline_ms,
         &allocation.limits,
@@ -55,6 +56,7 @@ fn service_fingerprint(record: &Record, session: &std::path::Path, role: &str) -
 #[derive(Clone)]
 pub(crate) struct ModelAdmission {
     pub key: AdmissionKey,
+    pub budget: super::BudgetRef,
     pub owner: u64,
     pub invocation: u32,
     pub event: HookEvent,
@@ -68,28 +70,7 @@ pub(super) fn validate_model_admission(
     phase: &str,
     hook: &ModelAdmission,
 ) -> Result<()> {
-    ensure!(
-        !matches!(hook.event, HookEvent::SessionStart | HookEvent::SessionEnd),
-        "native session command lifetime grants no model allowance"
-    );
-    ensure!(
-        !hook.cancelled.load(std::sync::atomic::Ordering::Acquire),
-        "model hook cancelled before admission"
-    );
-    let receipt = active_for_event(record, hook.owner, hook.event)?;
-    ensure!(
-        record.allocation.is_some(),
-        "model hook requires an owning task or explicitly configured session allowance"
-    );
-    let invocation = receipt.invocation(hook.invocation)?;
-    ensure!(
-        invocation.inspected == hook.key,
-        "model hook capability belongs to a different admission or session"
-    );
-    ensure!(
-        invocation.outcome.is_none(),
-        "model hook invocation already settled"
-    );
+    validate_model_owner(record, &hook.key.session, hook)?;
     ensure!(
         record
             .operations
@@ -106,7 +87,62 @@ pub(super) fn validate_model_admission(
     Ok(())
 }
 
+pub(super) fn validate_model_owner(
+    record: &Record,
+    session: &str,
+    hook: &ModelAdmission,
+) -> Result<()> {
+    ensure!(
+        hook.key.session == session,
+        "model hook belongs to another session"
+    );
+    ensure!(
+        !matches!(hook.event, HookEvent::SessionStart | HookEvent::SessionEnd),
+        "native session command lifetime grants no model allowance"
+    );
+    ensure!(
+        !hook.cancelled.load(std::sync::atomic::Ordering::Acquire),
+        "model hook cancelled before admission"
+    );
+    let receipt = active_for_event(record, hook.owner, hook.event)?;
+    ensure!(
+        super::budget_accounting::active(record, &hook.key.session, &hook.budget)?.is_some(),
+        "model hook requires an owning task or explicitly configured session allowance"
+    );
+    ensure!(
+        super::budget_accounting::inherited(record, hook.owner)? == hook.budget,
+        "model hook budget differs from its original owner"
+    );
+    let invocation = receipt.invocation(hook.invocation)?;
+    ensure!(
+        invocation.inspected == hook.key,
+        "model hook capability belongs to a different admission or session"
+    );
+    ensure!(
+        invocation.outcome.is_none(),
+        "model hook invocation already settled"
+    );
+    Ok(())
+}
+
 impl SharedRuntime {
+    pub(crate) fn validate_hook_model_owner(&self, hook: &ModelAdmission) -> Result<()> {
+        let session = self.plugin_session()?;
+        let runtime = self
+            .0
+            .lock()
+            .map_err(|_| anyhow::anyhow!("runtime lock failed"))?;
+        ensure!(!runtime.failed, "session persistence failed");
+        validate_model_owner(&runtime.record, &session, hook)?;
+        ensure!(
+            super::budget_accounting::active(&runtime.record, &session, &hook.budget)?
+                .context("hook allocation missing")?
+                .remaining_ms()?
+                > 0,
+            "model hook owner deadline expired"
+        );
+        Ok(())
+    }
     #[cfg(test)]
     pub(crate) fn begin_plugin_service(&self, owner: u64, service: &str) -> Result<u64> {
         self.begin_plugin_service_for(owner, HookEvent::PreToolUse, service)
@@ -125,14 +161,18 @@ impl SharedRuntime {
             service.len() == 64 && service.bytes().all(|b| b.is_ascii_hexdigit()),
             "MCP service operation identity is invalid"
         );
+        let session = self.plugin_session()?;
         self.admission(|record| {
             active_for_event(record,owner,event)?;
+            let budget = super::budget_accounting::inherited(record, owner)?;
+            ensure!(super::budget_accounting::active(record, &session, &budget)?.is_some(), "MCP service requires its original owning allowance");
             ensure!(record.operations.len() < 4096, "session operation history is full");
             ensure!(!record.operations.iter().any(|o| !o.complete && !o.reconciled && matches!(&o.host_invocation,
                 Some(super::HostInvocation::PluginService {service: existing,..}) if existing == service)), "MCP startup is unresolved; reconcile before readmission");
             let phase = record.operations.iter().find(|o|o.id == owner).context("MCP owner missing")?.phase.clone();
+            let budget = super::budget_accounting::inherited(record, owner)?;
             let id = record.operations.len() as u64 + 1;
-            record.operations.push(super::Operation {id,phase,verification:None,call:None,result:None,tool_receipt:None,
+            record.operations.push(super::Operation {budget:Some(budget),usage_receipt:None,id,phase,verification:None,call:None,result:None,tool_receipt:None,
                 host_invocation:Some(super::HostInvocation::PluginService {owner,service:service.into(),outcome:super::PluginServiceOutcome::Pending}),complete:false,reconciled:false,
                 usage_reported:true,identity:Some(record.identity.clone())});
             Ok(id)
@@ -201,6 +241,10 @@ impl SharedRuntime {
             .map_err(|_| anyhow::anyhow!("runtime lock failed"))?;
         ensure!(!runtime.failed, "session persistence failed");
         active_for_event(&runtime.record, operation, event)?;
+        let session = crate::plugins::admission::digest(&runtime.store.directory())?;
+        let budget = super::budget_accounting::inherited(&runtime.record, operation)?;
+        let allocation = super::budget_accounting::active(&runtime.record, &session, &budget)?
+            .context("MCP service requires its original owning allowance")?;
         let role = runtime
             .record
             .operations
@@ -210,12 +254,7 @@ impl SharedRuntime {
             .phase
             .clone();
         let fingerprint = service_fingerprint(&runtime.record, runtime.store.directory(), &role)?;
-        let remaining = runtime
-            .record
-            .allocation
-            .as_ref()
-            .context("MCP allocation missing")?
-            .remaining_ms()?;
+        let remaining = allocation.remaining_ms()?;
         ensure!(remaining > 0, "MCP owner expired");
         let capacity = runtime
             .service_slots
@@ -262,22 +301,15 @@ impl SharedRuntime {
         Ok(remaining)
     }
     pub(crate) fn settle_hook_models(&self, phase: &str) -> Result<()> {
+        let session = self.plugin_session()?;
         self.update(|record| {
-            let mut uncertain = false;
+            super::budget_accounting::mark_missing(record, &session, |o| {
+                o.phase == phase && !o.complete
+            });
             for operation in &mut record.operations {
-                if operation.phase == phase
-                    && matches!(
-                        operation.host_invocation,
-                        Some(super::HostInvocation::Model | super::HostInvocation::Backend)
-                    )
-                    && !operation.complete
-                {
+                if operation.phase == phase && super::budget_accounting::is_model(operation) {
                     operation.complete = true;
-                    uncertain |= !operation.usage_reported;
                 }
-            }
-            if uncertain && let Some(allocation) = &mut record.allocation {
-                allocation.usage.uncertain();
             }
             Ok(())
         })
@@ -518,6 +550,12 @@ impl SharedRuntime {
             .map_err(|_| anyhow::anyhow!("runtime lock failed"))?;
         ensure!(!runtime.failed, "session persistence failed");
         let receipt = active(&runtime.record, id)?;
+        let session = crate::plugins::admission::digest(&runtime.store.directory())?;
+        super::budget_accounting::active(
+            &runtime.record,
+            &session,
+            &super::budget_accounting::inherited(&runtime.record, id)?,
+        )?;
         let phase = runtime
             .record
             .operations

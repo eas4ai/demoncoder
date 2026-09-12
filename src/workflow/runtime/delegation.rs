@@ -85,7 +85,10 @@ impl SharedRuntime {
                 "each orchestration check must contain 1 to 8192 bytes"
             );
         }
-        self.update(|record| {
+        let session = self.plugin_session()?;
+        self.update(|target| {
+            let mut staged = target.clone();
+            let record = &mut staged;
             if let Some(saved) = &record.delegation {
                 ensure!(
                     record.allocation.is_some(),
@@ -114,8 +117,9 @@ impl SharedRuntime {
                 record.delegation = Some(identity);
             }
             if record.allocation.is_none() {
-                record.allocation = Some(Allocation::new(limits)?);
+                super::budget_accounting::replace(record, &session, Allocation::new(limits)?)?;
             }
+            *target = staged;
             Ok(())
         })
     }
@@ -134,13 +138,41 @@ impl SharedRuntime {
         self.begin_backend_owned(phase, identity, None)
     }
 
+    #[cfg(test)]
     pub(crate) fn begin_backend_owned(
         &self,
         phase: &str,
         identity: Option<&super::Identity>,
         hook: Option<&super::plugin_admission::ModelAdmission>,
     ) -> Result<u64> {
-        self.admission(|record| begin_backend_record(record, phase, identity, hook))
+        self.begin_backend_from(phase, identity, hook, None)
+    }
+
+    pub(crate) fn begin_backend_from(
+        &self,
+        phase: &str,
+        identity: Option<&super::Identity>,
+        hook: Option<&super::plugin_admission::ModelAdmission>,
+        oracle: Option<&super::OracleSource>,
+    ) -> Result<u64> {
+        let session = self.plugin_session()?;
+        self.admission(|record| {
+            if let Some(source) = oracle {
+                let budget = source.validate(record, &session, phase)?;
+                ensure!(
+                    hook.is_none_or(|h| h.budget == budget),
+                    "Oracle hook budget changed"
+                );
+            }
+            begin_backend_record(
+                record,
+                &session,
+                phase,
+                identity,
+                hook,
+                oracle.map(|s| s.operation()),
+            )
+        })
     }
 
     pub(crate) fn update_agent<T>(
@@ -228,9 +260,11 @@ impl SharedRuntime {
 /// accounting while atomically reserving their one exact superseded receipt.
 pub(super) fn begin_backend_record(
     record: &mut Record,
+    session: &str,
     phase: &str,
     identity: Option<&super::Identity>,
     hook: Option<&super::plugin_admission::ModelAdmission>,
+    source: Option<u64>,
 ) -> Result<u64> {
     ensure!(
         !record.recovery_pending,
@@ -247,16 +281,26 @@ pub(super) fn begin_backend_record(
         record.operations.len() < 4096,
         "session operation history is full"
     );
+    let budget = match (hook, source) {
+        (Some(hook), _) => hook.budget.clone(),
+        (_, Some(source)) => super::budget_accounting::inherited(record, source)?,
+        _ => super::budget_accounting::capture(record, session),
+    };
+    super::budget_accounting::active(record, session, &budget)?;
+    let next_backend = record
+        .backend_invocations
+        .checked_add(u64::from(record.delegation.is_some() || hook.is_some()))
+        .context("backend invocation count overflow")?;
     if let Some(hook) = hook {
+        ensure!(
+            hook.key.session == session,
+            "model hook belongs to another session"
+        );
         super::plugin_admission::validate_model_admission(record, phase, hook)?;
-        record
-            .allocation
-            .as_mut()
-            .context("hook allocation missing")?
-            .admit(true)?;
+        super::budget_accounting::admit(record, session, &budget, true)?;
     }
     if record.delegation.is_some() || hook.is_some() {
-        record.backend_invocations += 1;
+        record.backend_invocations = next_backend;
     }
     let id = record.operations.len() as u64 + 1;
     record.operations.push(Operation {
@@ -266,6 +310,8 @@ pub(super) fn begin_backend_record(
         call: None,
         result: None,
         tool_receipt: None,
+        budget: Some(budget),
+        usage_receipt: None,
         host_invocation: Some(super::HostInvocation::Backend),
         complete: false,
         reconciled: false,

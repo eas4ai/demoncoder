@@ -108,6 +108,7 @@ impl Fixture {
         self.runtime
             .update(|record| {
                 record.archived.push(ArchivedTask {
+                    allocation_epoch: None,
                     task: record.task.take().unwrap(),
                     allocation: None,
                 });

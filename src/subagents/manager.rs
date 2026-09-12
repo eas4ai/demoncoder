@@ -579,6 +579,7 @@ impl Manager {
     }
 
     fn finish_job(&self, id: u64, job: &Job, result: Result<()>) -> Result<()> {
+        let session = self.runtime.plugin_session()?;
         self.runtime.update(|record| {
             let prefix = format!("agent:{id}:");
             let cancelled = record
@@ -587,6 +588,7 @@ impl Manager {
                 .find(|agent| agent.id == id)
                 .is_some_and(|agent| agent.status == AgentStatus::Cancelled);
             if cancelled {
+                crate::workflow::runtime::budget_accounting::mark_missing(record, &session, |o| o.phase.starts_with(&prefix) && !o.complete);
                 for operation in &mut record.operations {
                     if operation.phase.starts_with(&prefix) && !operation.complete {
                         operation.reconciled = true;
@@ -1423,8 +1425,12 @@ impl Manager {
                 "Preparation was interrupted; no complete worktree identity was recorded.".into()
             }
         };
-        self.runtime.update(|record| {
+        let session = self.runtime.plugin_session()?;
+        self.runtime.update(|target| {
+            let mut staged = target.clone();
+            let record = &mut staged;
             let prefix = format!("agent:{id}:");
+            crate::workflow::runtime::budget_accounting::mark_missing(record, &session, |o| o.phase.starts_with(&prefix) && !o.complete);
             for operation in &mut record.operations { if operation.phase.starts_with(&prefix) && !operation.complete { operation.reconciled = true; } }
             let agent = record.agents.iter_mut().find(|agent| agent.id == id).context("agent disappeared")?;
             ensure!(agent.decisions.len() < 128, "agent inspection history is full");
@@ -1435,6 +1441,7 @@ impl Manager {
                 state.stage = OrchestrationStage::Held;
                 state.reason = agent.outcome.clone();
             }
+            *target = staged;
             Ok(())
         })
     }
@@ -1461,7 +1468,12 @@ struct Interrupted {
 impl Drop for Interrupted {
     fn drop(&mut self) {
         if self.armed {
+            let session = self.runtime.plugin_session();
             let _ = self.runtime.update(|record| {
+                if let Ok(session) = &session {
+                    let prefix = format!("agent:{}:", self.id);
+                    crate::workflow::runtime::budget_accounting::mark_missing(record, session, |o| o.phase.starts_with(&prefix) && !o.complete && !o.reconciled);
+                }
                 let agent = record.agents.iter_mut().find(|agent| agent.id == self.id).context("agent disappeared")?;
                 if self.integration && agent.status != AgentStatus::Integrated {
                     record.recovery_pending = true;
@@ -1663,6 +1675,62 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn cancelled_and_reconciled_child_models_mark_original_usage_unknown() {
+        for cancelled in [true, false] {
+            let fixture = integration_fixture(false).await;
+            fixture
+                .runtime
+                .update_agent(1, |a| {
+                    a.status = AgentStatus::Running;
+                    Ok(())
+                })
+                .unwrap();
+            let id = fixture.runtime.begin_model("agent:1:worker").unwrap();
+            fixture
+                .runtime
+                .update_agent(1, |a| {
+                    a.status = if cancelled {
+                        AgentStatus::Cancelled
+                    } else {
+                        AgentStatus::Uncertain
+                    };
+                    Ok(())
+                })
+                .unwrap();
+            if cancelled {
+                fixture
+                    .manager
+                    .finish_job(1, &Job::Work, Err(anyhow::anyhow!("cancelled")))
+                    .unwrap();
+            } else {
+                fixture
+                    .manager
+                    .reconcile(1, "Inspected child work without retry")
+                    .await
+                    .unwrap();
+            }
+            let record = fixture.runtime.record().unwrap();
+            assert!(
+                record
+                    .operations
+                    .iter()
+                    .find(|o| o.id == id)
+                    .unwrap()
+                    .reconciled
+            );
+            assert!(
+                !record
+                    .operations
+                    .iter()
+                    .find(|o| o.id == id)
+                    .unwrap()
+                    .usage_reported
+            );
+            assert!(record.allocation.unwrap().usage.unknown_input);
+        }
+    }
+
     async fn integration_fixture(orchestrated: bool) -> IntegrationFixture {
         integration_fixture_with_record(orchestrated, "record").await
     }
@@ -1748,6 +1816,9 @@ mod tests {
         let record_root = root.path().join(record_name);
         std::fs::create_dir_all(record_root.parent().unwrap()).unwrap();
         let record = Record {
+            task_allocation_epoch: 0,
+            retired_task_allocations: Vec::new(),
+            unattributed_usage: None,
             plugin_activations: Vec::new(),
             capture_scope: Default::default(),
             workspace: workspace_root.clone(),
@@ -1844,6 +1915,9 @@ mod tests {
         std::fs::create_dir(&workspace_root).unwrap();
         let connection = connection();
         let record = Record {
+            task_allocation_epoch: 0,
+            retired_task_allocations: Vec::new(),
+            unattributed_usage: None,
             plugin_activations: Vec::new(),
             capture_scope: Default::default(),
             workspace: workspace_root.clone(),
@@ -1950,6 +2024,9 @@ mod tests {
         let identity = Identity::from(&connection);
         let agents_root = root.path().join("record/agents");
         let record = Record {
+            task_allocation_epoch: 0,
+            retired_task_allocations: Vec::new(),
+            unattributed_usage: None,
             plugin_activations: Vec::new(),
             capture_scope: Default::default(),
             workspace: workspace_root.clone(),

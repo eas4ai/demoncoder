@@ -19,13 +19,25 @@ fn fixture(
     EventSink,
     mpsc::Receiver<crate::events::Envelope>,
 ) {
+    fixture_with_allocation(root, capacity, None)
+}
+fn fixture_with_allocation(
+    root: &std::path::Path,
+    capacity: usize,
+    allocation: Option<crate::workflow::allocation::Allocation>,
+) -> (
+    SharedRuntime,
+    EventSink,
+    mpsc::Receiver<crate::events::Envelope>,
+) {
     let connection: Connection = serde_json::from_value(json!({"adapter":"openai-api"})).unwrap();
-    let record: Record = serde_json::from_value(json!({
+    let mut record: Record = serde_json::from_value(json!({
         "workspace":root, "identity":Identity::from(&connection),
         "archived":[], "next_task":1, "checkpoint_cursor":0, "operations":[],
         "messages":[], "recovery_pending":false, "decisions":[]
     }))
     .unwrap();
+    record.allocation = allocation;
     let runtime = SharedRuntime::for_test(&root.join("record"), record).unwrap();
     let (sender, receiver) = mpsc::channel(capacity);
     let events = EventSink::new("fixture".into(), sender, None)
@@ -684,15 +696,9 @@ async fn exhausted_allocation_refuses_effectful_before_hook() {
         }
     }
     let root = tempfile::tempdir().unwrap();
-    let (runtime, events, _receiver) = fixture(root.path(), 64);
-    runtime
-        .update(|record| {
-            let mut allocation = crate::workflow::allocation::Allocation::new(Default::default())?;
-            allocation.tool_calls = allocation.limits.tool_calls;
-            record.allocation = Some(allocation);
-            Ok(())
-        })
-        .unwrap();
+    let mut allocation = crate::workflow::allocation::Allocation::new(Default::default()).unwrap();
+    allocation.tool_calls = allocation.limits.tool_calls;
+    let (_runtime, events, _receiver) = fixture_with_allocation(root.path(), 64, Some(allocation));
     let seen = Arc::new(AtomicUsize::new(0));
     let mut tools = ToolExecutor::new(root.path()).unwrap();
     tools.add_hook(Box::new(Before(seen.clone())));
@@ -728,18 +734,13 @@ async fn concurrent_distinct_calls_reserve_allowance_before_effectful_gates() {
     }
     let root = tempfile::tempdir().unwrap();
     std::fs::write(root.path().join("counter"), "a").unwrap();
-    let (runtime, events, _receiver) = fixture(root.path(), 64);
-    runtime
-        .update(|record| {
-            record.allocation = Some(crate::workflow::allocation::Allocation::new(
-                crate::workflow::allocation::Limits {
-                    tool_calls: 1,
-                    ..Default::default()
-                },
-            )?);
-            Ok(())
+    let allocation =
+        crate::workflow::allocation::Allocation::new(crate::workflow::allocation::Limits {
+            tool_calls: 1,
+            ..Default::default()
         })
         .unwrap();
+    let (runtime, events, _receiver) = fixture_with_allocation(root.path(), 64, Some(allocation));
     let seen = Arc::new(AtomicUsize::new(0));
     let (release, released) = std::sync::mpsc::channel();
     let mut tools = ToolExecutor::new(root.path()).unwrap();
@@ -814,15 +815,8 @@ async fn final_admission_rejection_never_runs_presentation_observers() {
     }
     let root = tempfile::tempdir().unwrap();
     std::fs::write(root.path().join("counter"), "a").unwrap();
-    let (runtime, events, _receiver) = fixture(root.path(), 64);
-    runtime
-        .update(|record| {
-            record.allocation = Some(crate::workflow::allocation::Allocation::new(
-                Default::default(),
-            )?);
-            Ok(())
-        })
-        .unwrap();
+    let allocation = crate::workflow::allocation::Allocation::new(Default::default()).unwrap();
+    let (runtime, events, _receiver) = fixture_with_allocation(root.path(), 64, Some(allocation));
     let seen = Arc::new(AtomicUsize::new(0));
     let mut tools = ToolExecutor::new(root.path()).unwrap();
     tools.add_hook(Box::new(Expire {
@@ -957,6 +951,199 @@ async fn blocked_start_rechecks_deadline_and_hold_before_create_or_write() {
             drain.abort();
         }
     }
+}
+
+#[tokio::test]
+async fn oracle_review_keeps_original_tool_budget_across_blocked_delivery() {
+    for (host, replace) in [("model", false), ("commands", false), ("model", true)] {
+        let root = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let target = outside.path().join("target");
+        std::fs::write(root.path().join("oracle-mode"), "allow").unwrap();
+        let allocation = crate::workflow::allocation::Allocation::new(Default::default()).unwrap();
+        let (runtime, events, mut receiver) =
+            fixture_with_allocation(root.path(), 1, Some(allocation));
+        // Native providers settle their response before returned tools execute.
+        runtime
+            .finish_model(runtime.record().unwrap().operations[0].id)
+            .unwrap();
+        let events = if host == "commands" {
+            events.for_commands().unwrap()
+        } else {
+            events
+        };
+        let connection: Connection = serde_json::from_value(json!({
+            "adapter": "claude",
+            "binary": concat!(env!("CARGO_MANIFEST_DIR"), "/tests/oracle_fixture.py")
+        }))
+        .unwrap();
+        let tools = ToolExecutor::with_policy(
+            root.path(),
+            &crate::tools::AccessPolicy {
+                unrestricted: true,
+                oracle: Some(Box::new(connection)),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let call = ToolCall {
+            id: "delayed-oracle".into(),
+            name: "write".into(),
+            arguments: json!({"path": target, "content": "allowed"}),
+        };
+        let run = tools.execute(call, &events);
+        tokio::pin!(run);
+        // ToolStarted fills the channel. ToolReview is persisted before its
+        // blocked send, so this observes the exact pre-Oracle suspension point.
+        let suspended = async {
+            loop {
+                if runtime
+                    .record()
+                    .unwrap()
+                    .decisions
+                    .iter()
+                    .any(|d| d.contains("reviewing"))
+                {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        };
+        tokio::select! {
+            result = &mut run => panic!("review completed before suspension: {result:?}"),
+            result = tokio::time::timeout(std::time::Duration::from_secs(5), suspended) => result.unwrap(),
+        }
+        let original = runtime
+            .record()
+            .unwrap()
+            .operations
+            .last()
+            .unwrap()
+            .budget
+            .clone();
+        assert!(!root.path().join("oracle-request.json").exists());
+        if replace {
+            runtime.allocate(Default::default(), None).unwrap();
+        }
+        let drain = tokio::spawn(async move { while receiver.recv().await.is_some() {} });
+        let result = tokio::time::timeout(std::time::Duration::from_secs(5), &mut run)
+            .await
+            .unwrap()
+            .unwrap();
+        let record = runtime.record().unwrap();
+        if replace {
+            assert!(
+                !root.path().join("oracle-request.json").exists(),
+                "retired tool requested Oracle against replacement budget"
+            );
+            assert!(!result.success);
+            assert!(!target.exists());
+            let allocation = record.allocation.as_ref().unwrap();
+            assert_eq!(allocation.model_calls, 0);
+            assert_eq!(allocation.tool_calls, 0);
+            assert_eq!(allocation.usage.reported_input, 0);
+            assert_eq!(allocation.usage.reported_output, 0);
+            assert!(!record.operations.iter().any(|o| o.phase == "oracle"));
+        } else {
+            assert!(result.success, "{result:?}");
+            assert_eq!(std::fs::read_to_string(&target).unwrap(), "allowed");
+            assert!(root.path().join("oracle-request.json").exists());
+            let oracle = record
+                .operations
+                .iter()
+                .find(|o| o.phase == "oracle")
+                .unwrap();
+            assert_eq!(oracle.budget, original);
+            assert!(matches!(
+                oracle.host_invocation,
+                Some(HostInvocation::Backend)
+            ));
+            assert_eq!(record.allocation.as_ref().unwrap().usage.reported_input, 12);
+            assert_eq!(record.allocation.as_ref().unwrap().usage.reported_output, 8);
+        }
+        drain.abort();
+    }
+}
+
+#[tokio::test]
+async fn oracle_handoff_rechecks_owner_and_keeps_unfunded_requests_unfunded() {
+    for funded in [false, true] {
+        let root = tempfile::tempdir().unwrap();
+        let allocation = funded
+            .then(|| crate::workflow::allocation::Allocation::new(Default::default()).unwrap());
+        let (runtime, events, _receiver) = fixture_with_allocation(root.path(), 64, allocation);
+        let call = edit();
+        let (tool, replay) = events.begin_tool(&call).unwrap();
+        assert!(replay.is_none());
+        tool.admit_tool(&call).unwrap();
+        let original = runtime
+            .record()
+            .unwrap()
+            .operations
+            .last()
+            .unwrap()
+            .budget
+            .clone();
+        let (sender, _oracle_receiver) = mpsc::channel(32);
+        let oracle = tool.oracle_child(sender).unwrap();
+        runtime.allocate(Default::default(), None).unwrap();
+        let count = runtime.record().unwrap().operations.len();
+        let oracle = oracle.begin_native_turn().unwrap();
+        // Oracle is not an ordinary native turn and cannot create an owner for B.
+        assert_eq!(runtime.record().unwrap().operations.len(), count);
+        if funded {
+            assert!(oracle.begin_model().is_err());
+            assert!(oracle.begin_backend().is_err());
+            assert_eq!(runtime.record().unwrap().operations.len(), count);
+        } else {
+            let model = oracle.begin_model().unwrap().unwrap();
+            let backend = oracle.begin_backend().unwrap().unwrap();
+            for id in [model, backend] {
+                let record = runtime.record().unwrap();
+                assert_eq!(
+                    record
+                        .operations
+                        .iter()
+                        .find(|o| o.id == id)
+                        .unwrap()
+                        .budget,
+                    original
+                );
+                oracle
+                    .for_invocation(Some(id))
+                    .emit(Event::Usage {
+                        input: Some(4),
+                        output: Some(2),
+                        cached: None,
+                        cost_usd: None,
+                    })
+                    .await
+                    .unwrap();
+                runtime.finish_model(id).unwrap();
+            }
+        }
+        let record = runtime.record().unwrap();
+        let current = record.allocation.as_ref().unwrap();
+        assert_eq!(current.model_calls, 0);
+        assert_eq!(current.tool_calls, 0);
+        assert_eq!(current.usage.reported_input, 0);
+        assert!(!current.usage.unknown_input);
+    }
+    let root = tempfile::tempdir().unwrap();
+    let (runtime, events, _receiver) = fixture(root.path(), 64);
+    let call = edit();
+    let (tool, _) = events.begin_tool(&call).unwrap();
+    tool.admit_tool(&call).unwrap();
+    let (sender, _oracle_receiver) = mpsc::channel(32);
+    let oracle = tool.oracle_child(sender).unwrap();
+    runtime
+        .update(|record| {
+            record.operations.last_mut().unwrap().complete = true;
+            Ok(())
+        })
+        .unwrap();
+    assert!(oracle.begin_model().is_err());
+    assert!(oracle.begin_backend().is_err());
 }
 
 #[tokio::test]

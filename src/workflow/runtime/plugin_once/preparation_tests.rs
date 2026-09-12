@@ -74,16 +74,11 @@ impl DispatchCase {
     fn with_count(event: HookEvent, count: usize) -> Self {
         let root = tempfile::tempdir().unwrap();
         let storage = tempfile::tempdir().unwrap();
-        let runtime = fixture(
+        let runtime = fixture_with_allocation(
             root.path(),
             storage.path().join("session").to_str().unwrap(),
+            Some(Allocation::new(Limits::default()).unwrap()),
         );
-        runtime
-            .update(|r| {
-                r.allocation = Some(Allocation::new(Limits::default())?);
-                Ok(())
-            })
-            .unwrap();
         let package_root = root.path().join("package");
         std::fs::create_dir_all(package_root.join(".claude-plugin")).unwrap();
         std::fs::write(
