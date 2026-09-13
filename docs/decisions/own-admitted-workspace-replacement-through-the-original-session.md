@@ -28,4 +28,4 @@ Demonstrate actual native OpenAI/Anthropic and installed Claude/Codex root repla
 
 ## Realized by
 
-(none yet: recorded, not built)
+- aa804828ab3f77ce5b06793f7b75f7820b7e5f98 Own admitted workspace changes through the original session
