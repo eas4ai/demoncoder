@@ -728,12 +728,13 @@ This synchronous prerequisite cannot discharge their conformance obligations.
     binds exact evidence and preserves the unexplained earlier compaction failure,
     nonpassing static diagnostics and remaining lifecycle obligations.
 
-    Next, [own admitted workspace replacement](../decisions/own-admitted-workspace-replacement-through-the-original-session.md)
-    through the original session. The bounded control preserves access, allowance,
-    conversation and old-root evidence, refusing unresolved tasks/children.
-    [Source observations and the contract assessment](../reviews/plugin-workspace-change.md)
-    are recorded; application implementation and verification remain pending.
-    Dynamic watch installation and DirectoryAdded remain subsequent obligations.
+    The verified bounded prerequisite [owns admitted workspace replacement](../decisions/own-admitted-workspace-replacement-through-the-original-session.md)
+    through the original session, preserving access, allowance, conversation and
+    old-root evidence while refusing unresolved tasks/children. Independent SPEC
+    and QUALITY passed; composite qualification covers 1,168 passing core Rust
+    tests plus installed backend and terminal cases. The [review](../reviews/plugin-workspace-change.md)
+    retains exact candidates, controls and historical failures. Dynamic watch
+    installation and DirectoryAdded remain subsequent obligations.
 - [ ] Correlate host and backend events once by operation identity; never synthesize an unobserved implicit backend batch.
 - [ ] Exercise the complete lifecycle matrix for success, denial, failure, cancellation and resume. Stop corrections consume existing limits and cannot delay cancellation or imply developer acceptance.
 
