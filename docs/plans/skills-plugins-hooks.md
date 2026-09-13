@@ -713,6 +713,16 @@ This synchronous prerequisite cannot discharge their conformance obligations.
     and 25 terminal Settings cases passed separately. The [review](../reviews/plugin-config-change.md)
     binds those candidates and raw results, retains static nonpasses and historical
     failures, and names the remaining lifecycle and live-provider obligations.
+
+    The verified bounded prerequisite [owns actual Creator model switches](../decisions/own-actual-creator-model-switches-through-the-original-host-session.md)
+    through the original session authority. Native replacements and genuine
+    Claude SDK controls retain gates, actual identity and uncertain outcomes.
+    Independent SPEC and QUALITY approve it. Final development checks passed
+    1,116 Rust tests (36 ignored), 17 installed owner/batch tests, eight external
+    transition cases and 28 terminal cases. The [review](../reviews/plugin-model-switch.md)
+    binds exact evidence and preserves the unexplained earlier compaction failure,
+    nonpassing static diagnostics and remaining lifecycle obligations.
+
 - [ ] Correlate host and backend events once by operation identity; never synthesize an unobserved implicit backend batch.
 - [ ] Exercise the complete lifecycle matrix for success, denial, failure, cancellation and resume. Stop corrections consume existing limits and cannot delay cancellation or imply developer acceptance.
 
@@ -761,7 +771,7 @@ the busy-control rejection or through plugin/channel text interpreted as prompts
 - [ ] Include `tests/plugin_codex_non_tool_source.py --codex <qualified-managed-binary> --output <new-directory>` for actual command-hook submit/Stop frames, source denial and correction, raw identity/correction correlation and corruption controls. Re-run post-tool and async source cases when the shared peer changes.
 - [ ] Run formatting, clippy, all existing regression tests, installed language services and the complete plugin gate. Commit implementation before Cairn; commit receipts and captured outputs afterward.
 - [ ] Perform specification and quality reviews followed by an adversarial whole-commitment review. Resolve findings as separate implementation actions and rerun affected evidence.
-- [ ] Install and verify the final executable. Follow Cairn until Done; only then integrate the feature branch with `git merge --no-ff` and report the complete commitment.
+- [ ] Install and verify the final executable. Follow Cairn until Done and report the complete commitment. The developer separately authorized merging and pushing verified intermediate progress on 2026-09-13; use `git merge --no-ff`. Such integration does not mark this commitment Done.
 
 ## Requirement coverage
 

@@ -155,7 +155,14 @@ pub(super) fn validate<'a>(
     id: u64,
     occurrence: &NonToolOccurrence,
 ) -> Result<(&'a Identity, (u64, u64))> {
-    let identity = validate_live(record, id)?;
+    let identity = if matches!(occurrence, NonToolOccurrence::SessionEnd { .. }) {
+        (
+            &record.identity,
+            super::model_switch::validate_original_lifetime_current(record, id)?,
+        )
+    } else {
+        validate_live(record, id)?
+    };
     let (_, owner) = lifetime(record, id)?;
     ensure!(
         match occurrence {

@@ -249,6 +249,17 @@ pub enum NonToolOccurrence {
         trigger: String,
         compact_summary: Option<String>,
     },
+    PreModelSwitch {
+        model_switch: u64,
+        requested_model: Option<String>,
+        resolved_model: Option<String>,
+        source: String,
+    },
+    PostModelSwitch {
+        model_switch: u64,
+        model: Option<String>,
+        source: String,
+    },
     PostToolBatch {
         /// Host batch ID; absent only on an authenticated source batch callback.
         batch: Option<u64>,
@@ -283,6 +294,8 @@ impl NonToolOccurrence {
             Self::PreCompact { compaction, .. } | Self::PostCompact { compaction, .. } => {
                 *compaction
             }
+            Self::PreModelSwitch { model_switch, .. }
+            | Self::PostModelSwitch { model_switch, .. } => Some(*model_switch),
             _ => None,
         }
     }
@@ -291,6 +304,8 @@ impl NonToolOccurrence {
             Self::ConfigChange { .. } => super::hook_types::HookEvent::ConfigChange,
             Self::PreCompact { .. } => super::hook_types::HookEvent::PreCompact,
             Self::PostCompact { .. } => super::hook_types::HookEvent::PostCompact,
+            Self::PreModelSwitch { .. } => super::hook_types::HookEvent::PreModelSwitch,
+            Self::PostModelSwitch { .. } => super::hook_types::HookEvent::PostModelSwitch,
             Self::PostToolBatch { .. } => super::hook_types::HookEvent::PostToolBatch,
             Self::SessionStart { .. } => super::hook_types::HookEvent::SessionStart,
             Self::SessionEnd { .. } => super::hook_types::HookEvent::SessionEnd,

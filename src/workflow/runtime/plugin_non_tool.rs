@@ -104,7 +104,11 @@ impl SharedRuntime {
     ) -> Result<T> {
         if matches!(
             event,
-            HookEvent::SessionStart | HookEvent::SessionEnd | HookEvent::ConfigChange
+            HookEvent::SessionStart
+                | HookEvent::SessionEnd
+                | HookEvent::ConfigChange
+                | HookEvent::PreModelSwitch
+                | HookEvent::PostModelSwitch
         ) {
             self.update(f)
         } else {
@@ -143,21 +147,43 @@ impl SharedRuntime {
                     .is_some_and(|c| c.backend_operation == backend),
             "source lifecycle release lacks exact settled owner"
         );
-        let post = owner::validate_source(
-            &record,
-            &operation.phase,
-            receipt
-                .facts
-                .callback
-                .as_ref()
-                .context("source callback missing")?,
-            &receipt.facts.subject.occurrence,
-            receipt
-                .facts
-                .source
-                .as_ref()
-                .context("source callback input missing")?,
-        )?;
+        let callback = receipt
+            .facts
+            .callback
+            .as_ref()
+            .context("source callback missing")?;
+        let input = receipt
+            .facts
+            .source
+            .as_ref()
+            .context("source callback input missing")?;
+        let post = if receipt.facts.subject.occurrence.host_operation().is_some()
+            && matches!(
+                receipt.facts.subject.occurrence,
+                NonToolOccurrence::PreModelSwitch { .. }
+                    | NonToolOccurrence::PostModelSwitch { .. }
+            ) {
+            super::model_switch::validate_source(
+                &record,
+                receipt
+                    .facts
+                    .subject
+                    .occurrence
+                    .host_operation()
+                    .expect("checked"),
+                callback,
+                input,
+            )?;
+            None
+        } else {
+            owner::validate_source(
+                &record,
+                &operation.phase,
+                callback,
+                &receipt.facts.subject.occurrence,
+                input,
+            )?
+        };
         super::plugin_lifecycle::ensure_continuation_except(
             &record,
             &operation.phase,
@@ -537,6 +563,16 @@ impl SharedRuntime {
                 }
             ) {
                 super::compaction::owner(record, phase)?
+            } else if matches!(
+                occurrence,
+                NonToolOccurrence::PreModelSwitch { .. }
+                    | NonToolOccurrence::PostModelSwitch { .. }
+            ) {
+                super::model_switch::owner(
+                    record,
+                    host_operation.context("model switch operation missing")?,
+                    occurrence.event(),
+                )?
             } else {
                 owner::resolve(record, phase)?
             };
@@ -584,6 +620,33 @@ impl SharedRuntime {
                     "compaction event already recorded; never replay"
                 );
             }
+            if matches!(
+                occurrence,
+                NonToolOccurrence::PreModelSwitch { .. }
+                    | NonToolOccurrence::PostModelSwitch { .. }
+            ) {
+                ensure!(
+                    native_turn.is_none(),
+                    "model switch cannot borrow a native turn"
+                );
+                super::model_switch::validate_occurrence(
+                    record,
+                    host_operation.context("model switch operation missing")?,
+                    &occurrence,
+                    &plan,
+                )?;
+                ensure!(
+                    !record
+                        .operations
+                        .iter()
+                        .filter_map(Operation::non_tool_receipt)
+                        .any(|receipt| {
+                            receipt.facts.subject.occurrence.host_operation() == host_operation
+                                && receipt.facts.subject.occurrence.event() == occurrence.event()
+                        }),
+                    "model switch event already recorded; never replay"
+                );
+            }
             if let NonToolOccurrence::PostToolBatch {
                 batch: Some(id),
                 tool_calls,
@@ -604,19 +667,33 @@ impl SharedRuntime {
                 );
             }
             if let Some(source) = &origin.source {
-                owner::validate_backend(
-                    record,
-                    phase,
-                    &execution_identity,
-                    source.correlation.backend_operation,
-                )?;
-                owner::validate_source(
-                    record,
-                    phase,
-                    &source.correlation,
-                    &occurrence,
-                    &source.input,
-                )?;
+                if matches!(
+                    occurrence,
+                    NonToolOccurrence::PreModelSwitch { .. }
+                        | NonToolOccurrence::PostModelSwitch { .. }
+                ) {
+                    ensure!(phase == "model-switch", "model callback phase differs");
+                    super::model_switch::validate_source(
+                        record,
+                        host_operation.context("model switch operation missing")?,
+                        &source.correlation,
+                        &source.input,
+                    )?;
+                } else {
+                    owner::validate_backend(
+                        record,
+                        phase,
+                        &execution_identity,
+                        source.correlation.backend_operation,
+                    )?;
+                    owner::validate_source(
+                        record,
+                        phase,
+                        &source.correlation,
+                        &occurrence,
+                        &source.input,
+                    )?;
+                }
             }
             if let Some(turn) = native_turn {
                 let turn = turn::validate(record, turn, phase)?;

@@ -1382,6 +1382,7 @@ async fn check_compaction_trigger_funding(
     exhausted: bool,
 ) {
     let case = format!("{kind:?} {event:?} {trigger} matching={matching} exhausted={exhausted}");
+    let case_started = std::time::Instant::now();
     let spend_pre = exhausted && event == HookEvent::PostCompact;
     let server = Server::new("openai-api", |_, _| json!({"ok":true}));
     let fixture = funded(exhausted.then_some(limits(u64::from(spend_pre), 2)));
@@ -1466,6 +1467,7 @@ async fn check_compaction_trigger_funding(
     };
     let error = outcome.as_ref().err().map(|e| format!("{e:#}"));
     session.close().await.unwrap();
+    let case_elapsed = case_started.elapsed();
     assert_eq!(
         outcome.is_ok(),
         !matching,
@@ -1477,16 +1479,7 @@ async fn check_compaction_trigger_funding(
         "{case}: no unauthorized or unmatched hook request"
     );
     let applied = !matching || event == HookEvent::PostCompact;
-    assert_eq!(
-        summaries.load(Ordering::SeqCst),
-        usize::from(applied),
-        "{case}"
-    );
     let after = fixture.record();
-    assert!(
-        after.task.is_none() && after.allocation.is_none(),
-        "{case}: taskless control cannot start task work"
-    );
     let compact = after
         .operations
         .iter()
@@ -1495,6 +1488,17 @@ async fn check_compaction_trigger_funding(
             _ => None,
         })
         .unwrap();
+    assert_eq!(
+        summaries.load(Ordering::SeqCst),
+        usize::from(applied),
+        "{case}: error={error:?}; elapsed={case_elapsed:?}; compaction={compact:?}; before_allowance={:?}; after_allowance={:?}",
+        before.session_hook_allowance,
+        after.session_hook_allowance,
+    );
+    assert!(
+        after.task.is_none() && after.allocation.is_none(),
+        "{case}: taskless control cannot start task work"
+    );
     assert_eq!(compact.applied.is_some(), applied, "{case}");
     let usage: Vec<_> = after
         .operations

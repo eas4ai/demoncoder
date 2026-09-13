@@ -224,27 +224,72 @@ pub(in crate::workflow::runtime) fn validate(
             &receipt.facts.subject.occurrence,
         )?;
         super::super::compaction::owner(record, &operation.phase)?
+    } else if matches!(
+        receipt.facts.subject.occurrence,
+        crate::plugins::receipts::NonToolOccurrence::PreModelSwitch { .. }
+            | crate::plugins::receipts::NonToolOccurrence::PostModelSwitch { .. }
+    ) {
+        super::super::model_switch::validate_occurrence(
+            record,
+            receipt
+                .facts
+                .subject
+                .occurrence
+                .host_operation()
+                .context("model switch operation missing")?,
+            &receipt.facts.subject.occurrence,
+            &receipt.plan,
+        )?;
+        super::super::model_switch::owner(
+            record,
+            receipt
+                .facts
+                .subject
+                .occurrence
+                .host_operation()
+                .expect("validated"),
+            receipt.facts.subject.occurrence.event(),
+        )?
     } else {
         resolve(record, &operation.phase)?
     };
     if let Some(callback) = &receipt.facts.callback {
-        validate_backend(
-            record,
-            &operation.phase,
-            owner.identity,
-            callback.backend_operation,
-        )?;
-        validate_source(
-            record,
-            &operation.phase,
-            callback,
-            &receipt.facts.subject.occurrence,
-            receipt
-                .facts
-                .source
-                .as_ref()
-                .context("source callback input missing")?,
-        )?;
+        let source = receipt
+            .facts
+            .source
+            .as_ref()
+            .context("source callback input missing")?;
+        if matches!(
+            receipt.facts.subject.occurrence,
+            crate::plugins::receipts::NonToolOccurrence::PreModelSwitch { .. }
+                | crate::plugins::receipts::NonToolOccurrence::PostModelSwitch { .. }
+        ) {
+            super::super::model_switch::validate_source(
+                record,
+                receipt
+                    .facts
+                    .subject
+                    .occurrence
+                    .host_operation()
+                    .expect("validated"),
+                callback,
+                source,
+            )?;
+        } else {
+            validate_backend(
+                record,
+                &operation.phase,
+                owner.identity,
+                callback.backend_operation,
+            )?;
+            validate_source(
+                record,
+                &operation.phase,
+                callback,
+                &receipt.facts.subject.occurrence,
+                source,
+            )?;
+        }
     }
     let metadata = std::fs::metadata(owner.root)?;
     ensure!(

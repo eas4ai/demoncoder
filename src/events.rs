@@ -15,6 +15,12 @@ type BlockingNonToolPause = (
     std::sync::mpsc::Receiver<()>,
 );
 
+#[cfg(test)]
+type AsyncNonToolPause = (
+    tokio::sync::oneshot::Sender<()>,
+    tokio::sync::oneshot::Receiver<()>,
+);
+
 #[derive(Clone, Copy, Debug, Default, Serialize)]
 pub struct ContextUsage {
     pub used: Option<u64>,
@@ -183,6 +189,12 @@ pub struct EventSink {
     tool_representation: crate::plugins::receipts::ToolRepresentation,
     #[cfg(test)]
     non_tool_post_insert_pause: Arc<Mutex<Option<BlockingNonToolPause>>>,
+    #[cfg(test)]
+    model_switch_source_dispatch_pause: Arc<Mutex<Option<AsyncNonToolPause>>>,
+    #[cfg(test)]
+    model_switch_final_validation_pause: Arc<Mutex<Option<AsyncNonToolPause>>>,
+    #[cfg(test)]
+    model_switch_source_effect_pause: Arc<Mutex<Option<AsyncNonToolPause>>>,
 }
 
 #[derive(Clone)]
@@ -331,6 +343,12 @@ impl EventSink {
             tool_representation: Default::default(),
             #[cfg(test)]
             non_tool_post_insert_pause: Default::default(),
+            #[cfg(test)]
+            model_switch_source_dispatch_pause: Default::default(),
+            #[cfg(test)]
+            model_switch_final_validation_pause: Default::default(),
+            #[cfg(test)]
+            model_switch_source_effect_pause: Default::default(),
         })
     }
 
@@ -354,6 +372,86 @@ impl EventSink {
             release
                 .recv()
                 .expect("release blocked lifecycle operation insertion");
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn pause_next_after_model_switch_source_dispatch(
+        &self,
+    ) -> (
+        tokio::sync::oneshot::Receiver<()>,
+        tokio::sync::oneshot::Sender<()>,
+    ) {
+        let (entered_tx, entered_rx) = tokio::sync::oneshot::channel();
+        let (release_tx, release_rx) = tokio::sync::oneshot::channel();
+        *self.model_switch_source_dispatch_pause.lock().unwrap() = Some((entered_tx, release_rx));
+        (entered_rx, release_tx)
+    }
+
+    #[cfg(test)]
+    pub(crate) async fn wait_after_model_switch_source_dispatch(&self) {
+        let pause = self
+            .model_switch_source_dispatch_pause
+            .lock()
+            .unwrap()
+            .take();
+        if let Some((entered, release)) = pause {
+            let _ = entered.send(());
+            release
+                .await
+                .expect("release blocked Claude model switch source dispatch");
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn pause_next_before_model_switch_final_validation(
+        &self,
+    ) -> (
+        tokio::sync::oneshot::Receiver<()>,
+        tokio::sync::oneshot::Sender<()>,
+    ) {
+        let (entered_tx, entered_rx) = tokio::sync::oneshot::channel();
+        let (release_tx, release_rx) = tokio::sync::oneshot::channel();
+        *self.model_switch_final_validation_pause.lock().unwrap() = Some((entered_tx, release_rx));
+        (entered_rx, release_tx)
+    }
+
+    #[cfg(test)]
+    pub(crate) async fn wait_before_model_switch_final_validation(&self) {
+        let pause = self
+            .model_switch_final_validation_pause
+            .lock()
+            .unwrap()
+            .take();
+        if let Some((entered, release)) = pause {
+            let _ = entered.send(());
+            release
+                .await
+                .expect("release blocked model switch final validation");
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn pause_next_after_model_switch_source_effect(
+        &self,
+    ) -> (
+        tokio::sync::oneshot::Receiver<()>,
+        tokio::sync::oneshot::Sender<()>,
+    ) {
+        let (entered_tx, entered_rx) = tokio::sync::oneshot::channel();
+        let (release_tx, release_rx) = tokio::sync::oneshot::channel();
+        *self.model_switch_source_effect_pause.lock().unwrap() = Some((entered_tx, release_rx));
+        (entered_rx, release_tx)
+    }
+
+    #[cfg(test)]
+    pub(crate) async fn wait_after_model_switch_source_effect(&self) {
+        let pause = self.model_switch_source_effect_pause.lock().unwrap().take();
+        if let Some((entered, release)) = pause {
+            let _ = entered.send(());
+            release
+                .await
+                .expect("release blocked applied Claude model switch effect");
         }
     }
 
@@ -459,6 +557,59 @@ impl EventSink {
             runtime: Some(runtime.upgrade()?),
             ..self.clone()
         }))
+    }
+
+    /// Begin one Creator transition under the original outer host lifetime.
+    /// The returned sink is the only phase permitted to own its Pre/Post receipts.
+    pub(crate) fn begin_model_switch(
+        &self,
+        old: &crate::config::Connection,
+        requested: &crate::config::Connection,
+        source: &str,
+        pre_plan: Option<String>,
+        post_plan: Option<String>,
+    ) -> Result<(Self, u64)> {
+        anyhow::ensure!(
+            self.phase == "worker"
+                && self.native_turn.is_none()
+                && self.hook_model.is_none()
+                && self.invocation.is_none(),
+            "only the outer worker can begin a model switch"
+        );
+        let runtime = self
+            .runtime
+            .as_ref()
+            .context("model switch requires a durable runtime")?;
+        let retained = self
+            .host_lifetime
+            .lock()
+            .map_err(|_| anyhow::anyhow!("native lifetime lock failed"))?
+            .clone();
+        let native_session = retained.as_ref().map(|owner| owner.operation);
+        if let Some(owner) = retained {
+            anyhow::ensure!(
+                owner.runtime.upgrade()?.directory()? == runtime.directory()?,
+                "model switch host lifetime belongs to another runtime"
+            );
+        }
+        let id = runtime.begin_model_switch(
+            old,
+            requested,
+            source,
+            native_session,
+            pre_plan,
+            post_plan,
+        )?;
+        Ok((
+            Self {
+                native_session_scope: None,
+                phase: "model-switch".into(),
+                identity: Some(crate::workflow::runtime::Identity::from(old)),
+                invocation: Some(id),
+                ..self.clone()
+            },
+            id,
+        ))
     }
 
     /// Create one bounded Settings occurrence from the already-open host lifetime.
@@ -789,6 +940,12 @@ impl EventSink {
             tool_representation: self.tool_representation.clone(),
             #[cfg(test)]
             non_tool_post_insert_pause: Default::default(),
+            #[cfg(test)]
+            model_switch_source_dispatch_pause: self.model_switch_source_dispatch_pause.clone(),
+            #[cfg(test)]
+            model_switch_final_validation_pause: self.model_switch_final_validation_pause.clone(),
+            #[cfg(test)]
+            model_switch_source_effect_pause: self.model_switch_source_effect_pause.clone(),
         }
     }
 
@@ -1150,6 +1307,22 @@ impl EventSink {
 
     pub(crate) fn backend_invocation_id(&self) -> Option<u64> {
         self.invocation
+    }
+
+    pub(crate) fn model_switch_context(
+        &self,
+    ) -> Result<(crate::workflow::runtime::SharedRuntime, u64)> {
+        anyhow::ensure!(
+            self.phase == "model-switch" && self.native_turn.is_none(),
+            "model switch callback belongs to another host phase"
+        );
+        Ok((
+            self.runtime
+                .as_ref()
+                .context("model switch runtime missing")?
+                .clone(),
+            self.invocation.context("model switch owner missing")?,
+        ))
     }
 
     pub(crate) fn plugin_event(&self) -> crate::plugins::hook_types::HookEvent {

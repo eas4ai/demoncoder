@@ -5,6 +5,10 @@ mod delegation;
 mod oracle_source;
 pub(crate) use oracle_source::OracleSource;
 pub(crate) mod compaction;
+pub(crate) mod model_switch;
+#[cfg(test)]
+#[path = "runtime/model_switch_tests.rs"]
+mod model_switch_tests;
 pub(crate) mod plugin_admission;
 pub(crate) mod plugin_lifecycle;
 pub(crate) mod plugin_non_tool;
@@ -562,41 +566,6 @@ impl SharedRuntime {
             .clone())
     }
 
-    pub(crate) fn bind_creator(
-        &self,
-        connection: &Connection,
-        checkpoint: Option<Value>,
-    ) -> Result<()> {
-        self.update_without_observers(false, |record| {
-            ensure!(
-                !record.recovery_pending && record.phase.is_none(),
-                "reconcile interrupted work before changing its model"
-            );
-            ensure!(
-                record.task.as_ref().is_none_or(|t| t.accepted.is_some()),
-                "an admitted task keeps its original model"
-            );
-            ensure!(
-                record.prior_contexts.len() < 64,
-                "model change history is full; start a new session"
-            );
-            record.prior_contexts.push(ContextBinding {
-                identity: record.identity.clone(),
-                through_operation: record.operations.len() as u64,
-                checkpoint: record.checkpoint.clone(),
-            });
-            if let Some(task) = &mut record.task
-                && task.creator_identity.is_none()
-            {
-                task.creator_identity = Some(record.identity.clone());
-            }
-            record.identity = Identity::from(connection);
-            record.checkpoint = checkpoint;
-            record.checkpoint_cursor = record.operations.len() as u64;
-            Ok(())
-        })
-    }
-
     fn admission<T>(&self, f: impl FnOnce(&mut Record) -> Result<T>) -> Result<T> {
         let result = self.update(f)?;
         // The durable clock checkpoint can detect rollback after the closure's
@@ -679,6 +648,17 @@ impl SharedRuntime {
             r.phase = Some(phase.into());
             if let Some(prompt) = prompt { append_message(r, "developer", prompt)?; }
             Ok(())
+        })
+    }
+
+    pub(crate) fn retain_refused_submission(&self, prompt: &str, reason: &str) -> Result<()> {
+        self.update(|record| {
+            ensure!(
+                record.phase.is_none(),
+                "refused submission retention requires the taskless turn boundary"
+            );
+            append_message(record, "developer", prompt)?;
+            append_message(record, "assistant", reason)
         })
     }
 

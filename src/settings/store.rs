@@ -32,6 +32,8 @@ pub struct Handle {
     #[cfg(test)]
     fail_directory_sync: Arc<AtomicBool>,
     #[cfg(test)]
+    fail_control_activation: Arc<AtomicBool>,
+    #[cfg(test)]
     publication_pause: Arc<Mutex<Option<PublicationPause>>>,
     #[cfg(test)]
     file_publication_pause: Arc<Mutex<Option<BlockingPublicationPause>>>,
@@ -251,6 +253,8 @@ impl Handle {
             #[cfg(test)]
             fail_directory_sync: Arc::new(AtomicBool::new(false)),
             #[cfg(test)]
+            fail_control_activation: Arc::new(AtomicBool::new(false)),
+            #[cfg(test)]
             publication_pause: Arc::new(Mutex::new(None)),
             #[cfg(test)]
             file_publication_pause: Arc::new(Mutex::new(None)),
@@ -329,6 +333,11 @@ impl Handle {
         events: &crate::events::EventSink,
         runtime: crate::workflow::runtime::SharedRuntime,
     ) -> Result<()> {
+        #[cfg(test)]
+        ensure!(
+            !self.fail_control_activation.swap(false, Ordering::AcqRel),
+            "injected Settings control activation failure"
+        );
         use crate::plugins::hook_types::HookEvent;
         let Some(plan) = connection
             .access
@@ -374,6 +383,11 @@ impl Handle {
             .map_err(|_| anyhow::anyhow!("settings policy state unavailable"))?;
         *state = ControlState::Ready(Arc::new(control));
         Ok(())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn fail_next_control_activation(&self) {
+        self.fail_control_activation.store(true, Ordering::Release);
     }
 
     #[cfg(test)]

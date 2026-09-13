@@ -283,6 +283,8 @@ impl SharedRuntime {
                 | HookEvent::PostToolBatch
                 | HookEvent::PreCompact
                 | HookEvent::PostCompact
+                | HookEvent::PreModelSwitch
+                | HookEvent::PostModelSwitch
                 | HookEvent::UserPromptSubmit
                 | HookEvent::Stop
                 | HookEvent::StopFailure

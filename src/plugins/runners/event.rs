@@ -244,6 +244,20 @@ fn non_tool_input(
                     value["trigger"] = json!(trigger);
                     value["compact_summary"] = json!(compact_summary);
                 }
+                NonToolOccurrence::PreModelSwitch {
+                    requested_model,
+                    resolved_model,
+                    source,
+                    ..
+                } => {
+                    value["requested_model"] = json!(requested_model);
+                    value["model"] = json!(resolved_model);
+                    value["source"] = json!(source);
+                }
+                NonToolOccurrence::PostModelSwitch { model, source, .. } => {
+                    value["model"] = json!(model);
+                    value["source"] = json!(source);
+                }
                 NonToolOccurrence::PostToolBatch { batch, tool_calls } => {
                     value["tool_calls"] = json!(match batch {
                         Some(id) => invocation.events.plugin_context()?.0.batch_input(*id)?,
@@ -403,6 +417,9 @@ fn translated_non_tool_input(
                 );
             }
         }
+        NonToolOccurrence::PreModelSwitch { .. } | NonToolOccurrence::PostModelSwitch { .. } => {
+            anyhow::bail!("model switch source translation requires an actual callback")
+        }
         NonToolOccurrence::PostToolBatch { batch, tool_calls } => {
             ensure!(
                 dialect == HookDialect::Claude,
@@ -553,6 +570,9 @@ fn translated_source_input(
                         .context("Claude PostCompact requires actual summary")?
                 );
             }
+        }
+        NonToolOccurrence::PreModelSwitch { .. } | NonToolOccurrence::PostModelSwitch { .. } => {
+            anyhow::bail!("model switch source translation requires its exact callback input")
         }
         NonToolOccurrence::PostToolBatch { batch, tool_calls } => {
             ensure!(

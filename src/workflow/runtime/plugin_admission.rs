@@ -26,6 +26,7 @@ enum ServiceBinding {
     Task,
     NativeSession(u64),
     HostControl(u64),
+    ModelSwitch { lifetime: u64, switch: u64 },
 }
 
 impl ServiceBinding {
@@ -33,6 +34,7 @@ impl ServiceBinding {
         match self {
             Self::Task => None,
             Self::NativeSession(id) | Self::HostControl(id) => Some(id),
+            Self::ModelSwitch { lifetime, .. } => Some(lifetime),
         }
     }
 }
@@ -43,6 +45,17 @@ fn service_binding(record: &Record, owner: u64, event: HookEvent) -> Result<Serv
     };
     Ok(if event == HookEvent::ConfigChange {
         ServiceBinding::HostControl(lifetime)
+    } else if matches!(
+        event,
+        HookEvent::PreModelSwitch | HookEvent::PostModelSwitch
+    ) {
+        let switch = super::plugin_non_tool::active(record, owner, event)?
+            .facts
+            .subject
+            .occurrence
+            .host_operation()
+            .context("model switch service owner missing")?;
+        ServiceBinding::ModelSwitch { lifetime, switch }
     } else {
         ServiceBinding::NativeSession(lifetime)
     })
@@ -57,6 +70,26 @@ fn service_fingerprint(
     service: &str,
 ) -> Result<String> {
     let session_id = crate::plugins::admission::digest(&session)?;
+    if let ServiceBinding::ModelSwitch { lifetime, switch } = binding {
+        ensure!(
+            role == "model-switch" && matches!(budget, super::BudgetRef::SessionHooks { .. }),
+            "MCP model switch service requires its original session allowance"
+        );
+        let anchor = super::model_switch::service_anchor(record, switch, lifetime)?;
+        let allocation = super::budget_accounting::active(record, &session_id, budget)?
+            .context("MCP model switch allowance missing")?;
+        return crate::plugins::admission::digest(&(
+            session,
+            &record.workspace,
+            anchor,
+            budget,
+            allocation.started_ms,
+            allocation.deadline_ms,
+            &allocation.limits,
+            role,
+            service,
+        ));
+    }
     if let ServiceBinding::NativeSession(id) | ServiceBinding::HostControl(id) = binding {
         let (operation, owner) = match binding {
             ServiceBinding::NativeSession(_) => {
@@ -66,7 +99,7 @@ fn service_fingerprint(
             ServiceBinding::HostControl(_) => {
                 super::plugin_session::validate_host_lifetime(record, id)?
             }
-            ServiceBinding::Task => unreachable!(),
+            ServiceBinding::Task | ServiceBinding::ModelSwitch { .. } => unreachable!(),
         };
         ensure!(
             ((binding == ServiceBinding::NativeSession(id) && role == "native-session")
@@ -247,6 +280,22 @@ fn hook_lifetime(record: &Record, owner: u64, event: HookEvent) -> Result<Option
                 .host_operation()
                 .context("compaction hook owner missing")?,
             &receipt.facts.role,
+        );
+    }
+    if matches!(
+        event,
+        HookEvent::PreModelSwitch | HookEvent::PostModelSwitch
+    ) {
+        let receipt = super::plugin_non_tool::active(record, owner, event)?;
+        return super::model_switch::hook_lifetime(
+            record,
+            receipt
+                .facts
+                .subject
+                .occurrence
+                .host_operation()
+                .context("model switch hook owner missing")?,
+            event,
         );
     }
     Ok(None)
@@ -467,6 +516,7 @@ impl SharedRuntime {
         match binding {
             ServiceBinding::NativeSession(_) => role = "native-session".into(),
             ServiceBinding::HostControl(_) => role = "settings".into(),
+            ServiceBinding::ModelSwitch { .. } => role = "model-switch".into(),
             ServiceBinding::Task => {}
         }
         let fingerprint = service_fingerprint(
@@ -564,11 +614,35 @@ impl SharedRuntime {
             "MCP invoking budget differs from its connection"
         );
         let binding = service_binding(&record, operation, event)?;
+        let same_binding = match (binding, owner.binding) {
+            (
+                ServiceBinding::ModelSwitch {
+                    lifetime,
+                    switch: _,
+                },
+                ServiceBinding::ModelSwitch {
+                    lifetime: owner_lifetime,
+                    switch: _,
+                },
+            ) => {
+                lifetime == owner_lifetime
+                    && service_fingerprint(
+                        &record,
+                        &self.directory()?,
+                        &owner.role,
+                        &owner.budget,
+                        binding,
+                        &owner.service,
+                    )? == owner.fingerprint
+            }
+            _ => binding == owner.binding,
+        };
         ensure!(
-            binding == owner.binding
+            same_binding
                 && match binding {
                     ServiceBinding::NativeSession(_) => owner.role == "native-session",
                     ServiceBinding::HostControl(_) => owner.role == "settings",
+                    ServiceBinding::ModelSwitch { .. } => owner.role == "model-switch",
                     ServiceBinding::Task => record
                         .operations
                         .iter()
@@ -657,6 +731,8 @@ pub(super) fn active_for_event(
                 | HookEvent::PostToolBatch
                 | HookEvent::PreCompact
                 | HookEvent::PostCompact
+                | HookEvent::PreModelSwitch
+                | HookEvent::PostModelSwitch
                 | HookEvent::UserPromptSubmit
                 | HookEvent::Stop
                 | HookEvent::StopFailure

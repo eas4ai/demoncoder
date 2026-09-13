@@ -43,6 +43,16 @@ pub enum TurnEnd {
     CommandsClosed,
 }
 
+pub enum ModelSwitchControl {
+    Refused {
+        reason: String,
+    },
+    Applied {
+        actual_model: String,
+        validation: Option<tokio::sync::OwnedMutexGuard<()>>,
+    },
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SessionStart {
@@ -194,6 +204,22 @@ pub trait Session: Send {
     }
     fn supports_workflow(&self) -> bool {
         false
+    }
+    fn live_model_switch_ready(&self) -> bool {
+        false
+    }
+    fn apply_live_model_noop(&mut self, _requested: &Connection) -> Result<Option<String>> {
+        Ok(None)
+    }
+    async fn begin_live_model_switch(
+        &mut self,
+        _requested: &Connection,
+        _events: &EventSink,
+    ) -> Result<ModelSwitchControl> {
+        bail!("current adapter cannot change its live model")
+    }
+    async fn finish_live_model_switch(&mut self, _events: &EventSink) -> Result<()> {
+        bail!("current adapter cannot observe a live model change")
     }
     fn initial_events(&self) -> Result<Vec<Event>> {
         Ok(Vec::new())

@@ -3744,6 +3744,10 @@ print(json.dumps({'systemMessage':json.dumps(x)}))
                 demoncoder::plugins::receipts::NonToolOccurrence::ConfigChange { .. } => {
                     panic!("unexpected settings event in ordinary turn fixture")
                 }
+                demoncoder::plugins::receipts::NonToolOccurrence::PreModelSwitch { .. }
+                | demoncoder::plugins::receipts::NonToolOccurrence::PostModelSwitch { .. } => {
+                    panic!("unexpected model switch event in ordinary turn fixture")
+                }
                 demoncoder::plugins::receipts::NonToolOccurrence::PreCompact { .. }
                 | demoncoder::plugins::receipts::NonToolOccurrence::PostCompact { .. }
                 | demoncoder::plugins::receipts::NonToolOccurrence::PostToolBatch { .. } => {

@@ -211,6 +211,11 @@ impl ActualOwnerPeer {
             .collect()
     }
 
+    pub fn requests_contain(&self, text: &str) -> bool {
+        std::fs::read_to_string(self.root.join("model-requests.jsonl"))
+            .is_ok_and(|requests| requests.contains(text))
+    }
+
     pub fn assert_backend_workspace(&self, expected: &std::path::Path) {
         let pid = std::fs::read_to_string(self.root.join("backend.pid"))
             .expect("backend PID marker")
@@ -233,17 +238,97 @@ impl ActualOwnerPeer {
     pub fn release(&self) {
         std::fs::write(self.root.join("release-owner"), "release").unwrap();
     }
+
+    pub async fn disconnect_relay(&self) {
+        let pid = std::fs::read_to_string(self.root.join("relay.pid"))
+            .expect("relay PID marker")
+            .trim()
+            .to_owned();
+        let status = std::process::Command::new("/bin/kill")
+            .args(["-USR1", &pid])
+            .status()
+            .expect("signal installed backend relay");
+        assert!(status.success(), "installed backend relay signal failed");
+        tokio::time::timeout(std::time::Duration::from_secs(10), async {
+            while !self.root.join("relay-disconnected").is_file() {
+                tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .expect("installed backend relay did not disconnect");
+    }
 }
 
 pub struct ActualRunningControl {
     pub runtime: demoncoder::workflow::runtime::SharedRuntime,
     pub command_tx: tokio::sync::mpsc::Sender<demoncoder::session::Command>,
+    events: demoncoder::events::EventSink,
     worker: tokio::task::JoinHandle<anyhow::Result<()>>,
     event_rx: tokio::sync::mpsc::Receiver<demoncoder::events::Envelope>,
     native_lifetime: bool,
 }
 
 impl ActualRunningControl {
+    pub fn pause_next_model_switch_source_dispatch(
+        &self,
+    ) -> (
+        tokio::sync::oneshot::Receiver<()>,
+        tokio::sync::oneshot::Sender<()>,
+    ) {
+        self.events.pause_next_after_model_switch_source_dispatch()
+    }
+
+    pub fn pause_next_before_model_switch_final_validation(
+        &self,
+    ) -> (
+        tokio::sync::oneshot::Receiver<()>,
+        tokio::sync::oneshot::Sender<()>,
+    ) {
+        self.events
+            .pause_next_before_model_switch_final_validation()
+    }
+
+    pub fn pause_next_after_model_switch_source_effect(
+        &self,
+    ) -> (
+        tokio::sync::oneshot::Receiver<()>,
+        tokio::sync::oneshot::Sender<()>,
+    ) {
+        self.events.pause_next_after_model_switch_source_effect()
+    }
+
+    pub async fn request_shutdown(&self) {
+        self.command_tx
+            .send(demoncoder::session::Command::Shutdown)
+            .await
+            .unwrap();
+    }
+
+    pub fn worker_finished(&self) -> bool {
+        self.worker.is_finished()
+    }
+
+    pub async fn finish_shutdown(self) {
+        self.worker.await.unwrap().unwrap();
+    }
+
+    pub async fn wait_turn_status(&mut self) -> &'static str {
+        tokio::time::timeout(std::time::Duration::from_secs(40), async {
+            loop {
+                let event = self
+                    .event_rx
+                    .recv()
+                    .await
+                    .expect("owner event stream closed");
+                if let demoncoder::events::Event::TurnFinished { status } = event.event {
+                    return status;
+                }
+            }
+        })
+        .await
+        .expect("actual owner turn did not finish")
+    }
+
     pub async fn submit(&self, prompt: &str) {
         let (reply, accepted) = tokio::sync::oneshot::channel();
         self.command_tx
@@ -254,6 +339,43 @@ impl ActualRunningControl {
             .await
             .unwrap();
         accepted.await.unwrap().unwrap();
+    }
+
+    pub async fn cancel(&self) {
+        self.command_tx
+            .send(demoncoder::session::Command::Cancel)
+            .await
+            .unwrap();
+    }
+
+    pub async fn collect_turn_events(
+        &mut self,
+        expected_status: &'static str,
+    ) -> Vec<demoncoder::events::Event> {
+        tokio::time::timeout(std::time::Duration::from_secs(40), async {
+            let mut events = Vec::new();
+            loop {
+                let event = self
+                    .event_rx
+                    .recv()
+                    .await
+                    .expect("owner event stream closed")
+                    .event;
+                let finished = match &event {
+                    demoncoder::events::Event::TurnFinished { status } => {
+                        assert_eq!(*status, expected_status);
+                        true
+                    }
+                    _ => false,
+                };
+                events.push(event);
+                if finished {
+                    return events;
+                }
+            }
+        })
+        .await
+        .expect("actual owner turn did not finish")
     }
 
     pub async fn wait_turn_finished(&mut self) {
@@ -272,6 +394,70 @@ impl ActualRunningControl {
         })
         .await
         .expect("actual owner turn did not finish");
+    }
+
+    pub async fn wait_turn_finished_with_errors(&mut self) -> Vec<String> {
+        tokio::time::timeout(std::time::Duration::from_secs(40), async {
+            let mut errors = Vec::new();
+            loop {
+                let event = self
+                    .event_rx
+                    .recv()
+                    .await
+                    .expect("owner event stream closed");
+                match event.event {
+                    demoncoder::events::Event::Error { message } => errors.push(message),
+                    demoncoder::events::Event::TurnFinished { status } => {
+                        assert_eq!(status, "complete", "actual owner errors: {errors:?}");
+                        return errors;
+                    }
+                    _ => {}
+                }
+            }
+        })
+        .await
+        .expect("actual owner turn did not finish")
+    }
+
+    pub async fn wait_turn_cancelled(&mut self) {
+        tokio::time::timeout(std::time::Duration::from_secs(40), async {
+            loop {
+                let event = self
+                    .event_rx
+                    .recv()
+                    .await
+                    .expect("owner event stream closed");
+                if let demoncoder::events::Event::TurnFinished { status } = event.event {
+                    assert_eq!(status, "cancelled");
+                    break;
+                }
+            }
+        })
+        .await
+        .expect("actual owner turn did not cancel");
+    }
+
+    pub async fn wait_turn_failed(&mut self) -> Vec<String> {
+        tokio::time::timeout(std::time::Duration::from_secs(40), async {
+            let mut errors = Vec::new();
+            loop {
+                let event = self
+                    .event_rx
+                    .recv()
+                    .await
+                    .expect("owner event stream closed");
+                match event.event {
+                    demoncoder::events::Event::Error { message } => errors.push(message),
+                    demoncoder::events::Event::TurnFinished { status } => {
+                        assert_eq!(status, "failed");
+                        return errors;
+                    }
+                    _ => {}
+                }
+            }
+        })
+        .await
+        .expect("actual owner turn did not fail")
     }
 
     pub async fn shutdown(self) {
@@ -305,6 +491,107 @@ struct ClosePauseSession {
     inner: Box<dyn demoncoder::session::Session>,
     entered: Arc<tokio::sync::Semaphore>,
     release: Arc<tokio::sync::Semaphore>,
+}
+
+struct FailOnceCloseSession {
+    inner: Box<dyn demoncoder::session::Session>,
+    fail: bool,
+}
+
+pub fn fail_next_session_close(
+    inner: Box<dyn demoncoder::session::Session>,
+) -> Box<dyn demoncoder::session::Session> {
+    Box::new(FailOnceCloseSession { inner, fail: true })
+}
+
+#[async_trait::async_trait]
+impl demoncoder::session::Session for FailOnceCloseSession {
+    fn native_lifetime(&self) -> bool {
+        self.inner.native_lifetime()
+    }
+    fn open_lifetime(
+        &mut self,
+        source: demoncoder::session::SessionStart,
+        events: &demoncoder::events::EventSink,
+    ) -> anyhow::Result<()> {
+        self.inner.open_lifetime(source, events)
+    }
+    async fn session_start(
+        &mut self,
+        source: demoncoder::session::SessionStart,
+        events: &demoncoder::events::EventSink,
+    ) -> anyhow::Result<()> {
+        self.inner.session_start(source, events).await
+    }
+    async fn session_end(
+        &mut self,
+        reason: demoncoder::session::SessionEnd,
+        events: &demoncoder::events::EventSink,
+    ) -> anyhow::Result<()> {
+        self.inner.session_end(reason, events).await
+    }
+    fn observer_notification(&self) -> anyhow::Result<Option<Arc<tokio::sync::Notify>>> {
+        self.inner.observer_notification()
+    }
+    fn observer_ready(&self) -> anyhow::Result<bool> {
+        self.inner.observer_ready()
+    }
+    async fn observer_turn(
+        &mut self,
+        commands: &mut tokio::sync::mpsc::Receiver<demoncoder::session::Command>,
+        events: &demoncoder::events::EventSink,
+    ) -> anyhow::Result<demoncoder::session::TurnEnd> {
+        self.inner.observer_turn(commands, events).await
+    }
+    fn owner(&self) -> &'static str {
+        self.inner.owner()
+    }
+    fn admit(&mut self, prompt: &str) -> anyhow::Result<()> {
+        self.inner.admit(prompt)
+    }
+    fn supports_workflow(&self) -> bool {
+        self.inner.supports_workflow()
+    }
+    fn initial_events(&self) -> anyhow::Result<Vec<demoncoder::events::Event>> {
+        self.inner.initial_events()
+    }
+    fn checkpoint(&self) -> Option<serde_json::Value> {
+        self.inner.checkpoint()
+    }
+    fn settle_interruption(&mut self) -> anyhow::Result<()> {
+        self.inner.settle_interruption()
+    }
+    fn restore(
+        &mut self,
+        checkpoint: &serde_json::Value,
+        results: &[demoncoder::tools::ToolResult],
+    ) -> anyhow::Result<()> {
+        self.inner.restore(checkpoint, results)
+    }
+    async fn compact(
+        &mut self,
+        commands: &mut tokio::sync::mpsc::Receiver<demoncoder::session::Command>,
+        events: &demoncoder::events::EventSink,
+    ) -> anyhow::Result<demoncoder::session::TurnEnd> {
+        self.inner.compact(commands, events).await
+    }
+    async fn turn(
+        &mut self,
+        prompt: String,
+        commands: &mut tokio::sync::mpsc::Receiver<demoncoder::session::Command>,
+        events: &demoncoder::events::EventSink,
+    ) -> anyhow::Result<demoncoder::session::TurnEnd> {
+        self.inner.turn(prompt, commands, events).await
+    }
+    async fn close(&mut self) -> anyhow::Result<()> {
+        if std::mem::take(&mut self.fail) {
+            anyhow::bail!("injected old-provider close failure")
+        }
+        self.inner.close().await
+    }
+    async fn cancel_background(&mut self) -> anyhow::Result<()> {
+        self.inner.cancel_background().await
+    }
 }
 
 pub fn pause_session_close(
@@ -449,6 +736,14 @@ pub async fn start_actual_control_without_grant(
     start_actual_control_inner(handle, root, connection, None, None).await
 }
 
+pub async fn start_actual_control_without_grant_for_connection(
+    handle: &demoncoder::settings::Handle,
+    root: &std::path::Path,
+    connection: Connection,
+) -> ActualRunningControl {
+    start_actual_control_inner(handle, root, connection, None, None).await
+}
+
 pub async fn start_actual_control_with_session(
     handle: &demoncoder::settings::Handle,
     root: &std::path::Path,
@@ -501,18 +796,19 @@ async fn start_actual_control_inner(
     let events = EventSink::new("actual-settings-owner".into(), event_tx, None)
         .unwrap()
         .with_runtime(runtime.clone());
-    let worker = tokio::spawn(session::run(Box::new(workflow), command_rx, events));
+    let worker = tokio::spawn(session::run(Box::new(workflow), command_rx, events.clone()));
     while !matches!(event_rx.recv().await.unwrap().event, Event::Ready { .. }) {}
     ActualRunningControl {
         runtime,
         command_tx,
+        events,
         worker,
         event_rx,
         native_lifetime,
     }
 }
 
-fn supervisor() -> std::path::PathBuf {
+pub fn supervisor() -> std::path::PathBuf {
     std::env::var_os("CARGO_BIN_EXE_demoncoder")
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|| {
@@ -958,6 +1254,63 @@ pub async fn http_registration(dialect: HookDialect, allow: bool) -> (Registrati
     (registration, peer)
 }
 
+pub async fn model_switch_http_registration() -> (Registration, Peer) {
+    let peer = Peer::new(|_, input| {
+        assert_eq!(input["hook_event_name"], "PreModelSwitch");
+        assert_eq!(input["source"], "settings");
+        assert_eq!(input["requested_model"], input["model"]);
+        (
+            "application/json".into(),
+            json!({"decision":"approve","reason":"production model switch HTTP verdict"})
+                .to_string(),
+        )
+    })
+    .await;
+    let registration = HttpRunner::registration_for_event(
+        package("model-switch-http"),
+        declaration("model-switch-http", HookDialect::Native, HandlerKind::Http),
+        HookEvent::PreModelSwitch,
+        HttpConfig::new(peer.endpoint.clone()),
+        None,
+    )
+    .unwrap();
+    (registration, peer)
+}
+
+pub async fn claude_model_switch_http_registration() -> (Registration, Peer) {
+    let peer = Peer::new(|_, input| {
+        assert_eq!(input["hook_event_name"], "PreModelSwitch");
+        assert_eq!(input["source"], "sdk");
+        assert!(input["context_tokens"].is_number());
+        assert!(input["prompt_cache_warm"].is_boolean());
+        assert!(input["cache_ttl"].is_string());
+        assert!(input["estimated_cache_write_usd"].is_number());
+        assert_eq!(input["pricing"], "catalog");
+        (
+            "application/json".into(),
+            json!({"hookSpecificOutput":{
+                "hookEventName":"PreModelSwitch",
+                "permissionDecision":"allow"
+            }})
+            .to_string(),
+        )
+    })
+    .await;
+    let registration = HttpRunner::registration_for_event(
+        package("claude-model-switch-http"),
+        declaration(
+            "claude-model-switch-http",
+            HookDialect::Claude,
+            HandlerKind::Http,
+        ),
+        HookEvent::PreModelSwitch,
+        HttpConfig::new(peer.endpoint.clone()),
+        None,
+    )
+    .unwrap();
+    (registration, peer)
+}
+
 pub async fn malformed_http_registration() -> (Registration, Peer) {
     let peer = Peer::new(|_, input| {
         assert_config_change_frame(input, HookDialect::Native);
@@ -1073,6 +1426,154 @@ pub async fn mcp_registration_with_max_calls(
     )
     .unwrap();
     (registration, peer, service)
+}
+
+pub async fn model_switch_mcp_registrations(
+    workspace: &std::path::Path,
+    max_calls: u32,
+) -> ([Registration; 2], Peer, Arc<ManagedService>) {
+    model_switch_mcp_registrations_for_dialect(workspace, max_calls, HookDialect::Native).await
+}
+
+pub async fn model_switch_mcp_registrations_for_dialect(
+    workspace: &std::path::Path,
+    max_calls: u32,
+    dialect: HookDialect,
+) -> ([Registration; 2], Peer, Arc<ManagedService>) {
+    use std::os::unix::fs::MetadataExt;
+    let metadata = json!({
+        "name":"model_switch",
+        "inputSchema":{"type":"object","additionalProperties":true}
+    });
+    let listed = metadata.clone();
+    let peer = Peer::new(move |_, input| {
+        let result = match input["method"].as_str() {
+            Some("initialize") => json!({
+                "protocolVersion":"2025-11-25",
+                "capabilities":{"tools":{}},
+                "serverInfo":{"name":"model-switch","version":"1"}
+            }),
+            Some("tools/list") => json!({"tools":[listed]}),
+            Some("tools/call") => {
+                assert!(matches!(
+                    input["params"]["arguments"]["hook_event_name"].as_str(),
+                    Some("PreModelSwitch" | "PostModelSwitch")
+                ));
+                if dialect == HookDialect::Claude {
+                    assert_eq!(input["params"]["arguments"]["source"], "sdk");
+                    assert!(!input["params"]["arguments"]["context_tokens"].is_null());
+                    assert!(!input["params"]["arguments"]["prompt_cache_warm"].is_null());
+                    assert!(!input["params"]["arguments"]["cache_ttl"].is_null());
+                    assert!(!input["params"]["arguments"]["estimated_cache_write_usd"].is_null());
+                    assert!(!input["params"]["arguments"]["pricing"].is_null());
+                }
+                let event = input["params"]["arguments"]["hook_event_name"]
+                    .as_str()
+                    .unwrap();
+                let structured = if dialect == HookDialect::Claude {
+                    if event == "PreModelSwitch" {
+                        json!({"hookSpecificOutput":{
+                            "hookEventName":event,
+                            "permissionDecision":"allow"
+                        }})
+                    } else {
+                        json!({"hookSpecificOutput":{
+                            "hookEventName":event,
+                            "additionalContext":"claude-model-switch-post-context"
+                        }})
+                    }
+                } else {
+                    json!({"decision":"approve","reason":"model switch MCP verdict"})
+                };
+                json!({
+                    "content":[],
+                    "structuredContent":structured
+                })
+            }
+            _ => json!({}),
+        };
+        (
+            "application/json".into(),
+            json!({"jsonrpc":"2.0","id":input["id"],"result":result}).to_string(),
+        )
+    })
+    .await;
+    let package = package("model-switch-mcp");
+    let root = std::fs::metadata(workspace).unwrap();
+    let service = ManagedServices::default()
+        .admit(
+            package.clone(),
+            ServiceConfig {
+                identity: ServiceIdentity {
+                    workspace: (root.dev(), root.ino()),
+                    role: "worker".into(),
+                    generation: "1".into(),
+                    state: "model-switch-state".into(),
+                    credential_revision: "model-switch-credentials".into(),
+                },
+                transport: ServiceTransport::Http(HttpConfig::new(peer.endpoint.clone())),
+                tools: vec![AdmittedTool {
+                    metadata,
+                    read_only: true,
+                }],
+                timeout_ms: 2_000,
+                max_calls,
+            },
+        )
+        .unwrap();
+    let registration = |event, required_gate, index| {
+        let mut declaration = declaration(
+            if required_gate {
+                "model-switch-mcp-pre"
+            } else {
+                "model-switch-mcp-post"
+            },
+            dialect,
+            HandlerKind::McpTool,
+        );
+        declaration.required_gate = required_gate;
+        declaration.identity.index = index;
+        let input = if dialect == HookDialect::Claude {
+            json!({
+                "session_id":"${session_id}",
+                "cwd":"${cwd}",
+                "hook_event_name":"${hook_event_name}",
+                "source":"${source}",
+                "context_tokens":"${context_tokens}",
+                "prompt_cache_warm":"${prompt_cache_warm}",
+                "cache_ttl":"${cache_ttl}",
+                "estimated_cache_write_usd":"${estimated_cache_write_usd}",
+                "pricing":"${pricing}"
+            })
+        } else {
+            json!({
+                "session_id":"${session_id}",
+                "cwd":"${cwd}",
+                "hook_event_name":"${hook_event_name}"
+            })
+        };
+        McpRunner::registration_for_event(
+            package.clone(),
+            declaration,
+            event,
+            McpBinding {
+                service: service.clone(),
+                tool: "model_switch".into(),
+                input,
+            },
+            None,
+            McpConfig::default(),
+        )
+        .unwrap()
+    };
+    (
+        [
+            registration(HookEvent::PreModelSwitch, true, 0),
+            registration(HookEvent::PostModelSwitch, false, 1),
+        ],
+        peer,
+        service,
+    )
 }
 
 fn mcp_registration_for_service(
@@ -1240,6 +1741,60 @@ pub fn pending_stdio_mcp_registration(
 
 pub async fn model_registration(kind: HandlerKind, allow: bool) -> (Registration, Peer) {
     model_registration_delayed(kind, allow, std::time::Duration::ZERO).await
+}
+
+pub async fn model_switch_model_registration(kind: HandlerKind) -> (Registration, Peer) {
+    assert!(matches!(kind, HandlerKind::Prompt | HandlerKind::Agent));
+    let peer = Peer::new(|_, request| {
+        assert_eq!(request["model"], "model-switch-hook-model");
+        let prompt = request["input"][0]["content"].as_str().unwrap();
+        assert!(prompt.contains("PreModelSwitch"));
+        assert!(prompt.contains("settings"));
+        let verdict = json!({"ok":true,"reason":"production model switch verdict"}).to_string();
+        let events = [
+            json!({"type":"response.output_text.delta","delta":verdict}),
+            json!({
+                "type":"response.completed",
+                "response":{
+                    "output":[],
+                    "usage":{
+                        "input_tokens":1,
+                        "output_tokens":1,
+                        "input_tokens_details":{"cached_tokens":0}
+                    }
+                }
+            }),
+        ];
+        (
+            "text/event-stream".into(),
+            events
+                .iter()
+                .map(|event| format!("data: {event}\n\n"))
+                .collect(),
+        )
+    })
+    .await;
+    let connection: Connection = serde_json::from_value(json!({
+        "adapter":"openai-api",
+        "model":"model-switch-hook-model",
+        "endpoint":format!("{}/v1/responses", peer.endpoint),
+        "api_key":"synthetic-hook-key",
+        "max_output_tokens":512
+    }))
+    .unwrap();
+    let mut declared = declaration("model-switch-model", HookDialect::Native, kind);
+    declared.class = HandlerClass::DecisionGate;
+    let registration = ModelRunner::registration_for_event(
+        package("model-switch-model"),
+        declared,
+        HookEvent::PreModelSwitch,
+        ModelConfig::new(
+            connection,
+            "Review the literal PreModelSwitch event: $ARGUMENTS".into(),
+        ),
+    )
+    .unwrap();
+    (registration, peer)
 }
 
 pub async fn model_registration_delayed(

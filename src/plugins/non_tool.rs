@@ -21,6 +21,8 @@ impl NonToolPlan {
                 event,
                 HookEvent::PreCompact
                     | HookEvent::PostCompact
+                    | HookEvent::PreModelSwitch
+                    | HookEvent::PostModelSwitch
                     | HookEvent::PostToolBatch
                     | HookEvent::ConfigChange
                     | HookEvent::UserPromptSubmit
@@ -34,9 +36,12 @@ impl NonToolPlan {
         ensure!(
             !matches!(
                 event,
-                HookEvent::StopFailure | HookEvent::SessionStart | HookEvent::SessionEnd
+                HookEvent::StopFailure
+                    | HookEvent::SessionStart
+                    | HookEvent::SessionEnd
+                    | HookEvent::PostModelSwitch
             ) || registrations.iter().all(|r| !r.declaration.required_gate),
-            "StopFailure is observation only"
+            "event is observation only"
         );
         ensure!(
             registrations
@@ -75,6 +80,27 @@ fn config_change_unavailable(registration: &Registration, funded: bool) -> bool 
                     .is_some_and(|config| config.declared || config.rewake)))
 }
 
+fn model_switch_unavailable(
+    registration: &Registration,
+    funded: bool,
+    source: Option<&ObservedLifecycle>,
+) -> bool {
+    let declaration = &registration.declaration;
+    let source_unavailable = match declaration.identity.dialect {
+        HookDialect::Native => false,
+        HookDialect::Claude => !matches!(source, Some(ObservedLifecycle::Claude(_))),
+        HookDialect::Codex => true,
+    };
+    source_unavailable
+        || (declaration.identity.runner != super::hook_types::HandlerKind::Command && !funded)
+        || registration.runner.observer_config().is_some_and(|config| {
+            !config.declared
+                || config.rewake
+                || declaration.identity.runner != super::hook_types::HandlerKind::Command
+                || !funded
+        })
+}
+
 #[cfg(test)]
 mod config_change_tests {
     use super::*;
@@ -100,41 +126,50 @@ mod config_change_tests {
         }
     }
 
-    #[test]
-    fn config_change_is_an_owned_non_tool_gate() {
-        let declaration = Declaration {
-            required_gate: true,
-            source: None,
-            once: None,
-            identity: DeclarationIdentity {
-                package: "settings-policy".into(),
-                code: "code".into(),
-                policy: "policy".into(),
-                configuration: "configuration".into(),
-                generation: "1".into(),
-                scope: Scope::Project,
-                role: "worker".into(),
-                declaration: "config-change".into(),
-                index: 0,
-                dialect: HookDialect::Native,
-                runner: HandlerKind::Command,
+    fn registration(required_gate: bool) -> Registration {
+        Registration {
+            declaration: Declaration {
+                required_gate,
+                source: None,
+                once: None,
+                identity: DeclarationIdentity {
+                    package: "settings-policy".into(),
+                    code: "code".into(),
+                    policy: "policy".into(),
+                    configuration: "configuration".into(),
+                    generation: "1".into(),
+                    scope: Scope::Project,
+                    role: "worker".into(),
+                    declaration: "owned-non-tool".into(),
+                    index: 0,
+                    dialect: HookDialect::Native,
+                    runner: HandlerKind::Command,
+                },
+                class: HandlerClass::Combined,
+                priority: 0,
+                matcher: Matcher::default(),
+                reads: GateReadSet::default(),
+                concurrent_group: None,
+                read_only_endpoint: None,
+                external_precondition: None,
             },
-            class: HandlerClass::Combined,
-            priority: 0,
-            matcher: Matcher::default(),
-            reads: GateReadSet::default(),
-            concurrent_group: None,
-            read_only_endpoint: None,
-            external_precondition: None,
-        };
-        let registration = Registration {
-            declaration,
             runner: Arc::new(Noop),
             revalidation: None,
-        };
+        }
+    }
 
-        NonToolPlan::new(HookEvent::ConfigChange, vec![registration])
+    #[test]
+    fn config_change_is_an_owned_non_tool_gate() {
+        NonToolPlan::new(HookEvent::ConfigChange, vec![registration(true)])
             .expect("ConfigChange must use the owned non-tool gate path");
+    }
+
+    #[test]
+    fn model_switch_uses_the_owned_non_tool_path() {
+        NonToolPlan::new(HookEvent::PreModelSwitch, vec![registration(true)])
+            .expect("PreModelSwitch must use the owned non-tool gate path");
+        NonToolPlan::new(HookEvent::PostModelSwitch, vec![registration(false)])
+            .expect("PostModelSwitch must use the owned non-tool observation path");
     }
 }
 
@@ -178,6 +213,7 @@ impl NonToolEffects {
             }
         }
         let enforce = receipt.required_gate
+            || event == HookEvent::PreModelSwitch
             || matches!(event, HookEvent::PreCompact | HookEvent::PostCompact)
             || (event == HookEvent::PostToolBatch
                 && receipt.declaration.dialect == HookDialect::Claude);
@@ -283,6 +319,10 @@ impl NonToolValidation {
     }
 }
 impl NonToolPlan {
+    pub(crate) fn authenticated_source_observation_digest(event: HookEvent) -> Result<String> {
+        digest(&("authenticated_source_observation_v1", event.as_str()))
+    }
+
     /// Record an authenticated boundary with no user handler. This is an
     /// observation receipt, not an executable plan with synthetic declarations.
     pub(crate) fn observe_source(
@@ -295,7 +335,7 @@ impl NonToolPlan {
             "empty lifecycle observation requires an authenticated source"
         );
         let event = occurrence.event();
-        let plan = digest(&("authenticated_source_observation_v1", event.as_str()))?;
+        let plan = Self::authenticated_source_observation_digest(event)?;
         let (events, facts) = events.for_non_tool(occurrence, plan, vec![])?;
         let (runtime, operation) = events.plugin_context()?;
         let _owner = runtime
@@ -356,10 +396,23 @@ impl NonToolPlan {
                     && session_lifetime_unavailable(&handler.registration, funded);
             let config_change_unavailable = event == HookEvent::ConfigChange
                 && config_change_unavailable(&handler.registration, funded);
-            if lifetime_unavailable || config_change_unavailable {
+            let model_switch_unavailable =
+                matches!(
+                    event,
+                    HookEvent::PreModelSwitch | HookEvent::PostModelSwitch
+                ) && model_switch_unavailable(&handler.registration, funded, facts.source.as_ref());
+            if lifetime_unavailable || config_change_unavailable || model_switch_unavailable {
                 if config_change_unavailable && declaration.required_gate {
                     effects.hold(
                         "required ConfigChange handler lacks its original session allowance or source support",
+                    );
+                }
+                if model_switch_unavailable
+                    && event == HookEvent::PreModelSwitch
+                    && declaration.required_gate
+                {
+                    effects.hold(
+                        "required PreModelSwitch handler lacks its original session allowance or truthful source callback",
                     );
                 }
                 effects.diagnostics.push(format!("{} observation unavailable: native synchronous commands are grant-free; model, transport, and explicitly declared native async commands require their original session grant", handler.registration.declaration.identity.declaration));
@@ -676,15 +729,17 @@ impl NonToolPlan {
             hold: effects.hold.clone(),
             correction: effects.correction,
             context,
-            validation: matches!(event, HookEvent::PreCompact | HookEvent::ConfigChange).then(
-                || NonToolValidation {
-                    plan: self.clone(),
-                    workspace: workspace.clone(),
-                    snapshots: validation,
-                    boundary,
-                    event,
-                },
-            ),
+            validation: matches!(
+                event,
+                HookEvent::PreCompact | HookEvent::PreModelSwitch | HookEvent::ConfigChange
+            )
+            .then(|| NonToolValidation {
+                plan: self.clone(),
+                workspace: workspace.clone(),
+                snapshots: validation,
+                boundary,
+                event,
+            }),
         };
         runtime.settle_non_tool(operation, event, effects)?;
         Ok(result)
