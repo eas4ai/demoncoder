@@ -20,6 +20,7 @@ pub enum HostInvocation {
     ToolBatch(super::tool_batches::ToolBatch),
     Compaction(super::compaction::Compaction),
     ModelSwitch(Box<super::model_switch::ModelSwitch>),
+    WorkspaceChange(Box<super::workspace_change::WorkspaceChange>),
     NativeTurn(crate::plugins::receipts::NativeTurn),
     NativeSession(super::plugin_session::NativeSessionLifetime),
     Lifecycle(Box<crate::plugins::receipts::NonToolReceipt>),

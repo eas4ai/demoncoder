@@ -1491,9 +1491,10 @@ async fn check_compaction_trigger_funding(
     assert_eq!(
         summaries.load(Ordering::SeqCst),
         usize::from(applied),
-        "{case}: error={error:?}; elapsed={case_elapsed:?}; compaction={compact:?}; before_allowance={:?}; after_allowance={:?}",
+        "{case}: error={error:?}; elapsed={case_elapsed:?}; compaction={compact:?}; before_allowance={:?}; after_allowance={:?}; operations={:?}",
         before.session_hook_allowance,
         after.session_hook_allowance,
+        after.operations,
     );
     assert!(
         after.task.is_none() && after.allocation.is_none(),

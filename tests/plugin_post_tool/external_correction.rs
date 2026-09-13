@@ -787,7 +787,11 @@ async fn case_with_notification_order(
             session.turn("retry uncertain delivery".into(), &mut resume_rx, &f.events),
         )
         .await
-        .unwrap();
+        .unwrap_or_else(|error| {
+            panic!(
+                "{adapter} {mode}: uncertain-delivery retry timed out: {error}; before={before:?}"
+            )
+        });
         assert!(
             replay.is_err(),
             "uncertain correction must never be automatically resent"

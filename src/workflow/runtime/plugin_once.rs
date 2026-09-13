@@ -547,6 +547,33 @@ impl SharedRuntime {
         self.drain_runner_operations(&operations, deadline).await
     }
 
+    pub(crate) async fn quiesce_settings_controls(
+        &self,
+        deadline: tokio::time::Instant,
+    ) -> Result<()> {
+        self.cancel_settings_controls()?;
+        loop {
+            self.drain_settings_controls(deadline).await?;
+            let pending = self.record()?.operations.iter().any(|operation| {
+                operation.non_tool_receipt().is_some_and(|receipt| {
+                    receipt.facts.subject.occurrence.event()
+                        == crate::plugins::hook_types::HookEvent::ConfigChange
+                }) && operation.needs_reconciliation()
+            });
+            if !pending {
+                return Ok(());
+            }
+            ensure!(
+                tokio::time::Instant::now() < deadline,
+                "Settings cleanup deadline exhausted; workspace replacement remains at the old root"
+            );
+            tokio::time::sleep_until(
+                deadline.min(tokio::time::Instant::now() + std::time::Duration::from_millis(5)),
+            )
+            .await;
+        }
+    }
+
     pub(crate) async fn drain_settings_control(
         &self,
         operation: u64,

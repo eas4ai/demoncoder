@@ -547,9 +547,17 @@ impl SharedRuntime {
                         .any(|(event, digest)| *event == occurrence.event() && digest == &plan),
                     "native session hook policy differs from startup generation"
                 );
+                let root = if matches!(occurrence, NonToolOccurrence::SessionEnd { .. }) {
+                    lifetime
+                        .workspace_path
+                        .as_deref()
+                        .unwrap_or(&record.workspace)
+                } else {
+                    &record.workspace
+                };
                 owner::Owner {
                     identity,
-                    root: &record.workspace,
+                    root,
                     child: None,
                 }
             } else if matches!(
@@ -572,6 +580,11 @@ impl SharedRuntime {
                     record,
                     host_operation.context("model switch operation missing")?,
                     occurrence.event(),
+                )?
+            } else if matches!(occurrence, NonToolOccurrence::CwdChanged { .. }) {
+                super::workspace_change::owner(
+                    record,
+                    host_operation.context("workspace change operation missing")?,
                 )?
             } else {
                 owner::resolve(record, phase)?
@@ -618,6 +631,27 @@ impl SharedRuntime {
                                 && r.facts.subject.occurrence.event() == occurrence.event()
                         ),
                     "compaction event already recorded; never replay"
+                );
+            }
+            if matches!(occurrence, NonToolOccurrence::CwdChanged { .. }) {
+                ensure!(
+                    native_turn.is_none() && origin.source.is_none(),
+                    "CwdChanged is a host-owned observation"
+                );
+                super::workspace_change::validate_occurrence(
+                    record,
+                    host_operation.context("workspace change operation missing")?,
+                    &occurrence,
+                    &plan,
+                )?;
+                ensure!(
+                    !record
+                        .operations
+                        .iter()
+                        .filter_map(Operation::non_tool_receipt)
+                        .any(|receipt| receipt.facts.subject.occurrence.host_operation()
+                            == host_operation),
+                    "CwdChanged already recorded; never replay"
                 );
             }
             if matches!(
@@ -796,6 +830,11 @@ impl SharedRuntime {
                     host_operation.context("compaction missing")?,
                     phase,
                 )?
+            } else if matches!(occurrence, NonToolOccurrence::CwdChanged { .. }) {
+                Some(super::workspace_change::hook_lifetime(
+                    record,
+                    host_operation.context("workspace change missing")?,
+                )?)
             } else {
                 None
             };

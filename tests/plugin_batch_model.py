@@ -12,11 +12,14 @@ import plugin_external_non_tool as fixture
 root = Path(sys.argv[1])
 adapter = sys.argv[2] if sys.argv[2] in ('claude', 'codex', 'openai-api', 'anthropic-api') else 'claude'
 mode = sys.argv[3] if len(sys.argv) > 3 else ''
-wrapper = mode in ('wrapper', 'owner', 'hold-owner')
-owner_mode = mode in ('owner', 'hold-owner')
+wrapper = mode in ('wrapper', 'owner', 'hold-owner', 'workspace-owner')
+owner_mode = mode in ('owner', 'hold-owner', 'workspace-owner')
 wire_adapter = 'claude' if adapter in ('claude', 'anthropic-api') else 'codex'
 original = fixture.model_response
+workspace_effect_sent = False
+pre_workspace_effect_sent = False
 def response(wire, sequence, text_case, case):
+    global workspace_effect_sent, pre_workspace_effect_sent
     rows = original(wire, sequence, text_case, case)
     if owner_mode:
         with lock:
@@ -28,6 +31,36 @@ def response(wire, sequence, text_case, case):
             while not (root / 'release-owner').exists():
                 assert time.monotonic() < deadline, 'held owner request was not released'
                 time.sleep(0.01)
+        request_text = json.dumps(requests[-1])
+        workspace_tool = mode == 'workspace-owner' and not workspace_effect_sent and 'next explicit prompt in B' in request_text
+        pre_workspace_tool = mode == 'workspace-owner' and not pre_workspace_effect_sent and 'pre-move read canary' in request_text
+        if workspace_tool or pre_workspace_tool:
+            if workspace_tool:
+                workspace_effect_sent = True
+                call_id = 'installed-workspace-write'
+                arguments = {'path':'installed-workspace-proof.txt','content':'written-by-installed-owner'}
+                tool_name = 'mcp__demoncoder__write' if adapter == 'claude' else 'write'
+            else:
+                pre_workspace_effect_sent = True
+                call_id = 'pre-move-evidence-read'
+                arguments = {'path':'read-canary.txt'}
+                tool_name = 'mcp__demoncoder__read' if adapter == 'claude' else 'read'
+            for row in rows:
+                if row['type'] == 'content_block_start':
+                    row['content_block'].update(type='tool_use', id=call_id, name=tool_name, input={})
+                if row['type'] == 'content_block_delta':
+                    row['delta'] = {'type':'input_json_delta','partial_json':json.dumps(arguments)}
+                if row['type'] == 'message_delta':
+                    row['delta']['stop_reason'] = 'tool_use'
+                item = row.get('item')
+                if item and item['type'] == 'message':
+                    item.update(type='function_call', id=call_id, call_id=call_id, name=tool_name, arguments=json.dumps(arguments))
+                    item.pop('role', None)
+                    item.pop('content', None)
+                for item in row.get('response',{}).get('output',[]):
+                    item.update(type='function_call', id=call_id, call_id=call_id, name=tool_name, arguments=json.dumps(arguments))
+                    item.pop('role', None)
+                    item.pop('content', None)
     elif sequence == 1 and wrapper:
         arguments = {'calls': [{'tool':'write','arguments':{'path':'proof.txt','content':'first'}}, {'tool':'bash','arguments':{'command':'sleep 0.05'}}, {'tool':'edit','arguments':{'path':'proof.txt','old_text':'first','new_text':'settled host batch'}}]}
         for row in rows:

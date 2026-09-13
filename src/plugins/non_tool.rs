@@ -25,6 +25,7 @@ impl NonToolPlan {
                     | HookEvent::PostModelSwitch
                     | HookEvent::PostToolBatch
                     | HookEvent::ConfigChange
+                    | HookEvent::CwdChanged
                     | HookEvent::UserPromptSubmit
                     | HookEvent::Stop
                     | HookEvent::StopFailure
@@ -40,6 +41,7 @@ impl NonToolPlan {
                     | HookEvent::SessionStart
                     | HookEvent::SessionEnd
                     | HookEvent::PostModelSwitch
+                    | HookEvent::CwdChanged
             ) || registrations.iter().all(|r| !r.declaration.required_gate),
             "event is observation only"
         );
@@ -401,7 +403,13 @@ impl NonToolPlan {
                     event,
                     HookEvent::PreModelSwitch | HookEvent::PostModelSwitch
                 ) && model_switch_unavailable(&handler.registration, funded, facts.source.as_ref());
-            if lifetime_unavailable || config_change_unavailable || model_switch_unavailable {
+            let cwd_unavailable = event == HookEvent::CwdChanged
+                && declaration.identity.dialect == HookDialect::Codex;
+            if lifetime_unavailable
+                || config_change_unavailable
+                || model_switch_unavailable
+                || cwd_unavailable
+            {
                 if config_change_unavailable && declaration.required_gate {
                     effects.hold(
                         "required ConfigChange handler lacks its original session allowance or source support",
@@ -414,6 +422,9 @@ impl NonToolPlan {
                     effects.hold(
                         "required PreModelSwitch handler lacks its original session allowance or truthful source callback",
                     );
+                }
+                if cwd_unavailable {
+                    effects.diagnostics.push("Codex source CwdChanged is unavailable; host replacement remains applied and the unsupported proposal is not executed".into());
                 }
                 effects.diagnostics.push(format!("{} observation unavailable: native synchronous commands are grant-free; model, transport, and explicitly declared native async commands require their original session grant", handler.registration.declaration.identity.declaration));
                 continue;

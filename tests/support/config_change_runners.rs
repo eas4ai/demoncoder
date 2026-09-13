@@ -363,7 +363,10 @@ impl ActualRunningControl {
                     .event;
                 let finished = match &event {
                     demoncoder::events::Event::TurnFinished { status } => {
-                        assert_eq!(*status, expected_status);
+                        assert_eq!(
+                            *status, expected_status,
+                            "actual owner events before completion: {events:?}"
+                        );
                         true
                     }
                     _ => false,
@@ -754,6 +757,55 @@ pub async fn start_actual_control_with_session(
     start_actual_control_inner(handle, root, connection, Some(&limits), inner).await
 }
 
+pub async fn start_workspace_control(
+    root: &std::path::Path,
+    connection: Connection,
+    limits: demoncoder::workflow::allocation::Limits,
+) -> ActualRunningControl {
+    use demoncoder::{
+        events::{Event, EventSink},
+        session,
+        workflow::{Settings, WorkflowSession, runtime::SharedRuntime, workspace::CaptureScope},
+    };
+    let (runtime, _) = SharedRuntime::open_with_session_hooks(
+        root,
+        &connection,
+        None,
+        &CaptureScope::default(),
+        Some(&limits),
+    )
+    .unwrap();
+    let inner = demoncoder::adapters::builtins()
+        .unwrap()
+        .open(&connection, root)
+        .unwrap();
+    let native_lifetime = inner.native_lifetime();
+    let workflow = WorkflowSession::new(
+        inner,
+        connection,
+        root.to_owned(),
+        Settings::default(),
+        runtime.clone(),
+        false,
+    )
+    .unwrap();
+    let (command_tx, command_rx) = tokio::sync::mpsc::channel(4);
+    let (event_tx, mut event_rx) = tokio::sync::mpsc::channel(512);
+    let events = EventSink::new("workspace-runner-owner".into(), event_tx, None)
+        .unwrap()
+        .with_runtime(runtime.clone());
+    let worker = tokio::spawn(session::run(Box::new(workflow), command_rx, events.clone()));
+    while !matches!(event_rx.recv().await.unwrap().event, Event::Ready { .. }) {}
+    ActualRunningControl {
+        runtime,
+        command_tx,
+        events,
+        worker,
+        event_rx,
+        native_lifetime,
+    }
+}
+
 async fn start_actual_control_inner(
     handle: &demoncoder::settings::Handle,
     root: &std::path::Path,
@@ -971,6 +1023,208 @@ pub fn declaration(name: &str, dialect: HookDialect, runner: HandlerKind) -> Dec
     }
 }
 
+fn cwd_declaration(name: &str, dialect: HookDialect, runner: HandlerKind) -> Declaration {
+    let mut declaration = declaration(name, dialect, runner);
+    declaration.required_gate = false;
+    declaration.class = if dialect == HookDialect::Native {
+        HandlerClass::Observer
+    } else {
+        HandlerClass::Combined
+    };
+    declaration.concurrent_group =
+        (dialect == HookDialect::Claude).then(|| "cwd-changed-source".into());
+    declaration
+}
+
+fn assert_cwd_frame(input: &Value, dialect: HookDialect) {
+    assert_eq!(input["hook_event_name"], "CwdChanged");
+    assert!(
+        input["old_cwd"]
+            .as_str()
+            .is_some_and(|path| path.ends_with("/a"))
+    );
+    assert!(
+        input["new_cwd"]
+            .as_str()
+            .is_some_and(|path| path.contains("b with spaces;literal"))
+    );
+    if dialect == HookDialect::Claude {
+        assert!(input["session_id"].is_string());
+        assert!(input["transcript_path"].is_string());
+        assert!(input["permission_mode"].is_string());
+    } else {
+        assert_eq!(
+            input["demoncoder"]["subject"]["occurrence"]["event"],
+            "CwdChanged"
+        );
+    }
+}
+
+pub fn cwd_command_registration(dialect: HookDialect) -> Registration {
+    let source = tempfile::tempdir().unwrap();
+    std::fs::create_dir(source.path().join(".claude-plugin")).unwrap();
+    std::fs::write(
+        source.path().join(".claude-plugin/plugin.json"),
+        r#"{"name":"cwd-command","version":"1.0.0"}"#,
+    )
+    .unwrap();
+    let source_assertion = if dialect == HookDialect::Claude {
+        "assert isinstance(x['session_id'],str) and isinstance(x['transcript_path'],str) and isinstance(x['permission_mode'],str)"
+    } else {
+        "assert x['demoncoder']['subject']['occurrence']['event']=='CwdChanged'"
+    };
+    std::fs::write(source.path().join("hook.py"), format!(concat!(
+        "import json,sys\n",
+        "x=json.load(sys.stdin)\n",
+        "assert x['hook_event_name']=='CwdChanged'\n",
+        "assert x['old_cwd'].endswith('/a')\n",
+        "assert 'b with spaces;literal' in x['new_cwd']\n",
+        "{source_assertion}\n",
+        "print(json.dumps({{'hookSpecificOutput':{{'hookEventName':'CwdChanged','watchPaths':['/unsupported-command-watch']}}}}))\n",
+    ), source_assertion = source_assertion)).unwrap();
+    let package =
+        Arc::new(plugins::inspect(source.path(), &plugins::ImportOptions::default()).unwrap());
+    CommandRunner::registration_for_event(
+        package,
+        cwd_declaration("cwd-command", dialect, HandlerKind::Command),
+        HookEvent::CwdChanged,
+        CommandConfig::new(CommandProgram::Argv(vec![
+            "/usr/bin/python3".into(),
+            "${CLAUDE_PLUGIN_ROOT}/hook.py".into(),
+        ])),
+        None,
+    )
+    .unwrap()
+}
+
+pub async fn cwd_http_registration(dialect: HookDialect) -> (Registration, Peer) {
+    let peer = Peer::new(move |_, input| {
+        assert_cwd_frame(input, dialect);
+        (
+            "application/json".into(),
+            json!({"hookSpecificOutput":{
+                "hookEventName":"CwdChanged", "watchPaths":["/unsupported-http-watch"]
+            }})
+            .to_string(),
+        )
+    })
+    .await;
+    let registration = HttpRunner::registration_for_event(
+        package("cwd-http"),
+        cwd_declaration("cwd-http", dialect, HandlerKind::Http),
+        HookEvent::CwdChanged,
+        HttpConfig::new(peer.endpoint.clone()),
+        None,
+    )
+    .unwrap();
+    (registration, peer)
+}
+
+pub async fn cwd_mcp_registration(
+    workspace: &std::path::Path,
+    dialect: HookDialect,
+) -> (Registration, Peer, Arc<ManagedService>) {
+    use std::os::unix::fs::MetadataExt;
+    let metadata =
+        json!({"name":"cwd_changed","inputSchema":{"type":"object","additionalProperties":true}});
+    let listed = metadata.clone();
+    let peer = Peer::new(move |_, input| {
+        let result = match input["method"].as_str() {
+            Some("initialize") => json!({"protocolVersion":"2025-11-25","capabilities":{"tools":{}},"serverInfo":{"name":"cwd-change","version":"1"}}),
+            Some("tools/list") => json!({"tools":[listed]}),
+            Some("tools/call") => {
+                assert_cwd_frame(&input["params"]["arguments"], dialect);
+                json!({"content":[],"structuredContent":{"hookSpecificOutput":{
+                    "hookEventName":"CwdChanged", "watchPaths":["/unsupported-mcp-watch"]
+                }}})
+            }
+            _ => json!({}),
+        };
+        ("application/json".into(), json!({"jsonrpc":"2.0","id":input["id"],"result":result}).to_string())
+    }).await;
+    let package = package("cwd-mcp");
+    let root = std::fs::metadata(workspace).unwrap();
+    let mut binding_input = json!({
+        "session_id":"${session_id}", "cwd":"${cwd}",
+        "hook_event_name":"${hook_event_name}", "old_cwd":"${old_cwd}", "new_cwd":"${new_cwd}"
+    });
+    if dialect == HookDialect::Claude {
+        binding_input["transcript_path"] = json!("${transcript_path}");
+        binding_input["permission_mode"] = json!("${permission_mode}");
+    } else {
+        binding_input["demoncoder"] = json!("${demoncoder}");
+    }
+    let service = ManagedServices::default()
+        .admit(
+            package.clone(),
+            ServiceConfig {
+                identity: ServiceIdentity {
+                    workspace: (root.dev(), root.ino()),
+                    role: "worker".into(),
+                    generation: "1".into(),
+                    state: "cwd-change-state".into(),
+                    credential_revision: "cwd-change-credentials".into(),
+                },
+                transport: ServiceTransport::Http(HttpConfig::new(peer.endpoint.clone())),
+                tools: vec![AdmittedTool {
+                    metadata,
+                    read_only: true,
+                }],
+                timeout_ms: 2_000,
+                max_calls: 4,
+            },
+        )
+        .unwrap();
+    let registration = McpRunner::registration_for_event(
+        package,
+        cwd_declaration("cwd-mcp", dialect, HandlerKind::McpTool),
+        HookEvent::CwdChanged,
+        McpBinding {
+            service: service.clone(),
+            tool: "cwd_changed".into(),
+            input: binding_input,
+        },
+        None,
+        McpConfig::default(),
+    )
+    .unwrap();
+    (registration, peer, service)
+}
+
+pub async fn cwd_model_registration(kind: HandlerKind) -> (Registration, Peer) {
+    assert!(matches!(kind, HandlerKind::Prompt | HandlerKind::Agent));
+    let peer = Peer::new(move |_, request| {
+        assert_eq!(request["model"], "cwd-hook-model");
+        let prompt = request["input"][0]["content"].as_str().unwrap();
+        assert!(prompt.contains("CwdChanged") && prompt.contains("b with spaces;literal") && prompt.contains("/a"));
+        let verdict = json!({"ok":true,"reason":format!("cwd {kind:?} observed")}).to_string();
+        let events = [
+            json!({"type":"response.output_text.delta","delta":verdict}),
+            json!({"type":"response.completed","response":{"output":[],"usage":{"input_tokens":1,"output_tokens":1,"input_tokens_details":{"cached_tokens":0}}}}),
+        ];
+        ("text/event-stream".into(), events.iter().map(|event| format!("data: {event}\n\n")).collect())
+    }).await;
+    let connection: Connection = serde_json::from_value(json!({
+        "adapter":"openai-api", "model":"cwd-hook-model",
+        "endpoint":format!("{}/v1/responses", peer.endpoint),
+        "api_key":"synthetic-hook-key", "max_output_tokens":512
+    }))
+    .unwrap();
+    let mut declaration = cwd_declaration("cwd-model", HookDialect::Native, kind);
+    declaration.class = HandlerClass::DecisionGate;
+    let registration = ModelRunner::registration_for_event(
+        package("cwd-model"),
+        declaration,
+        HookEvent::CwdChanged,
+        ModelConfig::new(
+            connection,
+            "Observe the literal CwdChanged event: $ARGUMENTS".into(),
+        ),
+    )
+    .unwrap();
+    (registration, peer)
+}
+
 pub fn command_registration(dialect: HookDialect, allow: bool) -> Registration {
     let source = tempfile::tempdir().unwrap();
     std::fs::create_dir(source.path().join(".claude-plugin")).unwrap();
@@ -1176,6 +1430,10 @@ impl Peer {
 
     pub fn count(&self) -> usize {
         self.requests.lock().unwrap().len()
+    }
+
+    pub fn requests(&self) -> Vec<Value> {
+        self.requests.lock().unwrap().clone()
     }
 
     pub fn method_count(&self, method: &str) -> usize {

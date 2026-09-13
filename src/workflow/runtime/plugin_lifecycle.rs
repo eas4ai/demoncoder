@@ -280,6 +280,7 @@ impl SharedRuntime {
         if matches!(
             event,
             HookEvent::ConfigChange
+                | HookEvent::CwdChanged
                 | HookEvent::PostToolBatch
                 | HookEvent::PreCompact
                 | HookEvent::PostCompact

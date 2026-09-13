@@ -56,12 +56,13 @@ enum Job {
 }
 
 pub struct Manager {
-    workspace: PathBuf,
+    workspace: Mutex<crate::workflow::runtime::workspace_change::RootOccurrence>,
     pub(super) settings: Settings,
     pub(super) runtime: SharedRuntime,
     active: Mutex<BTreeMap<u64, Active>>,
     stopping: AtomicBool,
     queue_paused: AtomicBool,
+    workspace_transition: AtomicBool,
     live_settings: Option<crate::settings::Handle>,
     pinned: Mutex<BTreeMap<u64, crate::config::Connection>>,
 }
@@ -151,13 +152,19 @@ impl Manager {
             .agents
             .iter()
             .any(|agent| agent.status == AgentStatus::Queued);
+        let root = runtime.workspace_root()?;
+        ensure!(
+            root.path == workspace.canonicalize()?,
+            "manager workspace differs from durable session root"
+        );
         Ok(Arc::new(Self {
-            workspace,
+            workspace: Mutex::new(root),
             settings,
             runtime,
             active: Mutex::new(BTreeMap::new()),
             stopping: AtomicBool::new(false),
             queue_paused: AtomicBool::new(queue_paused),
+            workspace_transition: AtomicBool::new(false),
             live_settings,
             pinned: Mutex::new(BTreeMap::new()),
         }))
@@ -501,6 +508,15 @@ impl Manager {
             !self.stopping.load(Ordering::SeqCst),
             "agent launch cancelled before registration"
         );
+        ensure!(
+            !self.workspace_transition.load(Ordering::Acquire),
+            "workspace replacement blocks new agent jobs"
+        );
+        let root = self
+            .workspace
+            .lock()
+            .map_err(|_| anyhow::anyhow!("manager workspace lock failed"))?
+            .clone();
         let expected = match &job {
             Job::Work => AgentStatus::Preparing,
             Job::Validate => AgentStatus::Validating,
@@ -521,7 +537,7 @@ impl Manager {
         let manager = self.clone();
         let events = events.clone();
         let task = tokio::spawn(async move {
-            manager.run(id, job, receiver, events, guard).await;
+            manager.run(id, job, root, receiver, events, guard).await;
         });
         active.retain(|_, entry| !entry.task.is_finished());
         active.insert(id, Active { cancel, task });
@@ -532,6 +548,7 @@ impl Manager {
         self: Arc<Self>,
         id: u64,
         job: Job,
+        root: crate::workflow::runtime::workspace_change::RootOccurrence,
         mut cancel: oneshot::Receiver<()>,
         events: EventSink,
         mut guard: Interrupted,
@@ -541,7 +558,10 @@ impl Manager {
         let sink = events.child(&phase, sender);
         let mut session: Option<Box<dyn Session>> = None;
         let result = async {
-            let operation = tokio::time::timeout(self.runtime.remaining()?, self.perform(id, &job, &sink, &mut session));
+            let operation = tokio::time::timeout(
+                self.runtime.remaining()?,
+                self.perform(id, &job, &root, &sink, &mut session),
+            );
             tokio::pin!(operation);
             loop {
                 tokio::select! {
@@ -684,6 +704,7 @@ impl Manager {
         &self,
         id: u64,
         job: &Job,
+        root: &crate::workflow::runtime::workspace_change::RootOccurrence,
         events: &EventSink,
         session: &mut Option<Box<dyn Session>>,
     ) -> Result<()> {
@@ -693,7 +714,7 @@ impl Manager {
                 crate::workflow::store::private_directory(&directory)?;
                 let scope = self.runtime.record()?.capture_scope;
                 let identity = worktree::prepare_with_scope(
-                    &self.workspace,
+                    &root.path,
                     &directory.join(id.to_string()),
                     &scope,
                 )
@@ -744,7 +765,7 @@ impl Manager {
                     snapshot.digest == plan.child_digest,
                     "child changed after integration admission"
                 );
-                worktree::integrate(&self.workspace, identity, plan).await?;
+                worktree::integrate(&root.path, identity, plan).await?;
                 self.runtime.update(|record| {
                     ensure!(
                         !self.stopping.load(Ordering::SeqCst),
@@ -1383,6 +1404,10 @@ impl Manager {
 
     pub fn ensure_parent_available(&self) -> Result<()> {
         ensure!(
+            !self.workspace_transition.load(Ordering::Acquire),
+            "workspace replacement is in progress"
+        );
+        ensure!(
             !self
                 .runtime
                 .record()?
@@ -1391,6 +1416,80 @@ impl Manager {
                 .any(|agent| agent.status == AgentStatus::Integrating),
             "wait for agent integration to finish before changing parent work"
         );
+        Ok(())
+    }
+
+    pub(crate) fn begin_workspace_transition(
+        &self,
+        expected: &crate::workflow::runtime::workspace_change::RootOccurrence,
+    ) -> Result<()> {
+        let mut active = self
+            .active
+            .lock()
+            .map_err(|_| anyhow::anyhow!("agent lifecycle lock failed"))?;
+        active.retain(|_, entry| !entry.task.is_finished());
+        ensure!(
+            active.is_empty()
+                && !self
+                    .runtime
+                    .record()?
+                    .agents
+                    .iter()
+                    .any(|agent| agent.status.active()),
+            "stop active agent jobs before replacing the workspace"
+        );
+        let root = self
+            .workspace
+            .lock()
+            .map_err(|_| anyhow::anyhow!("manager workspace lock failed"))?;
+        ensure!(
+            &*root == expected,
+            "manager captured a stale workspace generation"
+        );
+        ensure!(
+            !self.workspace_transition.swap(true, Ordering::AcqRel),
+            "workspace replacement already in progress"
+        );
+        drop(root);
+        drop(active);
+        Ok(())
+    }
+
+    pub(crate) fn install_workspace(
+        &self,
+        expected: &crate::workflow::runtime::workspace_change::RootOccurrence,
+        replacement: crate::workflow::runtime::workspace_change::RootOccurrence,
+    ) -> Result<()> {
+        ensure!(
+            self.workspace_transition.load(Ordering::Acquire),
+            "workspace replacement was not admitted"
+        );
+        let mut root = self
+            .workspace
+            .lock()
+            .map_err(|_| anyhow::anyhow!("manager workspace lock failed"))?;
+        ensure!(
+            &*root == expected && replacement.generation == expected.generation + 1,
+            "manager workspace publication is stale"
+        );
+        *root = replacement;
+        self.workspace_transition.store(false, Ordering::Release);
+        Ok(())
+    }
+
+    pub(crate) fn cancel_workspace_transition(
+        &self,
+        expected: &crate::workflow::runtime::workspace_change::RootOccurrence,
+    ) -> Result<()> {
+        let root = self
+            .workspace
+            .lock()
+            .map_err(|_| anyhow::anyhow!("manager workspace lock failed"))?;
+        ensure!(
+            &*root == expected,
+            "manager workspace changed during cancellation"
+        );
+        self.workspace_transition.store(false, Ordering::Release);
         Ok(())
     }
 
@@ -1881,6 +1980,212 @@ mod tests {
             events,
             _event_rx: event_rx,
         }
+    }
+
+    #[tokio::test]
+    async fn failed_post_apply_manager_install_keeps_applied_root_inspectable_and_held() {
+        let fixture =
+            integration_fixture_with_record(false, "workspace-manager-post-failure").await;
+        fixture
+            .runtime
+            .update(|record| {
+                record.task.as_mut().unwrap().accepted = Some("accepted-parent".into());
+                record.agents[0].status = AgentStatus::Integrated;
+                Ok(())
+            })
+            .unwrap();
+        let replacement = fixture.workspace_root.parent().unwrap().join("replacement");
+        std::fs::create_dir(&replacement).unwrap();
+        let lifetime = fixture
+            .runtime
+            .begin_native_session(crate::session::SessionStart::Startup, None, vec![])
+            .unwrap();
+        let current = fixture.runtime.workspace_root().unwrap();
+        let candidate = crate::workflow::runtime::workspace_change::WorkspaceCandidate::capture(
+            &replacement,
+            current.generation + 1,
+        )
+        .unwrap();
+
+        fixture
+            .manager
+            .begin_workspace_transition(&current)
+            .unwrap();
+        let change = fixture
+            .runtime
+            .begin_workspace_change(&candidate, "developer", lifetime, None, None)
+            .unwrap();
+        fixture
+            .runtime
+            .begin_workspace_change_teardown(change)
+            .unwrap();
+        fixture
+            .runtime
+            .apply_workspace_change(change, &candidate)
+            .unwrap();
+
+        let mut stale_expected = current.clone();
+        stale_expected.generation += 1;
+        let install_error = fixture
+            .manager
+            .install_workspace(&stale_expected, candidate.occurrence().clone())
+            .expect_err("stale Manager publication unexpectedly succeeded");
+        fixture
+            .runtime
+            .end_workspace_change(
+                change,
+                Some(format!(
+                    "Manager installation failed after workspace application: {install_error:#}"
+                )),
+            )
+            .unwrap();
+
+        assert_eq!(
+            fixture.runtime.workspace_root().unwrap(),
+            candidate.occurrence().clone(),
+            "Manager publication failure cannot erase the already-applied root fact"
+        );
+        assert!(fixture.runtime.record().unwrap().recovery_pending);
+        assert!(
+            fixture
+                .runtime
+                .begin_phase("worker", Some("must remain held"))
+                .is_err()
+        );
+        assert!(fixture.manager.ensure_parent_available().is_err());
+    }
+
+    #[tokio::test]
+    async fn workspace_transition_barrier_blocks_launch_and_next_job_captures_replacement() {
+        let fixture = integration_fixture_with_record(false, "workspace-manager-record").await;
+        fixture
+            .runtime
+            .update(|record| {
+                record.task.as_mut().unwrap().accepted = Some("accepted-parent".into());
+                record.agents[0].status = AgentStatus::Integrated;
+                Ok(())
+            })
+            .unwrap();
+
+        std::fs::write(fixture.workspace_root.join("only-a"), "old root\n").unwrap();
+        test_git(&fixture.workspace_root, &["add", "."]);
+        test_git(
+            &fixture.workspace_root,
+            &["commit", "-qm", "old-root-canary"],
+        );
+
+        let replacement = fixture.workspace_root.parent().unwrap().join("replacement");
+        std::fs::create_dir(&replacement).unwrap();
+        test_git(&replacement, &["init", "-q"]);
+        test_git(&replacement, &["config", "user.email", "test@localhost"]);
+        test_git(&replacement, &["config", "user.name", "Test"]);
+        std::fs::write(replacement.join("only-b"), "new root\n").unwrap();
+        test_git(&replacement, &["add", "."]);
+        test_git(&replacement, &["commit", "-qm", "replacement-baseline"]);
+
+        let lifetime = fixture
+            .runtime
+            .begin_native_session(crate::session::SessionStart::Startup, None, vec![])
+            .unwrap();
+        let current = fixture.runtime.workspace_root().unwrap();
+        let candidate = crate::workflow::runtime::workspace_change::WorkspaceCandidate::capture(
+            &replacement,
+            current.generation + 1,
+        )
+        .unwrap();
+
+        let finished = tokio::spawn(async {});
+        while !finished.is_finished() {
+            tokio::task::yield_now().await;
+        }
+        let (cancel, _cancelled) = oneshot::channel();
+        fixture.manager.active.lock().unwrap().insert(
+            u64::MAX,
+            Active {
+                cancel,
+                task: finished,
+            },
+        );
+
+        fixture
+            .manager
+            .begin_workspace_transition(&current)
+            .unwrap();
+        let before = fixture.runtime.record().unwrap().agents.len();
+        let denied = fixture.manager.start(
+            AssignmentRequest {
+                connection: "worker".into(),
+                objective: "must not cross the workspace publication barrier".into(),
+                context: String::new(),
+                owned_paths: vec!["blocked".into()],
+            },
+            AssignmentOrigin::Developer,
+            &fixture.events,
+        );
+        assert!(
+            denied
+                .unwrap_err()
+                .to_string()
+                .contains("workspace replacement is in progress")
+        );
+        assert_eq!(fixture.runtime.record().unwrap().agents.len(), before);
+
+        let change = fixture
+            .runtime
+            .begin_workspace_change(&candidate, "developer", lifetime, None, None)
+            .unwrap();
+        fixture
+            .runtime
+            .begin_workspace_change_teardown(change)
+            .unwrap();
+        fixture
+            .runtime
+            .apply_workspace_change(change, &candidate)
+            .unwrap();
+        fixture
+            .manager
+            .install_workspace(&current, candidate.occurrence().clone())
+            .unwrap();
+        fixture.runtime.end_workspace_change(change, None).unwrap();
+        assert_eq!(
+            *fixture.manager.workspace.lock().unwrap(),
+            candidate.occurrence().clone()
+        );
+
+        let id = fixture
+            .manager
+            .start(
+                AssignmentRequest {
+                    connection: "worker".into(),
+                    objective: "inspect replacement root".into(),
+                    context: String::new(),
+                    owned_paths: vec!["result".into()],
+                },
+                AssignmentOrigin::Developer,
+                &fixture.events,
+            )
+            .unwrap();
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+        let identity = loop {
+            if let Some(identity) = fixture.manager.record(id).unwrap().worktree {
+                break identity;
+            }
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "replacement-root assignment did not prepare its child worktree"
+            );
+            tokio::task::yield_now().await;
+        };
+        assert_eq!(
+            std::fs::read_to_string(identity.root.join("only-b")).unwrap(),
+            "new root\n"
+        );
+        assert!(!identity.root.join("only-a").exists());
+        assert_eq!(
+            identity.parent_baseline,
+            workspace::capture(&replacement).unwrap()
+        );
+        fixture.manager.abort_all();
     }
 
     async fn apply_integration_effect(fixture: &IntegrationFixture) {

@@ -111,12 +111,34 @@ def until(master, process, output, needle, timeout=8):
                 raise AssertionError("PTY closed before checkpoint") from error
 
 
-def case(adapter, server, fault, tool_cycles=False, host_access=False):
+def until_workspace_status(master, process, output, workspace, timeout=8):
+    deadline = time.monotonic() + timeout
+    while True:
+        rows, columns, _, _ = struct.unpack("HHHH", fcntl.ioctl(master, termios.TIOCGWINSZ, b"\0" * 8))
+        screen = screen_text(output, max(1, columns), max(1, rows))
+        expected = "Workspace " + str(workspace) + " · Model "
+        if any(line.startswith(expected) for line in screen.splitlines()):
+            return
+        if process.poll() is not None:
+            raise AssertionError("application exited before rendered workspace path")
+        if time.monotonic() >= deadline:
+            raise AssertionError("rendered workspace status omitted selected path")
+        if select.select([master], [], [], 0.05)[0]:
+            try:
+                output.extend(os.read(master, 65536))
+            except OSError as error:
+                raise AssertionError("PTY closed before rendered workspace path") from error
+
+
+def case(adapter, server, fault, tool_cycles=False, host_access=False, workspace_change=False):
     with tempfile.TemporaryDirectory(prefix="demoncoder-terminal-") as directory:
         workspace = Path(directory)
         server.host_workspace = str(workspace) if host_access else None
         subprocess.run(["git", "init", "-q", str(workspace)], check=True)
         token = "prompt" + uuid.uuid4().hex[:12]
+        selected_workspace = workspace / "b with spaces;literal"
+        if workspace_change:
+            selected_workspace.mkdir()
         seed = int(uuid.uuid4().hex[:6], 16)
         if tool_cycles:
             (workspace / "tool-cycle").touch()
@@ -159,6 +181,7 @@ def case(adapter, server, fault, tool_cycles=False, host_access=False):
         master, slave = pty.openpty()
         fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 35, 160, 0, 0))
         env = {"PATH": "/usr/bin:/bin", "HOME": str(workspace), "TERM": "xterm-256color", "LANG": "C.UTF-8",
+               "PYTHONDONTWRITEBYTECODE": "1",
                "OPENAI_API_KEY": "synthetic-openai-key", "ANTHROPIC_API_KEY": "synthetic-anthropic-key"}
         if settings_test:
             env["CODEX_HOME"] = str(workspace / ".codex-selected")
@@ -182,6 +205,23 @@ def case(adapter, server, fault, tool_cycles=False, host_access=False):
             records = [json.loads(line) for line in log.read_text().splitlines()]
             assert all(record["connection"] == "selected" for record in records)
             assert any(record["event"]["type"] == "turn_started" for record in records)
+            if workspace_change:
+                before_control = len(server.received)
+                os.write(master, ("/workspace " + str(selected_workspace)).encode() + b"\r")
+                until(master, process, output, b"Workspace changed")
+                until_workspace_status(master, process, output, selected_workspace)
+                assert len(server.received) == before_control, "workspace control reached the provider"
+                next_token = "after-workspace-" + uuid.uuid4().hex[:12]
+                os.write(master, next_token.encode() + b"\r")
+                until(master, process, output, ("RECEIVED-" + next_token).encode())
+                assert server.received[-1] == next_token, "next explicit prompt did not reach the provider"
+                records = [json.loads(line) for line in log.read_text().splitlines()]
+                changed = [record["event"] for record in records if record["event"]["type"] == "workspace_changed"]
+                assert len(changed) == 1 and Path(changed[0]["workspace"]) == selected_workspace and changed[0]["generation"] == 1
+                states = list((workspace / ".demoncoder" / "sessions").glob("*/state.json"))
+                assert len(states) == 1
+                retained = json.loads(states[0].read_text())["payload"]
+                assert Path(retained["workspace"]) == selected_workspace, "durable admitted root differs from terminal display"
             if tool_cycles:
                 results = [record["event"]["result"] for record in records if record["event"]["type"] == "tool_finished"]
                 assert [r["tool"] for r in results] == ["read", "write", "edit", "bash"], "missing production tool execution"
@@ -210,6 +250,7 @@ def main():
     parser.add_argument("--tools", action="store_true")
     parser.add_argument("--settings", choices=["home", "override"])
     parser.add_argument("--fault-wrong-edit", action="store_true")
+    parser.add_argument("--workspace-change", action="store_true")
     args = parser.parse_args()
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Provider)
     server.received = []
@@ -221,18 +262,26 @@ def main():
     thread.start()
     failed = []
     try:
-        for adapter in ["openai-api", "anthropic-api", "codex", "claude"]:
+        adapters = ["openai-api"] if args.workspace_change else ["openai-api", "anthropic-api", "codex", "claude"]
+        for adapter in adapters:
             try:
-                case(adapter, server, args.fault_drop_prompt, args.tools)
-                print("CODE-002" if args.tools else "CODE-001", adapter, "production tool cycle passed" if args.tools else "terminal prompt reached runtime and response was rendered", flush=True)
+                case(adapter, server, args.fault_drop_prompt, args.tools, workspace_change=args.workspace_change)
+                if args.workspace_change:
+                    print("WORKSPACE", adapter, "terminal workspace transition passed", flush=True)
+                else:
+                    print("CODE-002" if args.tools else "CODE-001", adapter, "production tool cycle passed" if args.tools else "terminal prompt reached runtime and response was rendered", flush=True)
             except (AssertionError, OSError, subprocess.SubprocessError) as error:
                 failed.append(adapter)
-                print("CODE-002" if args.tools else "CODE-001", adapter, "FAILED:", str(error), flush=True)
+                if args.workspace_change:
+                    print("WORKSPACE", adapter, "FAILED:", str(error), flush=True)
+                else:
+                    print("CODE-002" if args.tools else "CODE-001", adapter, "FAILED:", str(error), flush=True)
     finally:
         server.shutdown()
         server.server_close()
         thread.join(timeout=2)
-    print("cairn: " + ("CODE-002" if args.tools else "CODE-001") + ": " + ("fail" if failed else "pass"))
+    label = "workspace-change" if args.workspace_change else ("CODE-002" if args.tools else "CODE-001")
+    print("cairn: " + label + ": " + ("fail" if failed else "pass"))
     return int(bool(failed))
 
 

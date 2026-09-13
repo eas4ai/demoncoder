@@ -250,6 +250,30 @@ pub(in crate::workflow::runtime) fn validate(
                 .expect("validated"),
             receipt.facts.subject.occurrence.event(),
         )?
+    } else if matches!(
+        receipt.facts.subject.occurrence,
+        crate::plugins::receipts::NonToolOccurrence::CwdChanged { .. }
+    ) {
+        super::super::workspace_change::validate_occurrence(
+            record,
+            receipt
+                .facts
+                .subject
+                .occurrence
+                .host_operation()
+                .context("workspace change operation missing")?,
+            &receipt.facts.subject.occurrence,
+            &receipt.plan,
+        )?;
+        super::super::workspace_change::owner(
+            record,
+            receipt
+                .facts
+                .subject
+                .occurrence
+                .host_operation()
+                .expect("validated"),
+        )?
     } else {
         resolve(record, &operation.phase)?
     };

@@ -132,6 +132,97 @@ fn model_switch_uses_original_session_allowance_and_applies_once() {
 }
 
 #[test]
+fn model_selection_after_workspace_change_keeps_current_root_and_independent_lineages() {
+    let roots = tempfile::tempdir().unwrap();
+    let a = roots.path().join("a");
+    let b = roots.path().join("b");
+    std::fs::create_dir(&a).unwrap();
+    std::fs::create_dir(&b).unwrap();
+    let state = tempfile::tempdir().unwrap();
+    let old: Connection =
+        serde_json::from_value(json!({"adapter":"openai-api","model":"old"})).unwrap();
+    let new: Connection =
+        serde_json::from_value(json!({"adapter":"openai-api","model":"new"})).unwrap();
+    let mut record = crate::inspection::tests::record(&a);
+    record.identity = Identity::from(&old);
+    record.phase = None;
+    record.session_hook_allowance = Some(
+        session_budget::SessionHookAllowance::new(Limits {
+            seconds: 60,
+            model_calls: 2,
+            tool_calls: 2,
+        })
+        .unwrap(),
+    );
+    let runtime = SharedRuntime::for_test(&state.path().join("record"), record).unwrap();
+    let lifetime = runtime
+        .begin_native_session(SessionStart::Startup, None, vec![])
+        .unwrap();
+
+    let b_candidate = workspace_change::WorkspaceCandidate::capture(&b, 1).unwrap();
+    let first_root = runtime
+        .begin_workspace_change(&b_candidate, "developer", lifetime, None, None)
+        .unwrap();
+    runtime.begin_workspace_change_teardown(first_root).unwrap();
+    runtime
+        .apply_workspace_change(first_root, &b_candidate)
+        .unwrap();
+    runtime.end_workspace_change(first_root, None).unwrap();
+    assert_eq!(
+        runtime.workspace_root().unwrap(),
+        b_candidate.occurrence().clone()
+    );
+    assert_eq!(runtime.record().unwrap().identity, Identity::from(&old));
+
+    let switch = runtime
+        .begin_model_switch(&old, &new, "settings", Some(lifetime), None, None)
+        .unwrap();
+    runtime.begin_model_switch_teardown(switch).unwrap();
+    runtime
+        .apply_model_switch(switch, &new, None, new.model.clone())
+        .unwrap();
+    runtime.end_model_switch(switch, None).unwrap();
+    assert_eq!(
+        runtime.workspace_root().unwrap(),
+        b_candidate.occurrence().clone()
+    );
+    assert_eq!(runtime.record().unwrap().identity, Identity::from(&new));
+
+    let a_candidate = workspace_change::WorkspaceCandidate::capture(&a, 2).unwrap();
+    let second_root = runtime
+        .begin_workspace_change(&a_candidate, "developer", lifetime, None, None)
+        .unwrap();
+    runtime
+        .begin_workspace_change_teardown(second_root)
+        .unwrap();
+    runtime
+        .apply_workspace_change(second_root, &a_candidate)
+        .unwrap();
+    runtime.end_workspace_change(second_root, None).unwrap();
+    let record = runtime.record().unwrap();
+    assert_eq!(
+        workspace_change::current_root(&record).unwrap(),
+        a_candidate.occurrence().clone()
+    );
+    assert_eq!(record.identity, Identity::from(&new));
+    let Some(HostInvocation::WorkspaceChange(second)) =
+        &record.operations[second_root as usize - 1].host_invocation
+    else {
+        panic!("second workspace owner")
+    };
+    assert_eq!(second.predecessor, first_root);
+    assert_ne!(second.predecessor, switch);
+    assert_eq!(second.identity, Identity::from(&new));
+    let Some(HostInvocation::ModelSwitch(model)) =
+        &record.operations[switch as usize - 1].host_invocation
+    else {
+        panic!("model owner")
+    };
+    assert_eq!(model.from, Identity::from(&old));
+    assert_eq!(model.requested, Identity::from(&new));
+}
+
+#[test]
 fn model_switch_pre_and_post_share_one_exact_owner() {
     let root = tempfile::tempdir().unwrap();
     let state = tempfile::tempdir().unwrap();

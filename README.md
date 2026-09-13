@@ -192,6 +192,7 @@ state, so explicit tasks and `--resume` require a native API connection.
 | `/abandon` | Archive the task and its evidence, preserving all workspace files. |
 | `/compact` | Summarize the active conversation while idle, preserving task evidence and allocation. This does not start or accept task work. |
 | `/reconcile <inspection explanation>` | Record your inspection of uncertain or changed work so execution can continue. |
+| `/workspace <path>` | While the session is idle and reconciled, explicitly replace its workspace with this literal path. Relative paths resolve from the current workspace; spaces and shell metacharacters are path characters. |
 | `/workflow-help` | Display workflow controls. |
 
 No checks means unverified. Model completion never accepts a task. An edit after

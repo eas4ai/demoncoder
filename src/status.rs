@@ -9,7 +9,7 @@ use std::{
 use tokio::{
     io::{AsyncRead, AsyncReadExt},
     process::Command,
-    sync::mpsc,
+    sync::{mpsc, watch},
     task::JoinHandle,
 };
 
@@ -29,34 +29,64 @@ pub(crate) struct GitStatus {
     pub diff: Option<(u64, u64)>,
 }
 
-pub(crate) struct GitPoller(Option<JoinHandle<()>>);
+pub(crate) struct GitStatusUpdate {
+    pub workspace: PathBuf,
+    pub generation: u64,
+    pub status: Result<GitStatus, String>,
+}
+
+pub(crate) struct GitPoller {
+    task: JoinHandle<()>,
+    workspace: watch::Sender<Option<(PathBuf, u64)>>,
+}
 impl GitPoller {
     pub(crate) fn start(
         workspace: Option<PathBuf>,
-        updates: mpsc::Sender<Result<GitStatus, String>>,
+        updates: mpsc::Sender<GitStatusUpdate>,
     ) -> Self {
-        Self(workspace.map(|workspace| {
-            tokio::spawn(async move {
-                loop {
+        let (workspace_tx, mut workspace_rx) =
+            watch::channel(workspace.map(|workspace| (workspace, 0)));
+        let task = tokio::spawn(async move {
+            loop {
+                let selected = { workspace_rx.borrow().clone() };
+                if let Some((workspace, generation)) = selected {
                     let status =
                         tokio::time::timeout(Duration::from_secs(2), collect_git(&workspace))
                             .await
                             .map_err(|_| "Git status timed out".to_owned())
                             .and_then(|r| r.map_err(|e| e.to_string()));
-                    if updates.send(status).await.is_err() {
+                    if updates
+                        .send(GitStatusUpdate {
+                            workspace,
+                            generation,
+                            status,
+                        })
+                        .await
+                        .is_err()
+                    {
                         break;
                     }
-                    tokio::time::sleep(Duration::from_secs(2)).await;
                 }
-            })
-        }))
+                tokio::select! {
+                    _ = tokio::time::sleep(Duration::from_secs(2)) => {},
+                    changed = workspace_rx.changed() => if changed.is_err() { break; },
+                }
+            }
+        });
+        Self {
+            task,
+            workspace: workspace_tx,
+        }
+    }
+
+    pub(crate) fn replace(&self, workspace: Option<PathBuf>, generation: u64) {
+        self.workspace
+            .send_replace(workspace.map(|workspace| (workspace, generation)));
     }
 }
 impl Drop for GitPoller {
     fn drop(&mut self) {
-        if let Some(task) = &self.0 {
-            task.abort();
-        }
+        self.task.abort();
     }
 }
 
