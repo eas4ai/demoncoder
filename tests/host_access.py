@@ -64,7 +64,7 @@ class Provider(CodingProvider):
             if mode == "tool":
                 return self.send_events(sse_call("/messages" if self.path == "/oracle-anthropic" else "/responses", {"id":"oracle-write", "name":"write", "arguments":{"path":"oracle-effect.txt","content":"must not exist"}}))
             return self.text(json.dumps({"decision":"allow" if mode == "allow" else "deny", "reason":"Controlled outside-access decision."}))
-        assert len(body["tools"]) == 4
+        assert {tool["name"] for tool in body["tools"]} == {"read", "write", "edit", "bash", "tool_batch"}
         assert "No sandbox" in next(tool["description"] for tool in body["tools"] if tool["name"] == "bash")
         results = [item for item in body["input"] if item.get("type") == "function_call_output"]
         if results:

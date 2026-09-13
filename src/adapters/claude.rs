@@ -1,3 +1,5 @@
+#[path = "claude_model_switch.rs"]
+mod model_switch;
 #[path = "claude_non_tool.rs"]
 mod non_tool;
 #[path = "claude_post.rs"]
@@ -11,7 +13,7 @@ use crate::{
     },
     tools::{ToolCall, ToolExecutor},
 };
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, bail, ensure};
 use async_trait::async_trait;
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
@@ -24,6 +26,8 @@ struct Claude {
     supervisor: Option<PathBuf>,
     workspace: PathBuf,
     model: Option<String>,
+    resolved_model: Option<String>,
+    model_resolutions: std::collections::BTreeMap<String, String>,
     effort: Option<String>,
     process: Option<BackendProcess>,
     session: Option<String>,
@@ -37,6 +41,7 @@ struct Claude {
     non_tool_callbacks: Option<non_tool::Callbacks>,
     post_enabled: bool,
     post_callbacks: Option<post::Callbacks>,
+    model_switch_callbacks: Option<model_switch::Callbacks>,
 }
 
 pub fn open(config: &Connection, workspace: &Path) -> Result<Box<dyn Session>> {
@@ -65,6 +70,8 @@ pub fn open(config: &Connection, workspace: &Path) -> Result<Box<dyn Session>> {
         },
         workspace: workspace.to_owned(),
         model: config.model.clone(),
+        resolved_model: None,
+        model_resolutions: std::collections::BTreeMap::new(),
         effort: config.effort.clone(),
         process: None,
         session: None,
@@ -72,12 +79,37 @@ pub fn open(config: &Connection, workspace: &Path) -> Result<Box<dyn Session>> {
         tools: ToolExecutor::with_policy(workspace, &config.access)?,
         model_hook: config.access.snapshot.is_some(),
         next_control_id: 1,
-        lifecycle: config.access.lifecycle.clone(),
+        lifecycle: crate::plugins::bridge::Lifecycle::for_access(&config.access)?,
         callbacks: None,
-        non_tool_enabled: !config.access.non_tools.is_empty(),
+        non_tool_enabled: config.access.non_tools.iter().any(|p| {
+            matches!(
+                p.plan.event,
+                crate::plugins::hook_types::HookEvent::UserPromptSubmit
+                    | crate::plugins::hook_types::HookEvent::Stop
+                    | crate::plugins::hook_types::HookEvent::PostToolBatch
+            )
+        }),
         non_tool_callbacks: None,
-        post_enabled: !config.access.post_tools.is_empty(),
+        post_enabled: !config.access.post_tools.is_empty()
+            || config
+                .access
+                .non_tools
+                .iter()
+                .any(|p| p.plan.event == crate::plugins::hook_types::HookEvent::PostToolBatch),
         post_callbacks: None,
+        model_switch_callbacks: config
+            .access
+            .non_tools
+            .iter()
+            .any(|plan| {
+                matches!(
+                    plan.plan.event,
+                    crate::plugins::hook_types::HookEvent::PreModelSwitch
+                        | crate::plugins::hook_types::HookEvent::PostModelSwitch
+                )
+            })
+            .then(|| model_switch::Callbacks::new(workspace.to_owned()))
+            .transpose()?,
     }))
 }
 
@@ -93,7 +125,17 @@ impl Claude {
             self.post_callbacks = self.post_enabled.then(post::Callbacks::new).transpose()?;
             self.non_tool_callbacks = self
                 .non_tool_enabled
-                .then(|| non_tool::Callbacks::new(self.workspace.clone(), self.model.clone()))
+                .then(|| -> Result<_> {
+                    let mut callbacks =
+                        non_tool::Callbacks::new(self.workspace.clone(), self.model.clone())?;
+                    if self
+                        .tools
+                        .has_non_tool_plan(crate::plugins::hook_types::HookEvent::PostToolBatch)
+                    {
+                        callbacks.enable_batches()?;
+                    }
+                    Ok(callbacks)
+                })
                 .transpose()?;
             let mut args: Vec<String> = [
                 "-p",
@@ -170,6 +212,9 @@ impl Claude {
             if let Some(post) = &self.post_callbacks {
                 hooks = post.registration(hooks);
             }
+            if let Some(model_switch) = &self.model_switch_callbacks {
+                hooks = model_switch.registration(hooks);
+            }
             process.send(json!({"type":"control_request","request_id":"initialize","request":{"subtype":"initialize","hooks":hooks,"skills":[]}})).await?;
             tokio::time::timeout(std::time::Duration::from_secs(30), async {
                 loop {
@@ -182,6 +227,33 @@ impl Claude {
                             message["response"]["subtype"] == "success",
                             "Claude initialization failed"
                         );
+                        if self.model_switch_callbacks.is_some() {
+                            let models = message["response"]["response"]["models"]
+                                .as_array()
+                                .map(Vec::as_slice)
+                                .unwrap_or_default();
+                            ensure!(models.len() <= 128, "Claude model catalog exceeds bound");
+                            let mut resolutions = std::collections::BTreeMap::new();
+                            for model in models {
+                                let value = model["value"]
+                                    .as_str()
+                                    .filter(|value| !value.is_empty() && value.len() <= 256)
+                                    .context("Claude model catalog value invalid")?;
+                                let resolved = model["resolvedModel"]
+                                    .as_str()
+                                    .filter(|value| !value.is_empty() && value.len() <= 256)
+                                    .context("Claude resolved model catalog value invalid")?;
+                                if let Some(previous) =
+                                    resolutions.insert(value.to_owned(), resolved.to_owned())
+                                {
+                                    ensure!(
+                                        previous == resolved,
+                                        "Claude model alias has conflicting resolutions"
+                                    );
+                                }
+                            }
+                            self.model_resolutions = resolutions;
+                        }
                         return Ok::<(), anyhow::Error>(());
                     }
                     if message["type"] == "control_request" {
@@ -218,6 +290,7 @@ impl Claude {
         'turns: loop {
             let mut handoff = next_correction.take();
             let source_correction_turn = handoff.is_some();
+            let compact_turn = prompt.trim() == "/compact";
             let mut deadline = super::post_correction::CorrectionDeadline::new(handoff.is_some());
             deadline
                 .during(events.emit(Event::Context {
@@ -256,7 +329,7 @@ impl Claude {
                 }
                 user
             };
-            if let Some(ordinary) = &mut self.non_tool_callbacks {
+            if !compact_turn && let Some(ordinary) = &mut self.non_tool_callbacks {
                 if user.get("uuid").is_none() {
                     user["uuid"] = json!(post::user_uuid()?);
                 }
@@ -345,7 +418,8 @@ impl Claude {
                     return Ok(None);
                 }
                 capture_session(&mut self.session, &message)?;
-                if !interrupting && let Some(ordinary) = &mut self.non_tool_callbacks { ordinary.observe(&message, events)?; }
+                if let Some(callbacks)=&mut self.callbacks {callbacks.observe_managed(&message,events)?;}
+                if !compact_turn && !interrupting && let Some(ordinary) = &mut self.non_tool_callbacks { ordinary.observe(&message, events)?; }
                 match message["type"].as_str() {
                     Some("user") if message["isReplay"] == true && user["uuid"].is_string() && source_correction_turn => {
                         anyhow::ensure!(
@@ -387,6 +461,10 @@ impl Claude {
                             "Claude did not confirm subscription authentication; an API-key or unknown route is not accepted"
                         );
                         self.subscription_confirmed = true;
+                        self.resolved_model = message["model"]
+                            .as_str()
+                            .filter(|model| !model.is_empty() && model.len() <= 256)
+                            .map(str::to_owned);
                     }
                     Some("stream_event") => {
                         anyhow::ensure!(
@@ -570,6 +648,11 @@ async fn handle_control(
     let response = match request["subtype"].as_str() {
         Some("hook_callback") => {
             if let Some(ordinary) = ordinary.filter(|c| c.owns(request)) {
+                if request["input"]["hook_event_name"] == "PostToolBatch" {
+                    post.as_mut()
+                        .context("source batch metadata owner missing")?
+                        .validate_batch(&request["input"], events)?;
+                }
                 let response = tokio::select! {
                     result = ordinary.handle(message, session_id, events, tools) => result?,
                     result = process.wait_for_exit() => { result?; unreachable!() },
@@ -609,11 +692,15 @@ async fn handle_control(
             // not send an SDK error or close stdin: both can fail open upstream.
             let callback = callbacks.context("unexpected backend lifecycle callback")?;
             let decision = tokio::select! {
-                result = callback.handle(message, session_id, events) => result,
+                result = callback.handle_managed(message, session_id, events, tools) => result,
                 result = process.wait_for_exit() => { result?; unreachable!() },
             };
             match decision {
-                Ok(response) => response,
+                Ok(response) => {
+                    process.send(json!({"type":"control_response","response":{"subtype":"success","request_id":message["request_id"],"response":response}})).await?;
+                    callback.managed_sent(events)?;
+                    return Ok(None);
+                }
                 Err(error) => {
                     if request["input"]["hook_event_name"] == "PreCompact" {
                         // Give a live relay a typed denial, then terminate the
@@ -707,6 +794,220 @@ impl Session for Claude {
         "claude"
     }
 
+    fn live_model_switch_ready(&self) -> bool {
+        self.process.is_some()
+            && self.session.is_some()
+            && self.subscription_confirmed
+            && self.resolved_model.is_some()
+            && self.model_switch_callbacks.is_some()
+    }
+
+    fn apply_live_model_noop(&mut self, requested: &Connection) -> Result<Option<String>> {
+        ensure!(
+            requested.adapter == "claude",
+            "live model no-op belongs to Claude"
+        );
+        if !self.live_model_switch_ready() {
+            return Ok(None);
+        }
+        let actual = self.resolved_model.as_deref().expect("checked");
+        let known = match requested.model.as_deref() {
+            Some(model) if model == actual => Some(actual),
+            Some(model) => self.model_resolutions.get(model).map(String::as_str),
+            None => self.model_resolutions.get("default").map(String::as_str),
+        };
+        if known != Some(actual) {
+            return Ok(None);
+        }
+        Ok(Some(actual.to_owned()))
+    }
+
+    async fn begin_live_model_switch(
+        &mut self,
+        requested: &Connection,
+        events: &EventSink,
+    ) -> Result<crate::session::ModelSwitchControl> {
+        ensure!(
+            self.live_model_switch_ready() && requested.adapter == "claude",
+            "Claude live model switch is not initialized or eligible"
+        );
+        let actual_from = self.resolved_model.clone().expect("checked");
+        let callbacks = self.model_switch_callbacks.as_mut().expect("checked");
+        callbacks.begin(requested.model.clone(), actual_from, events)?;
+        let request_id = format!("model-switch-{}", self.next_control_id);
+        self.next_control_id += 1;
+        let process = self.process.as_mut().expect("checked");
+        process
+            .send(json!({"type":"control_request","request_id":request_id,"request":{"subtype":"set_model","model":requested.model}}))
+            .await?;
+        tokio::time::timeout(std::time::Duration::from_secs(30), async {
+            let mut pre: Option<(
+                u64,
+                Option<String>,
+                Option<tokio::sync::OwnedMutexGuard<()>>,
+            )> = None;
+            loop {
+                let message = process.receive().await?;
+                capture_session(&mut self.session, &message)?;
+                if message["type"] == "control_request" {
+                    ensure!(
+                        callbacks.owns(&message["request"]),
+                        "unexpected Claude control during model switch"
+                    );
+                    let mut reply = match callbacks
+                        .handle(&message, self.session.as_deref(), events, &self.tools)
+                        .await
+                    {
+                        Ok(reply) => reply,
+                        Err(error) => {
+                            let denial = callbacks.explicit_pre_denial(&message)?;
+                            process
+                                .send(denial)
+                                .await
+                                .context("deliver explicit Claude model switch denial")?;
+                            loop {
+                                let denied = process
+                                    .receive()
+                                    .await
+                                    .context("confirm explicit Claude model switch denial")?;
+                                capture_session(&mut self.session, &denied)?;
+                                if denied["type"] == "control_response"
+                                    && denied["response"]["request_id"] == request_id
+                                {
+                                    ensure!(
+                                        denied["response"]["subtype"] != "success",
+                                        "Claude applied a model switch after its explicit denial"
+                                    );
+                                    return Err(error).context(
+                                        "Claude PreModelSwitch callback failed; explicit denial was confirmed",
+                                    );
+                                }
+                                ensure!(
+                                    denied["type"] != "control_request"
+                                        && denied["type"] != "control_cancel_request",
+                                    "Claude emitted another callback while confirming explicit denial"
+                                );
+                            }
+                        }
+                    };
+                    #[cfg(test)]
+                    events.wait_after_model_switch_source_dispatch().await;
+                    ensure!(
+                        reply.event == crate::plugins::hook_types::HookEvent::PreModelSwitch
+                            && pre.is_none(),
+                        "Claude model switch callback sequence differs"
+                    );
+                    let (runtime, switch) = events.model_switch_context()?;
+                    let mut validation_guard = None;
+                    if reply.hold.is_none() {
+                        let preparation = async {
+                            if let Some(validation) = reply.validation.take() {
+                                validation_guard = Some(validation.validate().await?);
+                            }
+                            runtime.prepare_source_continuation(reply.operation, switch)?;
+                            runtime.cancel_settings_controls()?;
+                            runtime.begin_model_switch_teardown(switch)?;
+                            Ok::<(), anyhow::Error>(())
+                        }
+                        .await;
+                        if let Err(error) = preparation {
+                            drop(validation_guard.take());
+                            reply.deny(format!(
+                                "Claude model switch refused before provider effect: {error:#}"
+                            ));
+                        }
+                    }
+                    process
+                        .send(json!({"type":"control_response","response":{"subtype":"success","request_id":message["request_id"],"response":reply.response}}))
+                        .await?;
+                    runtime.source_lifecycle_delivery(reply.operation, switch, true)?;
+                    pre = Some((reply.operation, reply.hold, validation_guard));
+                    continue;
+                }
+                if message["type"] == "control_response"
+                    && message["response"]["request_id"] == request_id
+                {
+                    let (operation, hold, validation_guard) = pre.take().context(
+                        "Claude set_model response arrived without genuine PreModelSwitch",
+                    )?;
+                    let (runtime, switch) = events.model_switch_context()?;
+                    runtime.source_lifecycle_delivery(operation, switch, false)?;
+                    if message["response"]["subtype"] == "success" {
+                        ensure!(hold.is_none(), "Claude applied a denied model switch");
+                        let actual_model = callbacks.control_succeeded()?;
+                        self.model = requested.model.clone();
+                        self.resolved_model = Some(actual_model.clone());
+                        #[cfg(test)]
+                        events.wait_after_model_switch_source_effect().await;
+                        return Ok(crate::session::ModelSwitchControl::Applied {
+                            actual_model,
+                            validation: validation_guard,
+                        });
+                    }
+                    let reason = hold.context(
+                        "Claude rejected set_model without a retained PreModelSwitch refusal",
+                    )?;
+                    callbacks.refused()?;
+                    return Ok(crate::session::ModelSwitchControl::Refused { reason });
+                }
+                ensure!(
+                    message["type"] != "control_cancel_request",
+                    "Claude cancelled the model switch callback"
+                );
+            }
+        })
+        .await
+        .context("Claude model switch control timed out")?
+    }
+
+    async fn finish_live_model_switch(&mut self, events: &EventSink) -> Result<()> {
+        let process = self
+            .process
+            .as_mut()
+            .context("Claude model switch process ended")?;
+        let callbacks = self
+            .model_switch_callbacks
+            .as_mut()
+            .context("Claude model switch callbacks missing")?;
+        tokio::time::timeout(std::time::Duration::from_secs(30), async {
+            let message = process.receive().await?;
+            capture_session(&mut self.session, &message)?;
+            ensure!(
+                message["type"] == "control_request" && callbacks.owns(&message["request"]),
+                "Claude emitted unrelated data before PostModelSwitch"
+            );
+            let reply = callbacks
+                .handle(&message, self.session.as_deref(), events, &self.tools)
+                .await?;
+            ensure!(
+                reply.event == crate::plugins::hook_types::HookEvent::PostModelSwitch
+                    && reply.hold.is_none()
+                    && Some(reply.candidate.as_str()) == self.resolved_model.as_deref(),
+                "Claude PostModelSwitch differs from the applied model"
+            );
+            let (runtime, switch) = events.model_switch_context()?;
+            runtime.prepare_source_continuation(reply.operation, switch)?;
+            process
+                .send(json!({"type":"control_response","response":{"subtype":"success","request_id":message["request_id"],"response":reply.response}}))
+                .await?;
+            runtime.source_lifecycle_delivery(reply.operation, switch, true)?;
+            // PostModelSwitch is terminal observation: a successful bounded
+            // callback response has no later SDK continuation to acknowledge it.
+            runtime.source_lifecycle_delivery(reply.operation, switch, false)?;
+            callbacks.finish()?;
+            Ok(())
+        })
+        .await
+        .context("Claude PostModelSwitch callback timed out")?
+    }
+
+    async fn compact(
+        &mut self,
+        commands: &mut mpsc::Receiver<Command>,
+        events: &EventSink,
+    ) -> Result<TurnEnd> {
+        crate::session::compact_external(self, commands, events).await
+    }
     async fn turn(
         &mut self,
         prompt: String,
@@ -747,6 +1048,9 @@ impl Session for Claude {
         self.callbacks = None;
         self.post_callbacks = None;
         self.non_tool_callbacks = None;
+        if let Some(callbacks) = &mut self.model_switch_callbacks {
+            callbacks.reset();
+        }
         observers.and(result)
     }
 }

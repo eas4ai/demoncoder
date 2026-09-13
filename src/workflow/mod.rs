@@ -1,6 +1,7 @@
 //! Explicit developer acceptance around the existing coding session.
 pub mod allocation;
 mod improvements;
+mod model_switch;
 pub mod review;
 pub mod runtime;
 pub mod state;
@@ -15,7 +16,8 @@ pub(crate) fn is_control(text: &str) -> bool {
         || matches!(
             text.split_whitespace().next(),
             Some(
-                "/task"
+                "/compact"
+                    | "/task"
                     | "/task-status"
                     | "/verify"
                     | "/review"
@@ -63,6 +65,8 @@ pub struct Settings {
 
 pub struct WorkflowSession {
     inner: Box<dyn Session>,
+    native_lifetime: bool,
+    native_lifetime_owner: Option<Box<dyn Session>>,
     connection: Connection,
     workspace: PathBuf,
     settings: Settings,
@@ -76,6 +80,93 @@ pub struct WorkflowSession {
     admitted_creator: Option<crate::config::Selection>,
 }
 
+fn same_runtime_policy(
+    left: &crate::tools::AccessPolicy,
+    right: &crate::tools::AccessPolicy,
+) -> bool {
+    left.unrestricted == right.unrestricted
+        && left.strict_worktree == right.strict_worktree
+        && left.tools_enabled == right.tools_enabled
+        && left.credential_paths == right.credential_paths
+        && left.supervisor == right.supervisor
+        && left.language_servers.rust == right.language_servers.rust
+        && left.language_servers.typescript == right.language_servers.typescript
+        && left.language_servers.read_roots == right.language_servers.read_roots
+        && match (&left.extension, &right.extension) {
+            (Some(left), Some(right)) => std::sync::Arc::ptr_eq(left, right),
+            (None, None) => true,
+            _ => false,
+        }
+        && match (&left.lifecycle, &right.lifecycle) {
+            (Some(left), Some(right)) => std::sync::Arc::ptr_eq(left, right),
+            (None, None) => true,
+            _ => false,
+        }
+        && match (&left.snapshot, &right.snapshot) {
+            (Some(left), Some(right)) => std::sync::Arc::ptr_eq(left, right),
+            (None, None) => true,
+            _ => false,
+        }
+        && match (&left.pre_tool, &right.pre_tool) {
+            (Some(left), Some(right)) => std::sync::Arc::ptr_eq(left, right),
+            (None, None) => true,
+            _ => false,
+        }
+        && left.post_tools.len() == right.post_tools.len()
+        && left
+            .post_tools
+            .iter()
+            .zip(&right.post_tools)
+            .all(|(left, right)| std::sync::Arc::ptr_eq(left, right))
+        && left.non_tools.len() == right.non_tools.len()
+        && left
+            .non_tools
+            .iter()
+            .zip(&right.non_tools)
+            .all(|(left, right)| std::sync::Arc::ptr_eq(left, right))
+}
+
+fn exact_live_claude_change(old: &Connection, requested: &Connection) -> bool {
+    if old.adapter != "claude" || requested.adapter != "claude" {
+        return false;
+    }
+    let mut without_model = requested.clone();
+    without_model.model = old.model.clone();
+    runtime::Identity::from(&without_model) == runtime::Identity::from(old)
+        && same_runtime_policy(&old.access, &requested.access)
+}
+
+enum ModelSwitchWait<T> {
+    Ready(T),
+    End(TurnEnd),
+}
+
+async fn wait_model_switch<T>(
+    future: impl std::future::Future<Output = Result<T>>,
+    commands: &mut mpsc::Receiver<Command>,
+    events: &EventSink,
+) -> Result<ModelSwitchWait<T>> {
+    tokio::pin!(future);
+    loop {
+        tokio::select! { biased;
+            command = commands.recv() => match command {
+                Some(Command::Cancel) => return Ok(ModelSwitchWait::End(TurnEnd::Cancelled)),
+                Some(Command::Shutdown) => return Ok(ModelSwitchWait::End(TurnEnd::Shutdown)),
+                None => return Ok(ModelSwitchWait::End(TurnEnd::CommandsClosed)),
+                Some(Command::Submit { reply, .. }) => {
+                    let _ = reply.send(Err("Creator model switch in progress; draft retained."));
+                }
+                Some(Command::Prompt(_)) => {
+                    events.emit_advisory(Event::Error {
+                        message: "Creator model switch in progress; draft retained.".into(),
+                    })?;
+                }
+            },
+            result = &mut future => return result.map(ModelSwitchWait::Ready),
+        }
+    }
+}
+
 impl WorkflowSession {
     pub fn new(
         mut inner: Box<dyn Session>,
@@ -85,6 +176,7 @@ impl WorkflowSession {
         runtime: runtime::SharedRuntime,
         resumed: bool,
     ) -> Result<Self> {
+        let native_lifetime = inner.native_lifetime();
         let mut record = runtime.record()?;
         settings.capture_scope.validate()?;
         ensure!(
@@ -127,6 +219,8 @@ impl WorkflowSession {
         Ok(Self {
             connection_label: None,
             inner,
+            native_lifetime,
+            native_lifetime_owner: None,
             connection,
             workspace,
             settings,
@@ -141,25 +235,77 @@ impl WorkflowSession {
     }
 
     pub fn with_live_settings(mut self, settings: crate::settings::Handle) -> Self {
+        settings.require_control(
+            self.connection
+                .access
+                .non_tools
+                .iter()
+                .any(|plan| plan.plan.event == crate::plugins::hook_types::HookEvent::ConfigChange),
+        );
         self.live_settings = Some(settings);
         self
     }
 
-    async fn refresh_creator(&mut self, events: &EventSink) -> Result<()> {
+    async fn refresh_creator(
+        &mut self,
+        prompt: &str,
+        commands: &mut mpsc::Receiver<Command>,
+        events: &EventSink,
+    ) -> Result<Option<TurnEnd>> {
         let Some(selection) = self.admitted_creator.take() else {
-            return Ok(());
+            return Ok(None);
         };
         let new_identity = runtime::Identity::from(&selection.connection);
         if new_identity == runtime::Identity::from(&self.connection) {
             self.connection_label = Some(selection.name);
-            return Ok(());
+            return Ok(None);
         }
         ensure!(
             !self.runtime.record()?.recovery_pending,
             "reconcile interrupted work before applying the new Creator assignment"
         );
-        let mut replacement =
-            crate::adapters::builtins()?.open(&selection.connection, &self.workspace)?;
+        let exact_live_claude = exact_live_claude_change(&self.connection, &selection.connection);
+        if exact_live_claude
+            && let Some(actual_model) = self.inner.apply_live_model_noop(&selection.connection)?
+        {
+            self.connection_label = Some(selection.name);
+            if let Some(settings) = &self.live_settings
+                && let Err(error) = settings.activate_control(
+                    &self.workspace,
+                    &self.connection,
+                    &events
+                        .clone()
+                        .with_runtime(self.runtime.clone())
+                        .with_identity(&self.connection),
+                    self.runtime.clone(),
+                )
+            {
+                self.runtime.hold()?;
+                return Err(error)
+                    .context("activate Settings after applying a proven unchanged Claude model");
+            }
+            events
+                .emit(Event::ModelAssignment {
+                    connection: format!(
+                        "{} · {}",
+                        self.connection_label
+                            .as_deref()
+                            .unwrap_or(&self.connection.adapter),
+                        self.connection.adapter
+                    ),
+                    model: Some(actual_model),
+                    explanation: "The saved assignment resolves to the model already active in the live Claude session; no model switch event was emitted.".into(),
+                })
+                .await?;
+            return Ok(None);
+        }
+        let plans = model_switch::Plans::new(&self.workspace, &self.connection)?;
+        let live_claude = exact_live_claude && self.inner.live_model_switch_ready();
+        let mut replacement = if live_claude {
+            None
+        } else {
+            Some(crate::adapters::builtins()?.open(&selection.connection, &self.workspace)?)
+        };
         // Native checkpoints can continue within the same adapter and account.
         // External backends own opaque contexts; changing them opens a new one.
         let retain_native = self.connection.adapter == selection.connection.adapter
@@ -167,27 +313,222 @@ impl WorkflowSession {
             && self.connection.api_key == selection.connection.api_key
             && self.inner.supports_workflow();
         if retain_native && let Some(checkpoint) = self.inner.checkpoint() {
-            replacement.restore(&checkpoint, &[])?;
+            replacement
+                .as_mut()
+                .expect("host replacement")
+                .restore(&checkpoint, &[])?;
         }
-        self.runtime.stop_observers(None, false).await?;
-        self.runtime
-            .bind_creator(&selection.connection, replacement.checkpoint())?;
-        if let Err(error) = self.inner.close().await {
-            self.runtime.hold()?;
-            return Err(error).context("old provider could not close; inspect before continuing");
-        }
-        self.inner = replacement;
+        let scoped = events
+            .clone()
+            .with_runtime(self.runtime.clone())
+            .with_identity(&self.connection);
+        let pre_plan = if live_claude {
+            Some(plans.source_pre_digest()?)
+        } else {
+            plans.pre_digest()
+        };
+        let post_plan = if live_claude {
+            Some(plans.source_post_digest()?)
+        } else {
+            plans.post_digest()
+        };
+        let (switch_events, switch) = scoped.begin_model_switch(
+            &self.connection,
+            &selection.connection,
+            "settings",
+            pre_plan,
+            post_plan,
+        )?;
+        let mut owner = model_switch::Owner::new(self.runtime.clone(), switch);
+        let actual_model = if live_claude {
+            let control = match wait_model_switch(
+                self.inner
+                    .begin_live_model_switch(&selection.connection, &switch_events),
+                commands,
+                events,
+            )
+            .await
+            {
+                Ok(ModelSwitchWait::Ready(control)) => control,
+                Ok(ModelSwitchWait::End(end)) => {
+                    self.runtime.hold()?;
+                    self.inner.close().await?;
+                    return Ok(Some(end));
+                }
+                Err(error) => {
+                    let hold = self.runtime.hold();
+                    let close = self.inner.close().await;
+                    return Err(error).context(format!(
+                          "Claude model switch did not establish a denied or applied result; recovery hold={hold:?}; backend close={close:?}"
+                      ));
+                }
+            };
+            match control {
+                crate::session::ModelSwitchControl::Refused { reason } => {
+                    owner.finish(Some(reason.clone()))?;
+                    let refusal = format!(
+                        "Creator model switch refused: {reason}. This submission was retained but was not executed; submit it again after repairing or changing the policy."
+                    );
+                    self.runtime.retain_refused_submission(prompt, &refusal)?;
+                    if let Some(settings) = &self.live_settings {
+                        settings.activate_control(
+                            &self.workspace,
+                            &self.connection,
+                            &scoped,
+                            self.runtime.clone(),
+                        )?;
+                    }
+                    events
+                        .emit(Event::Error {
+                            message: refusal.clone(),
+                        })
+                        .await?;
+                    anyhow::bail!(refusal);
+                }
+                crate::session::ModelSwitchControl::Applied {
+                    actual_model,
+                    validation,
+                } => {
+                    self.runtime.stop_observers(None, false).await?;
+                    self.runtime.apply_model_switch(
+                        switch,
+                        &selection.connection,
+                        self.inner.checkpoint(),
+                        Some(actual_model.clone()),
+                    )?;
+                    drop(validation);
+                    Some(actual_model)
+                }
+            }
+        } else {
+            let pre = match wait_model_switch(
+                plans.pre(
+                    &switch_events,
+                    switch,
+                    selection.connection.model.clone(),
+                    "settings",
+                ),
+                commands,
+                events,
+            )
+            .await?
+            {
+                ModelSwitchWait::Ready(pre) => pre,
+                ModelSwitchWait::End(end) => return Ok(Some(end)),
+            };
+            if let Some(reason) = pre.as_ref().and_then(|outcome| outcome.hold.clone()) {
+                owner.finish(Some(reason.clone()))?;
+                let refusal = format!(
+                    "Creator model switch refused: {reason}. This submission was retained but was not executed; submit it again after repairing or changing the policy."
+                );
+                self.runtime.retain_refused_submission(prompt, &refusal)?;
+                events
+                    .emit(Event::Error {
+                        message: refusal.clone(),
+                    })
+                    .await?;
+                anyhow::bail!(refusal);
+            }
+            #[cfg(test)]
+            events.wait_before_model_switch_final_validation().await;
+            let boundary = match pre.as_ref().and_then(|outcome| outcome.validation.as_ref()) {
+                Some(validation) => {
+                    match wait_model_switch(validation.validate(), commands, events).await? {
+                        ModelSwitchWait::Ready(boundary) => Some(boundary),
+                        ModelSwitchWait::End(end) => return Ok(Some(end)),
+                    }
+                }
+                None => None,
+            };
+            if let Some(settings) = &self.live_settings {
+                self.runtime.cancel_settings_controls()?;
+                settings.require_control(selection.connection.access.non_tools.iter().any(
+                    |plan| plan.plan.event == crate::plugins::hook_types::HookEvent::ConfigChange,
+                ));
+            }
+            self.runtime.begin_model_switch_teardown(switch)?;
+            self.runtime.stop_observers(None, false).await?;
+            if let Err(error) = self.inner.close().await {
+                return Err(error)
+                    .context("old provider could not close; inspect before continuing");
+            }
+            let checkpoint = replacement.as_ref().expect("host replacement").checkpoint();
+            self.runtime.apply_model_switch(
+                switch,
+                &selection.connection,
+                checkpoint,
+                selection.connection.model.clone(),
+            )?;
+            let previous = std::mem::replace(
+                &mut self.inner,
+                replacement.take().expect("host replacement"),
+            );
+            if self.native_lifetime && self.native_lifetime_owner.is_none() {
+                self.native_lifetime_owner = Some(previous);
+            }
+            drop(boundary);
+            selection.connection.model.clone()
+        };
         self.connection = selection.connection;
         self.connection_label = Some(selection.name);
+        if let Some(settings) = &self.live_settings {
+            settings.require_control(self.connection.access.non_tools.iter().any(|plan| {
+                plan.plan.event == crate::plugins::hook_types::HookEvent::ConfigChange
+            }));
+            settings.activate_control(
+                &self.workspace,
+                &self.connection,
+                &events
+                    .clone()
+                    .with_runtime(self.runtime.clone())
+                    .with_identity(&self.connection),
+                self.runtime.clone(),
+            )?;
+        }
+        if live_claude {
+            match wait_model_switch(
+                self.inner
+                    .finish_live_model_switch(&switch_events.with_identity(&self.connection)),
+                commands,
+                events,
+            )
+            .await
+            {
+                Ok(ModelSwitchWait::Ready(())) => {}
+                Ok(ModelSwitchWait::End(end)) => {
+                    self.runtime.hold()?;
+                    self.inner.close().await?;
+                    return Ok(Some(end));
+                }
+                Err(error) => {
+                    let hold = self.runtime.hold();
+                    let close = self.inner.close().await;
+                    return Err(error).context(format!(
+                        "applied Claude model switch lost its PostModelSwitch observation; recovery hold={hold:?}; backend close={close:?}"
+                    ));
+                }
+            }
+        } else {
+            plans
+                .post(
+                    &switch_events.with_identity(&self.connection),
+                    switch,
+                    actual_model.clone(),
+                    "settings",
+                )
+                .await?;
+        }
         events.emit(Event::ModelAssignment {
             connection: format!("{} · {}", self.connection_label.as_deref().unwrap_or(&self.connection.adapter), self.connection.adapter),
-            model: self.connection.model.clone(),
-            explanation: if retain_native {
+            model: actual_model,
+            explanation: if retain_native || live_claude {
                 "New work uses the saved assignment. Native conversation retained; earlier identities, results and allocation remain recorded."
             } else {
                 "New work uses the saved assignment in a new provider context. Earlier conversation and results remain visible; no opaque backend session was transferred."
             }.into(),
-        }).await
+        }).await?;
+        owner.finish(None)?;
+        Ok(None)
     }
 
     async fn snapshot(&mut self) -> Result<workspace::Snapshot> {
@@ -370,6 +711,7 @@ impl WorkflowSession {
             return self.work(objective, false, commands, events).await;
         }
         match prompt.trim() {
+            "/compact" => self.inner.compact(commands, events).await,
             "/task-status" => self.show_inspection(events).await,
             "/accept" => {
                 ensure!(
@@ -707,20 +1049,47 @@ impl WorkflowSession {
 #[async_trait]
 impl Session for WorkflowSession {
     fn native_lifetime(&self) -> bool {
-        self.inner.native_lifetime()
+        self.native_lifetime
     }
     fn open_lifetime(&mut self, _: crate::session::SessionStart, events: &EventSink) -> Result<()> {
-        self.inner.open_lifetime(
-            if self.resumed {
-                crate::session::SessionStart::Resume
-            } else {
-                crate::session::SessionStart::Startup
-            },
-            &events
-                .clone()
-                .with_runtime(self.runtime.clone())
-                .with_identity(&self.connection),
-        )
+        let source = if self.resumed {
+            crate::session::SessionStart::Resume
+        } else {
+            crate::session::SessionStart::Startup
+        };
+        let scoped = events
+            .clone()
+            .with_runtime(self.runtime.clone())
+            .with_identity(&self.connection);
+        if self.inner.native_lifetime() {
+            self.inner.open_lifetime(source, &scoped)?;
+        } else {
+            let plans = self
+                .connection
+                .access
+                .non_tools
+                .iter()
+                .filter(|plan| {
+                    matches!(
+                        plan.plan.event,
+                        crate::plugins::hook_types::HookEvent::SessionStart
+                            | crate::plugins::hook_types::HookEvent::SessionEnd
+                            | crate::plugins::hook_types::HookEvent::ConfigChange
+                    )
+                })
+                .map(|plan| (plan.plan.event, plan.plan.digest.clone()))
+                .collect();
+            scoped.begin_host_lifetime(source, plans)?;
+        }
+        if let Some(settings) = &self.live_settings {
+            settings.activate_control(
+                &self.workspace,
+                &self.connection,
+                &scoped,
+                self.runtime.clone(),
+            )?;
+        }
+        Ok(())
     }
     async fn session_start(
         &mut self,
@@ -746,7 +1115,10 @@ impl Session for WorkflowSession {
         reason: crate::session::SessionEnd,
         events: &EventSink,
     ) -> Result<()> {
-        self.inner.session_end(reason, events).await
+        match &mut self.native_lifetime_owner {
+            Some(owner) => owner.session_end(reason, events).await,
+            None => self.inner.session_end(reason, events).await,
+        }
     }
     fn admit(&mut self, prompt: &str) -> Result<()> {
         self.admitted_creator = None;
@@ -799,14 +1171,15 @@ impl Session for WorkflowSession {
         self.task = record.task;
         self.next_id = record.next_task;
         let starts_task = prompt.starts_with("/task ") || prompt.starts_with("/improve ");
-        if (self.task.is_none() && !is_control(&prompt))
+        if ((self.task.is_none() && !is_control(&prompt))
             || (starts_task
                 && self
                     .task
                     .as_ref()
-                    .is_none_or(|task| task.accepted.is_some()))
+                    .is_none_or(|task| task.accepted.is_some())))
+            && let Some(end) = self.refresh_creator(&prompt, commands, events).await?
         {
-            self.refresh_creator(events).await?;
+            return Ok(end);
         }
         let events = match &self.connection_label {
             Some(label) => events.for_connection(label),

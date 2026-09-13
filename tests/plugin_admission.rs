@@ -145,6 +145,7 @@ fn registration(name: &str, class: HandlerClass, run: Arc<dyn HookRunner>) -> Re
             priority: 0,
             matcher: Matcher {
                 error_category: None,
+                trigger: None,
                 tool: Some("write".into()),
                 path: None,
             },

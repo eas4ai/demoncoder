@@ -80,7 +80,7 @@ pub fn open(config: &Connection, workspace: &Path) -> Result<Box<dyn Session>> {
         next_id: 1,
         tools: ToolExecutor::with_policy(workspace, &config.access)?,
         access: config.access.clone(),
-        lifecycle: config.access.lifecycle.clone(),
+        lifecycle: crate::plugins::bridge::Lifecycle::for_access(&config.access)?,
         relay: None,
         ordinary_relay: None,
         ordinary_callbacks: None,
@@ -163,7 +163,13 @@ impl Codex {
             self.tools = ToolExecutor::with_policy(&self.workspace, &access)?;
             self.relay = Some(relay);
         }
-        if !self.access.non_tools.is_empty() {
+        if self.access.non_tools.iter().any(|p| {
+            matches!(
+                p.plan.event,
+                crate::plugins::hook_types::HookEvent::UserPromptSubmit
+                    | crate::plugins::hook_types::HookEvent::Stop
+            )
+        }) {
             anyhow::ensure!(
                 self.access.snapshot.is_none(),
                 "model-hook executor cannot own ordinary hooks"
@@ -517,18 +523,20 @@ impl Codex {
                         self.relay
                             .as_mut()
                             .context("managed relay unavailable")?
-                            .handle(
+                            .handle_managed(
                                 stream,
                                 self.thread
                                     .as_deref()
                                     .context("managed thread unavailable")?,
                                 turn.as_deref().context("managed turn unavailable")?,
                                 events,
+                                &self.tools,
                             )
                             .await?;
                         return Ok(None);
                     }
                 };
+                if let Some(relay)=&mut self.relay {relay.observe_managed(&message,events)?;}
                 if ordinary_turn && !replaying_observed && let Some(callbacks) = &mut self.ordinary_callbacks {
                     callbacks.observe(&message, events)?;
                 }
@@ -806,6 +814,13 @@ impl Session for Codex {
         "codex"
     }
 
+    async fn compact(
+        &mut self,
+        commands: &mut mpsc::Receiver<Command>,
+        events: &EventSink,
+    ) -> Result<TurnEnd> {
+        crate::session::compact_external(self, commands, events).await
+    }
     async fn turn(
         &mut self,
         prompt: String,

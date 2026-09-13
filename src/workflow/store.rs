@@ -35,6 +35,10 @@ pub struct Store {
     dir: File,
     _lock: File,
     initialized: bool,
+    #[cfg(test)]
+    fail_directory_sync_when: Option<fn(&Value) -> bool>,
+    #[cfg(test)]
+    fail_before_rename_when: Option<fn(&Value) -> bool>,
 }
 
 /// Create a private parent without a path-based chmod or following symlinks.
@@ -143,6 +147,10 @@ impl Store {
             dir,
             _lock: lock,
             initialized: false,
+            #[cfg(test)]
+            fail_directory_sync_when: None,
+            #[cfg(test)]
+            fail_before_rename_when: None,
         })
     }
 
@@ -160,6 +168,10 @@ impl Store {
             dir,
             _lock: lock,
             initialized: true,
+            #[cfg(test)]
+            fail_directory_sync_when: None,
+            #[cfg(test)]
+            fail_before_rename_when: None,
         };
         store.read()?;
         Ok(store)
@@ -203,7 +215,27 @@ impl Store {
         decode_record(&bytes)
     }
 
+    #[cfg(test)]
+    pub(crate) fn fail_directory_sync_when(&mut self, predicate: fn(&Value) -> bool) {
+        self.fail_directory_sync_when = Some(predicate);
+    }
+    #[cfg(test)]
+    pub(crate) fn fail_before_rename_when(&mut self, predicate: fn(&Value) -> bool) {
+        self.fail_before_rename_when = Some(predicate);
+    }
     pub fn write(&mut self, payload: &Value) -> Result<()> {
+        #[cfg(test)]
+        if self
+            .fail_directory_sync_when
+            .is_some_and(|predicate| predicate(payload))
+        {
+            self.fail_directory_sync_when = None;
+            return self.write_with_directory_sync(payload, |_| {
+                Err(std::io::Error::other(
+                    "injected directory sync failure after rename",
+                ))
+            });
+        }
         self.write_with_directory_sync(payload, File::sync_all)
     }
 
@@ -257,6 +289,14 @@ impl Store {
                 ),
                 "new session already has a record"
             );
+        }
+        #[cfg(test)]
+        if self
+            .fail_before_rename_when
+            .is_some_and(|predicate| predicate(payload))
+        {
+            self.fail_before_rename_when = None;
+            bail!("injected session record failure before rename");
         }
         fs::renameat(
             &self.dir,
@@ -389,17 +429,26 @@ mod durability_tests {
         let directory = root.path().join("session");
         let mut store = Store::create(&directory).unwrap();
         store.write(&json!("before")).unwrap();
-        let error = store
-            .write_with_directory_sync(&json!("after"), |_| {
-                Err(std::io::Error::other("injected directory sync failure"))
-            })
-            .unwrap_err();
+        store.fail_directory_sync_when(|payload| payload == &json!("after"));
+        store.write(&json!("not the selected payload")).unwrap();
+        assert_eq!(store.read().unwrap(), json!("not the selected payload"));
+        store.fail_before_rename_when(|payload| payload == &json!("before rename"));
+        let before = store.read().unwrap();
+        let error = store.write(&json!("before rename")).unwrap_err();
+        assert!(error.to_string().contains("before rename"));
+        assert_eq!(store.read().unwrap(), before);
+        let mut independent = Store::create(&root.path().join("independent")).unwrap();
+        independent.write(&json!("after")).unwrap();
+        assert_eq!(independent.read().unwrap(), json!("after"));
+        let error = store.write(&json!("after")).unwrap_err();
         assert!(
             error
                 .to_string()
                 .contains("record replaced but directory durability uncertain")
         );
         assert_eq!(store.read().unwrap(), json!("after"));
+        // The same matching payload succeeds after the one-shot fault was consumed.
+        store.write(&json!("after")).unwrap();
         drop(store);
         assert_eq!(
             Store::open(&directory).unwrap().read().unwrap(),

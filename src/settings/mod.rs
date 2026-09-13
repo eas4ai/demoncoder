@@ -10,8 +10,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::config::{Config, Connection};
 pub(crate) use editor::{Action, Editor, onboarding};
-pub(crate) use store::Draft;
 pub use store::Handle;
+pub(crate) use store::{Draft, SaveJob, SaveStatus};
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]

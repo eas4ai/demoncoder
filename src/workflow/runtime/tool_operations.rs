@@ -9,8 +9,17 @@ use crate::tools::{ToolCall, ToolResult};
 #[serde(rename_all = "snake_case")]
 pub enum HostInvocation {
     Model,
+    HookModel {
+        owner: u64,
+    },
     Backend,
+    HookBackend {
+        owner: u64,
+    },
     Commands,
+    ToolBatch(super::tool_batches::ToolBatch),
+    Compaction(super::compaction::Compaction),
+    ModelSwitch(Box<super::model_switch::ModelSwitch>),
     NativeTurn(crate::plugins::receipts::NativeTurn),
     NativeSession(super::plugin_session::NativeSessionLifetime),
     Lifecycle(Box<crate::plugins::receipts::NonToolReceipt>),
@@ -178,6 +187,40 @@ impl Operation {
                         })
                 }))
     }
+
+    pub(super) fn is_owned_settings_control(&self) -> bool {
+        self.non_tool_receipt().is_some_and(|receipt| {
+            receipt.facts.subject.occurrence.event()
+                == crate::plugins::hook_types::HookEvent::ConfigChange
+                && receipt.host_control.as_ref().is_some_and(|authority| {
+                    authority
+                        .operation
+                        .load(std::sync::atomic::Ordering::Acquire)
+                        == self.id
+                        && receipt.facts.host_session == Some(authority.lifetime)
+                        && authority.owned.load(std::sync::atomic::Ordering::Acquire)
+                })
+                && !self.complete
+                && !self.reconciled
+                && !receipt.settled
+        })
+    }
+
+    pub(super) fn settings_causal_owner(&self) -> Option<u64> {
+        match self.host_invocation.as_ref()? {
+            HostInvocation::HookModel { owner }
+            | HostInvocation::HookBackend { owner }
+            | HostInvocation::PluginService { owner, .. } => Some(*owner),
+            _ => None,
+        }
+    }
+
+    pub(super) fn belongs_to_owned_settings_control(&self, owners: &[u64]) -> bool {
+        owners.contains(&self.id)
+            || self
+                .settings_causal_owner()
+                .is_some_and(|owner| owners.contains(&owner))
+    }
     pub fn model_result(&self) -> Option<&ToolResult> {
         self.tool_receipt
             .as_ref()
@@ -259,7 +302,10 @@ impl SharedRuntime {
         let admission = self.update(|record| {
             let source = record.operations.iter().find(|operation| operation.id == invocation)
                 .context("tool requires a durable host invocation")?;
-            ensure!(source.phase == phase && source.call.is_none() && matches!(source.host_invocation, Some(HostInvocation::Model | HostInvocation::Backend | HostInvocation::Commands)), "tool invocation belongs to another owner or phase, or lacks host identity");
+              ensure!(source.phase == phase && source.call.is_none() && matches!(source.host_invocation, Some(HostInvocation::Model | HostInvocation::HookModel { .. } | HostInvocation::Backend | HostInvocation::HookBackend { .. } | HostInvocation::Commands | HostInvocation::ToolBatch(_))), "tool invocation belongs to another owner or phase, or lacks host identity");
+            if matches!(source.host_invocation, Some(HostInvocation::ToolBatch(_))) {
+                super::tool_batches::validate_member(record, invocation, call)?;
+            }
             if let Some(operation) = record.operations.iter().find(|operation| {
                 operation.tool_receipt.as_ref().is_some_and(|receipt| receipt.invocation == invocation && receipt.original_call.id == call.id)
             }) {

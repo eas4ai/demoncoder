@@ -9,6 +9,18 @@ use anyhow::{Context, Result};
 use serde::Serialize;
 use tokio::sync::mpsc;
 
+#[cfg(test)]
+type BlockingNonToolPause = (
+    tokio::sync::oneshot::Sender<()>,
+    std::sync::mpsc::Receiver<()>,
+);
+
+#[cfg(test)]
+type AsyncNonToolPause = (
+    tokio::sync::oneshot::Sender<()>,
+    tokio::sync::oneshot::Receiver<()>,
+);
+
 #[derive(Clone, Copy, Debug, Default, Serialize)]
 pub struct ContextUsage {
     pub used: Option<u64>,
@@ -157,6 +169,7 @@ impl Drop for HostLifetimeGuard {
 pub struct EventSink {
     host_lifetime: Arc<Mutex<Option<HostLifetime>>>,
     native_session_scope: Option<u64>,
+    host_control: Option<crate::plugins::receipts::HostControlAuthority>,
     source_lifecycle: Option<crate::plugins::receipts::ObservedCallback>,
     native_turn: Option<u64>,
     oracle_source: Option<crate::workflow::runtime::OracleSource>,
@@ -174,6 +187,14 @@ pub struct EventSink {
     hook_model: Option<crate::workflow::runtime::plugin_admission::ModelAdmission>,
     plugin_event: crate::plugins::hook_types::HookEvent,
     tool_representation: crate::plugins::receipts::ToolRepresentation,
+    #[cfg(test)]
+    non_tool_post_insert_pause: Arc<Mutex<Option<BlockingNonToolPause>>>,
+    #[cfg(test)]
+    model_switch_source_dispatch_pause: Arc<Mutex<Option<AsyncNonToolPause>>>,
+    #[cfg(test)]
+    model_switch_final_validation_pause: Arc<Mutex<Option<AsyncNonToolPause>>>,
+    #[cfg(test)]
+    model_switch_source_effect_pause: Arc<Mutex<Option<AsyncNonToolPause>>>,
 }
 
 #[derive(Clone)]
@@ -262,6 +283,23 @@ impl EventSink {
         }
         Ok(())
     }
+
+    pub(crate) fn cancel_settings_controls(&self) -> Result<()> {
+        if let Some(runtime) = &self.runtime {
+            runtime.cancel_settings_controls()?;
+        }
+        Ok(())
+    }
+
+    pub(crate) async fn drain_settings_controls(
+        &self,
+        deadline: tokio::time::Instant,
+    ) -> Result<()> {
+        if let Some(runtime) = &self.runtime {
+            runtime.drain_settings_controls(deadline).await?;
+        }
+        Ok(())
+    }
     pub fn new(
         connection: String,
         sender: mpsc::Sender<Envelope>,
@@ -285,6 +323,7 @@ impl EventSink {
         Ok(Self {
             host_lifetime: Default::default(),
             native_session_scope: None,
+            host_control: None,
             source_lifecycle: None,
             native_turn: None,
             oracle_source: None,
@@ -302,7 +341,118 @@ impl EventSink {
             hook_model: None,
             plugin_event: crate::plugins::hook_types::HookEvent::PreToolUse,
             tool_representation: Default::default(),
+            #[cfg(test)]
+            non_tool_post_insert_pause: Default::default(),
+            #[cfg(test)]
+            model_switch_source_dispatch_pause: Default::default(),
+            #[cfg(test)]
+            model_switch_final_validation_pause: Default::default(),
+            #[cfg(test)]
+            model_switch_source_effect_pause: Default::default(),
         })
+    }
+
+    #[cfg(test)]
+    pub(crate) fn pause_next_after_non_tool_insert(
+        &self,
+    ) -> (
+        tokio::sync::oneshot::Receiver<()>,
+        std::sync::mpsc::Sender<()>,
+    ) {
+        let (entered_tx, entered_rx) = tokio::sync::oneshot::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        *self.non_tool_post_insert_pause.lock().unwrap() = Some((entered_tx, release_rx));
+        (entered_rx, release_tx)
+    }
+
+    #[cfg(test)]
+    fn wait_after_non_tool_insert(&self) {
+        if let Some((entered, release)) = self.non_tool_post_insert_pause.lock().unwrap().take() {
+            let _ = entered.send(());
+            release
+                .recv()
+                .expect("release blocked lifecycle operation insertion");
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn pause_next_after_model_switch_source_dispatch(
+        &self,
+    ) -> (
+        tokio::sync::oneshot::Receiver<()>,
+        tokio::sync::oneshot::Sender<()>,
+    ) {
+        let (entered_tx, entered_rx) = tokio::sync::oneshot::channel();
+        let (release_tx, release_rx) = tokio::sync::oneshot::channel();
+        *self.model_switch_source_dispatch_pause.lock().unwrap() = Some((entered_tx, release_rx));
+        (entered_rx, release_tx)
+    }
+
+    #[cfg(test)]
+    pub(crate) async fn wait_after_model_switch_source_dispatch(&self) {
+        let pause = self
+            .model_switch_source_dispatch_pause
+            .lock()
+            .unwrap()
+            .take();
+        if let Some((entered, release)) = pause {
+            let _ = entered.send(());
+            release
+                .await
+                .expect("release blocked Claude model switch source dispatch");
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn pause_next_before_model_switch_final_validation(
+        &self,
+    ) -> (
+        tokio::sync::oneshot::Receiver<()>,
+        tokio::sync::oneshot::Sender<()>,
+    ) {
+        let (entered_tx, entered_rx) = tokio::sync::oneshot::channel();
+        let (release_tx, release_rx) = tokio::sync::oneshot::channel();
+        *self.model_switch_final_validation_pause.lock().unwrap() = Some((entered_tx, release_rx));
+        (entered_rx, release_tx)
+    }
+
+    #[cfg(test)]
+    pub(crate) async fn wait_before_model_switch_final_validation(&self) {
+        let pause = self
+            .model_switch_final_validation_pause
+            .lock()
+            .unwrap()
+            .take();
+        if let Some((entered, release)) = pause {
+            let _ = entered.send(());
+            release
+                .await
+                .expect("release blocked model switch final validation");
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn pause_next_after_model_switch_source_effect(
+        &self,
+    ) -> (
+        tokio::sync::oneshot::Receiver<()>,
+        tokio::sync::oneshot::Sender<()>,
+    ) {
+        let (entered_tx, entered_rx) = tokio::sync::oneshot::channel();
+        let (release_tx, release_rx) = tokio::sync::oneshot::channel();
+        *self.model_switch_source_effect_pause.lock().unwrap() = Some((entered_tx, release_rx));
+        (entered_rx, release_tx)
+    }
+
+    #[cfg(test)]
+    pub(crate) async fn wait_after_model_switch_source_effect(&self) {
+        let pause = self.model_switch_source_effect_pause.lock().unwrap().take();
+        if let Some((entered, release)) = pause {
+            let _ = entered.send(());
+            release
+                .await
+                .expect("release blocked applied Claude model switch effect");
+        }
     }
 
     pub(crate) fn with_submitted_prompt(&self, text: String) -> Self {
@@ -407,6 +557,89 @@ impl EventSink {
             runtime: Some(runtime.upgrade()?),
             ..self.clone()
         }))
+    }
+
+    /// Begin one Creator transition under the original outer host lifetime.
+    /// The returned sink is the only phase permitted to own its Pre/Post receipts.
+    pub(crate) fn begin_model_switch(
+        &self,
+        old: &crate::config::Connection,
+        requested: &crate::config::Connection,
+        source: &str,
+        pre_plan: Option<String>,
+        post_plan: Option<String>,
+    ) -> Result<(Self, u64)> {
+        anyhow::ensure!(
+            self.phase == "worker"
+                && self.native_turn.is_none()
+                && self.hook_model.is_none()
+                && self.invocation.is_none(),
+            "only the outer worker can begin a model switch"
+        );
+        let runtime = self
+            .runtime
+            .as_ref()
+            .context("model switch requires a durable runtime")?;
+        let retained = self
+            .host_lifetime
+            .lock()
+            .map_err(|_| anyhow::anyhow!("native lifetime lock failed"))?
+            .clone();
+        let native_session = retained.as_ref().map(|owner| owner.operation);
+        if let Some(owner) = retained {
+            anyhow::ensure!(
+                owner.runtime.upgrade()?.directory()? == runtime.directory()?,
+                "model switch host lifetime belongs to another runtime"
+            );
+        }
+        let id = runtime.begin_model_switch(
+            old,
+            requested,
+            source,
+            native_session,
+            pre_plan,
+            post_plan,
+        )?;
+        Ok((
+            Self {
+                native_session_scope: None,
+                phase: "model-switch".into(),
+                identity: Some(crate::workflow::runtime::Identity::from(old)),
+                invocation: Some(id),
+                ..self.clone()
+            },
+            id,
+        ))
+    }
+
+    /// Create one bounded Settings occurrence from the already-open host lifetime.
+    /// The lifetime remains the funding owner; this token only bounds this save.
+    pub(crate) fn settings_control_events(
+        &self,
+        deadline: std::time::Instant,
+        live: Arc<std::sync::atomic::AtomicBool>,
+        owned: Arc<std::sync::atomic::AtomicBool>,
+        operation: Arc<std::sync::atomic::AtomicU64>,
+    ) -> Result<Self> {
+        let retained = self
+            .host_lifetime
+            .lock()
+            .map_err(|_| anyhow::anyhow!("host lifetime lock failed"))?
+            .clone()
+            .context("settings policy is active but its host lifetime is not ready")?;
+        Ok(Self {
+            host_control: Some(crate::plugins::receipts::HostControlAuthority {
+                lifetime: retained.operation,
+                deadline,
+                live,
+                owned,
+                operation,
+            }),
+            native_session_scope: None,
+            phase: "settings".into(),
+            runtime: Some(retained.runtime.upgrade()?),
+            ..self.clone()
+        })
     }
     pub(crate) fn validate_end_policy(
         &self,
@@ -683,6 +916,7 @@ impl EventSink {
         Self {
             host_lifetime: Default::default(),
             native_session_scope: None,
+            host_control: None,
             prompt_origin: None,
             source_lifecycle: None,
             native_turn: None,
@@ -704,6 +938,14 @@ impl EventSink {
             hook_model: self.hook_model.clone(),
             plugin_event: self.plugin_event,
             tool_representation: self.tool_representation.clone(),
+            #[cfg(test)]
+            non_tool_post_insert_pause: Default::default(),
+            #[cfg(test)]
+            model_switch_source_dispatch_pause: self.model_switch_source_dispatch_pause.clone(),
+            #[cfg(test)]
+            model_switch_final_validation_pause: self.model_switch_final_validation_pause.clone(),
+            #[cfg(test)]
+            model_switch_source_effect_pause: self.model_switch_source_effect_pause.clone(),
         }
     }
 
@@ -725,6 +967,161 @@ impl EventSink {
             })
             .transpose()?;
         Ok(child)
+    }
+
+    pub(crate) fn begin_external_compaction(&self, input: &serde_json::Value) -> Result<u64> {
+        self.runtime
+            .as_ref()
+            .context("compaction runtime missing")?
+            .begin_external_compaction(
+                &self.phase,
+                self.invocation.context("compaction backend missing")?,
+                input,
+            )
+    }
+    pub(crate) fn observe_external_compaction(
+        &self,
+        id: u64,
+        input: &serde_json::Value,
+    ) -> Result<()> {
+        self.runtime
+            .as_ref()
+            .context("compaction runtime missing")?
+            .observe_external_compaction(
+                id,
+                &self.phase,
+                self.invocation.context("compaction backend missing")?,
+                input,
+            )
+    }
+    pub(crate) fn begin_compaction(
+        &self,
+        trigger: &str,
+        source: &serde_json::Value,
+    ) -> Result<(Self, u64)> {
+        anyhow::ensure!(
+            self.hook_model.is_none(),
+            "hook models cannot compact worker context"
+        );
+        let runtime = self
+            .runtime
+            .as_ref()
+            .context("compaction requires durable session ownership")?;
+        let lifetime = {
+            let retained = self
+                .host_lifetime
+                .lock()
+                .map_err(|_| anyhow::anyhow!("native lifetime lock failed"))?;
+            if let Some(owner) = retained.as_ref() {
+                anyhow::ensure!(
+                    owner.runtime.upgrade()?.plugin_session()? == runtime.plugin_session()?,
+                    "compaction lifetime belongs to another session"
+                );
+                Some(owner.operation)
+            } else {
+                None
+            }
+        };
+        let id = runtime.begin_compaction(
+            &self.phase,
+            self.identity.as_ref(),
+            trigger,
+            source,
+            lifetime,
+        )?;
+        Ok((
+            Self {
+                invocation: Some(id),
+                tool_operation: None,
+                native_turn: None,
+                source_lifecycle: None,
+                ..self.clone()
+            },
+            id,
+        ))
+    }
+    pub(crate) fn begin_compaction_model(&self, id: u64) -> Result<u64> {
+        self.runtime
+            .as_ref()
+            .context("compaction runtime missing")?
+            .compaction_model(id, &self.phase, self.identity.as_ref())
+    }
+    pub(crate) fn compaction_remaining(&self, id: u64) -> Result<std::time::Duration> {
+        let runtime = self
+            .runtime
+            .as_ref()
+            .context("compaction runtime missing")?;
+        runtime.compaction_remaining(id)
+    }
+    pub(crate) fn apply_compaction(
+        &self,
+        id: u64,
+        state: serde_json::Value,
+        summary: String,
+    ) -> Result<()> {
+        self.runtime
+            .as_ref()
+            .context("compaction runtime missing")?
+            .apply_compaction(id, &self.phase, state, summary)
+    }
+    pub(crate) fn installed_compaction_checkpoint(&self) -> Result<serde_json::Value> {
+        self.runtime
+            .as_ref()
+            .context("compaction runtime missing")?
+            .installed_compaction_checkpoint(&self.phase)
+    }
+    pub(crate) fn compaction_objective(&self) -> Result<Option<String>> {
+        let record = self
+            .runtime
+            .as_ref()
+            .context("compaction runtime missing")?
+            .record()?;
+        if let Some(id) = self
+            .phase
+            .strip_prefix("agent:")
+            .and_then(|p| p.strip_suffix(":worker"))
+            .and_then(|p| p.parse::<u64>().ok())
+        {
+            let child = record
+                .agents
+                .iter()
+                .find(|a| a.id == id)
+                .context("compaction child assignment missing")?;
+            return Ok(Some(format!(
+                "{}\nOriginal assignment context:\n{}\nOwned paths: {}",
+                child.request.objective,
+                child.request.context,
+                child.request.owned_paths.join(", ")
+            )));
+        }
+        Ok(record.task.map(|t| t.objective))
+    }
+    pub(crate) fn begin_tool_batch(
+        &self,
+        members: Vec<crate::tools::ToolCall>,
+    ) -> Result<(Self, u64, Vec<crate::tools::ToolCall>)> {
+        let runtime = self
+            .runtime
+            .as_ref()
+            .context("explicit batches require durable session ownership")?;
+        let (id, members) = runtime.begin_tool_batch(
+            self.tool_operation
+                .context("batch wrapper lacks admission")?,
+            members,
+        )?;
+        Ok((
+            Self {
+                invocation: Some(id),
+                tool_operation: None,
+                tool_representation: crate::plugins::receipts::ToolRepresentation::Native,
+                ..self.clone()
+            },
+            id,
+            members,
+        ))
+    }
+    pub(crate) fn batch_runtime(&self) -> Result<crate::workflow::runtime::SharedRuntime> {
+        self.runtime.clone().context("batch runtime missing")
     }
 
     pub(crate) fn begin_model(&self) -> Result<Option<u64>> {
@@ -870,6 +1267,7 @@ impl EventSink {
             self.identity.as_ref(),
             crate::plugins::receipts::LifecycleOrigin {
                 native_session: self.native_session_scope,
+                host_control: self.host_control.clone(),
                 native_turn: self.native_turn,
                 source: self.source_lifecycle.clone(),
             },
@@ -877,6 +1275,8 @@ impl EventSink {
             plan,
             declarations,
         )?;
+        #[cfg(test)]
+        self.wait_after_non_tool_insert();
         Ok((
             Self {
                 tool_operation: Some(facts.operation),
@@ -907,6 +1307,22 @@ impl EventSink {
 
     pub(crate) fn backend_invocation_id(&self) -> Option<u64> {
         self.invocation
+    }
+
+    pub(crate) fn model_switch_context(
+        &self,
+    ) -> Result<(crate::workflow::runtime::SharedRuntime, u64)> {
+        anyhow::ensure!(
+            self.phase == "model-switch" && self.native_turn.is_none(),
+            "model switch callback belongs to another host phase"
+        );
+        Ok((
+            self.runtime
+                .as_ref()
+                .context("model switch runtime missing")?
+                .clone(),
+            self.invocation.context("model switch owner missing")?,
+        ))
     }
 
     pub(crate) fn plugin_event(&self) -> crate::plugins::hook_types::HookEvent {

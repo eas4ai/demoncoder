@@ -90,16 +90,26 @@ pub(super) fn lifetime(record: &Record, id: u64) -> Result<(&Operation, &NativeS
 }
 
 pub(super) fn validate_live(record: &Record, id: u64) -> Result<(&Identity, (u64, u64))> {
+    let (operation, owner) = validate_host_lifetime(record, id)?;
+    ensure!(
+        operation.identity.as_ref() == Some(&record.identity),
+        "native session execution identity changed"
+    );
+    Ok((&record.identity, owner.workspace))
+}
+
+pub(super) fn validate_host_lifetime(
+    record: &Record,
+    id: u64,
+) -> Result<(&Operation, &NativeSessionLifetime)> {
     let (operation, owner) = lifetime(record, id)?;
     ensure!(
         !record.recovery_pending && !operation.reconciled,
         "native session observation requires reconciliation"
     );
     ensure!(
-        owner.version == 1
-            && operation.phase == "native-session"
-            && operation.identity.as_ref() == Some(&record.identity),
-        "native session execution identity changed"
+        owner.version == 1 && operation.phase == "native-session",
+        "host session lifetime is invalid"
     );
     ensure!(
         record
@@ -123,6 +133,20 @@ pub(super) fn validate_live(record: &Record, id: u64) -> Result<(&Identity, (u64
         (metadata.dev(), metadata.ino()) == owner.workspace,
         "native session workspace identity changed"
     );
+    Ok((operation, owner))
+}
+
+pub(super) fn validate_host_control<'a>(
+    record: &'a Record,
+    authority: &crate::plugins::receipts::HostControlAuthority,
+) -> Result<(&'a Identity, (u64, u64))> {
+    let (_, owner) = validate_host_lifetime(record, authority.lifetime)?;
+    ensure!(
+        authority.deadline > Instant::now()
+            && authority.live.load(Ordering::Acquire)
+            && owner.authority.is_some(),
+        "settings control expired, was cancelled, or belongs to another host session"
+    );
     Ok((&record.identity, owner.workspace))
 }
 
@@ -131,7 +155,14 @@ pub(super) fn validate<'a>(
     id: u64,
     occurrence: &NonToolOccurrence,
 ) -> Result<(&'a Identity, (u64, u64))> {
-    let identity = validate_live(record, id)?;
+    let identity = if matches!(occurrence, NonToolOccurrence::SessionEnd { .. }) {
+        (
+            &record.identity,
+            super::model_switch::validate_original_lifetime_current(record, id)?,
+        )
+    } else {
+        validate_live(record, id)?
+    };
     let (_, owner) = lifetime(record, id)?;
     ensure!(
         match occurrence {
@@ -324,7 +355,10 @@ impl SharedRuntime {
         event: crate::plugins::hook_types::HookEvent,
     ) -> Result<Duration> {
         use crate::plugins::hook_types::HookEvent;
-        if !matches!(event, HookEvent::SessionStart | HookEvent::SessionEnd) {
+        if !matches!(
+            event,
+            HookEvent::SessionStart | HookEvent::SessionEnd | HookEvent::ConfigChange
+        ) {
             return self.remaining();
         }
         self.plugin_runner_owner(id, event)?;
@@ -336,6 +370,20 @@ impl SharedRuntime {
             .and_then(Operation::non_tool_receipt)
             .context("native session occurrence missing")?
             .facts;
+        if event == HookEvent::ConfigChange {
+            let receipt = record
+                .operations
+                .iter()
+                .find(|o| o.id == id)
+                .and_then(Operation::non_tool_receipt)
+                .context("settings occurrence missing")?;
+            let authority = receipt
+                .host_control
+                .as_ref()
+                .context("settings control authority is no longer executable")?;
+            validate_host_control(&record, authority)?;
+            return Ok(authority.deadline.saturating_duration_since(Instant::now()));
+        }
         let (_, owner) = lifetime(
             &record,
             facts

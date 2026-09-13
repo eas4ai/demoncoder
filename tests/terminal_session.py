@@ -41,7 +41,7 @@ class Provider(ModelMetadataHandler):
             assert control["effort"] == self.server.expected_effort
         call_events = None
         if self.server.tool_cycles:
-            assert len(body["tools"]) == 4
+            assert {tool["name"] for tool in body["tools"]} == {"read", "write", "edit", "bash", "tool_batch"}
             history = body["input"] if self.path == "/responses" else body["messages"]
             prompt = history[0]["content"]
             cycle = self.server.cycles.setdefault(prompt, Cycle(prompt, self.server.wrong_edit))

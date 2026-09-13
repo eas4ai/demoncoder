@@ -4,6 +4,11 @@ pub use budget_accounting::{BudgetRef, RetiredTaskAllocation, UsageReceipt};
 mod delegation;
 mod oracle_source;
 pub(crate) use oracle_source::OracleSource;
+pub(crate) mod compaction;
+pub(crate) mod model_switch;
+#[cfg(test)]
+#[path = "runtime/model_switch_tests.rs"]
+mod model_switch_tests;
 pub(crate) mod plugin_admission;
 pub(crate) mod plugin_lifecycle;
 pub(crate) mod plugin_non_tool;
@@ -11,6 +16,7 @@ pub(crate) mod plugin_observer;
 mod plugin_once;
 pub mod plugin_session;
 pub mod session_budget;
+pub(crate) mod tool_batches;
 mod tool_operations;
 pub(crate) use tool_operations::ToolAdmission;
 pub use tool_operations::ToolReceipt;
@@ -560,41 +566,6 @@ impl SharedRuntime {
             .clone())
     }
 
-    pub(crate) fn bind_creator(
-        &self,
-        connection: &Connection,
-        checkpoint: Option<Value>,
-    ) -> Result<()> {
-        self.update_without_observers(false, |record| {
-            ensure!(
-                !record.recovery_pending && record.phase.is_none(),
-                "reconcile interrupted work before changing its model"
-            );
-            ensure!(
-                record.task.as_ref().is_none_or(|t| t.accepted.is_some()),
-                "an admitted task keeps its original model"
-            );
-            ensure!(
-                record.prior_contexts.len() < 64,
-                "model change history is full; start a new session"
-            );
-            record.prior_contexts.push(ContextBinding {
-                identity: record.identity.clone(),
-                through_operation: record.operations.len() as u64,
-                checkpoint: record.checkpoint.clone(),
-            });
-            if let Some(task) = &mut record.task
-                && task.creator_identity.is_none()
-            {
-                task.creator_identity = Some(record.identity.clone());
-            }
-            record.identity = Identity::from(connection);
-            record.checkpoint = checkpoint;
-            record.checkpoint_cursor = record.operations.len() as u64;
-            Ok(())
-        })
-    }
-
     fn admission<T>(&self, f: impl FnOnce(&mut Record) -> Result<T>) -> Result<T> {
         let result = self.update(f)?;
         // The durable clock checkpoint can detect rollback after the closure's
@@ -680,19 +651,39 @@ impl SharedRuntime {
         })
     }
 
+    pub(crate) fn retain_refused_submission(&self, prompt: &str, reason: &str) -> Result<()> {
+        self.update(|record| {
+            ensure!(
+                record.phase.is_none(),
+                "refused submission retention requires the taskless turn boundary"
+            );
+            append_message(record, "developer", prompt)?;
+            append_message(record, "assistant", reason)
+        })
+    }
+
     pub fn finish_phase(&self) -> Result<()> {
         let session = self.plugin_session()?;
         self.update(|r| {
             r.phase = None;
+            let settings_owners = r
+                .operations
+                .iter()
+                .filter(|operation| operation.is_owned_settings_control())
+                .map(|operation| operation.id)
+                .collect::<Vec<_>>();
             // Cancellation does not establish a remote request's outcome or
             // billing. The developer reconciles every incomplete admission.
-            if r.operations
-                .iter()
-                .any(|o| o.needs_reconciliation() && delegation::agent_id(&o.phase).is_none())
-            {
+            if r.operations.iter().any(|o| {
+                o.needs_reconciliation()
+                    && !o.belongs_to_owned_settings_control(&settings_owners)
+                    && delegation::agent_id(&o.phase).is_none()
+            }) {
                 r.recovery_pending = true;
                 budget_accounting::mark_missing(r, &session, |o| {
-                    o.needs_reconciliation() && delegation::agent_id(&o.phase).is_none()
+                    o.needs_reconciliation()
+                        && !o.belongs_to_owned_settings_control(&settings_owners)
+                        && delegation::agent_id(&o.phase).is_none()
                 });
             }
             Ok(())
@@ -818,7 +809,10 @@ impl SharedRuntime {
                         owner.phase == phase
                             && !owner.complete
                             && !owner.reconciled
-                            && matches!(owner.host_invocation, Some(HostInvocation::NativeTurn(_))),
+                            && matches!(
+                                owner.host_invocation,
+                                Some(HostInvocation::NativeTurn(_) | HostInvocation::Compaction(_))
+                            ),
                         "model native turn changed or ended"
                     );
                     budget_accounting::inherited(r, source)?
@@ -836,7 +830,10 @@ impl SharedRuntime {
                 tool_receipt: None,
                 budget: Some(budget),
                 usage_receipt: None,
-                host_invocation: Some(HostInvocation::Model),
+                host_invocation: Some(match hook {
+                    Some(hook) => HostInvocation::HookModel { owner: hook.owner },
+                    None => HostInvocation::Model,
+                }),
                 complete: false,
                 reconciled: false,
                 usage_reported: false,

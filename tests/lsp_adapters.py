@@ -27,7 +27,7 @@ class Provider(ModelMetadataHandler):
     def do_POST(self):
         try:
             body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
-            assert {tool["name"] for tool in body["tools"]} == {"read", "write", "edit", "bash", "lsp"}
+            assert {tool["name"] for tool in body["tools"]} == {"read", "write", "edit", "bash", "tool_batch", "lsp"}
             openai = self.path == "/responses"
             history = body["input" if openai else "messages"]
             token = history[0]["content"]

@@ -191,6 +191,14 @@ impl Session for DelegatingSession {
         events.extend(self.manager.initial_events()?);
         Ok(events)
     }
+    async fn compact(
+        &mut self,
+        commands: &mut mpsc::Receiver<Command>,
+        events: &EventSink,
+    ) -> Result<TurnEnd> {
+        self.manager.ensure_parent_available()?;
+        self.inner.compact(commands, events).await
+    }
     async fn turn(
         &mut self,
         prompt: String,

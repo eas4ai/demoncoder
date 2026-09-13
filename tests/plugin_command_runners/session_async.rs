@@ -663,3 +663,116 @@ async fn session_async_native_first_line_marker_cannot_transfer_synchronous_comm
     unspent(&fixture);
     stop(running).await;
 }
+
+struct Compacting {
+    history: Vec<serde_json::Value>,
+    summaries: Arc<Mutex<Vec<String>>>,
+    requests: Arc<Mutex<Vec<serde_json::Value>>>,
+    contributions: Arc<AtomicUsize>,
+    runtime: SharedRuntime,
+}
+#[async_trait::async_trait]
+impl Model for Compacting {
+    fn checkpoint(&self) -> Option<serde_json::Value> {
+        Some(json!(self.history))
+    }
+    fn restore(&mut self, value: &serde_json::Value) -> anyhow::Result<()> {
+        self.history = value.as_array().unwrap().clone();
+        Ok(())
+    }
+    fn prompt(&mut self, text: String) {
+        if text.contains("deferred-compaction-canary") {
+            self.contributions.fetch_add(1, Ordering::SeqCst);
+        }
+        self.history.push(json!({"role":"user","content":text}));
+    }
+    fn results(&mut self, _: Vec<ToolResult>) {}
+    async fn response(&mut self, _: &EventSink) -> anyhow::Result<Vec<ToolCall>> {
+        self.requests.lock().unwrap().push(json!(self.history));
+        self.history
+            .push(json!({"role":"assistant","content":"ordinary response"}));
+        Ok(vec![])
+    }
+    async fn summarize(&mut self, input: String, _: &EventSink) -> anyhow::Result<String> {
+        assert!(
+            !input.contains("deferred-compaction-canary"),
+            "summary swallowed next-Creator context"
+        );
+        let record = self.runtime.record()?;
+        let observer = record
+            .operations
+            .iter()
+            .filter_map(|o| match &o.host_invocation {
+                Some(demoncoder::workflow::runtime::HostInvocation::Lifecycle(r)) => Some(r),
+                _ => None,
+            })
+            .flat_map(|r| &r.hooks)
+            .find_map(|h| h.observer.as_ref())
+            .expect("real async contribution");
+        assert_eq!(
+            observer.delivery,
+            plugins::observer::Delivery::Pending,
+            "summary reserved Creator delivery"
+        );
+        self.summaries.lock().unwrap().push(input);
+        Ok("Earlier conversation summarized without consuming deferred context.".into())
+    }
+}
+#[tokio::test]
+async fn automatic_compaction_precedes_real_async_creator_context_claim_and_delivers_once() {
+    let _lock = FIXTURES.lock().await;
+    let mut fixture = funded(0);
+    let mut tools = fixture.executor(vec![], false);
+    tools.register_non_tool_plan(lifetime_plan(&fixture,HookEvent::SessionStart,"print('{\"hookSpecificOutput\":{\"hookEventName\":\"SessionStart\",\"additionalContext\":\"deferred-compaction-canary\"}}')\n",true,false)).unwrap();
+    let summaries = Arc::new(Mutex::new(vec![]));
+    let requests = Arc::new(Mutex::new(vec![]));
+    let contributions = Arc::new(AtomicUsize::new(0));
+    let history=(0..10).map(|i|json!({"role":if i%2==0{"user"}else{"assistant"},"content":"older context ".repeat(4000)})).collect();
+    let native = NativeSession::with_tools(
+        Box::new(Compacting {
+            history,
+            summaries: summaries.clone(),
+            requests: requests.clone(),
+            contributions: contributions.clone(),
+            runtime: fixture.runtime.clone(),
+        }),
+        tools,
+    );
+    let (commands, receiver) = mpsc::channel(8);
+    let mut owner = tokio::spawn(session::run(
+        Box::new(native),
+        receiver,
+        fixture.events.clone(),
+    ));
+    ready(&mut fixture).await;
+    completed(&fixture).await;
+    for prompt in ["current developer prompt", "next explicit request"] {
+        commands.send(Command::Prompt(prompt.into())).await.unwrap();
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while !matches!(
+                fixture._receiver.recv().await.unwrap().event,
+                Event::TurnFinished { .. }
+            ) {}
+        })
+        .await
+        .unwrap();
+    }
+    assert_eq!(summaries.lock().unwrap().len(), 1);
+    assert_eq!(requests.lock().unwrap().len(), 2);
+    let first = requests.lock().unwrap()[0].to_string();
+    assert!(
+        first.contains("current developer prompt") && first.contains("deferred-compaction-canary")
+    );
+    assert_eq!(contributions.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        hook(&fixture).unwrap().observer.unwrap().delivery,
+        plugins::observer::Delivery::Delivered
+    );
+    unspent(&fixture);
+    commands.send(Command::Shutdown).await.unwrap();
+    tokio::time::timeout(Duration::from_secs(5), &mut owner)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+}

@@ -32,7 +32,7 @@ session-hook allowance persistence with atomic session directory creation, exact
 operation budget/usage attribution including ordinary Oracle ownership, native
 session Prompt/Agent execution from the original explicit grant, and native
 session HTTP/MCP execution with owned lifetime cleanup, and original-owner native
-async session commands with bounded context delivery. The current Rust
+async session commands with bounded context delivery. That prerequisite's Rust
 candidate passes 991 tests (17 ignored), the separate terminal output-limit suite
 passes three cases, and fresh specification and quality reviews pass. Earlier
 installed/live-source evidence retains its original candidate; these Rust checks
@@ -689,10 +689,49 @@ This synchronous prerequisite cannot discharge their conformance obligations.
 
 **Files:** `src/plugins/lifecycle.rs`, `src/native.rs`, `src/session.rs`, `src/workflow/mod.rs`, `src/subagents/`, `src/adapters/`, `tests/plugin_lifecycle.rs`.
 
-- [ ] Add explicit host batch membership/settle barriers and native compaction transactions that retain durable evidence and pinned policy outside model context.
+- [x] Add explicit host batch membership/settle barriers and native compaction transactions that retain durable evidence and pinned policy outside model context.
+
+  Verified bounded implementation: explicit shared tool batches and owned context
+  compaction, under [the recorded decision](../decisions/own-explicit-tool-batches-and-context-compaction-through-existing-runtime-operations.md).
+  [Taskless compaction hooks](../decisions/bind-taskless-compaction-hooks-to-the-original-explicit-session-grant.md)
+  retain the original explicit session grant and service limits. Specification
+  and quality reviews passed. The final locked full Rust regression passed 1,025
+  tests with zero failures and 21 ignored across 48 suites; all-target Clippy,
+  formatting, four native compaction terminal cases, three output-limit cases,
+  and six installed/local-peer cases passed. The [review](../reviews/plugin-batches-and-compaction.md)
+  binds the source and raw evidence, retains earlier failures and static nonpasses,
+  and names the combined cases still required by the full lifecycle matrix below.
 - [ ] Implement admitted workspace changes, dynamic watches, settings/model transitions, setup, notifications, task/worktree/child events and real teammate-idle transitions.
+
+    The verified bounded prerequisite [gates actual Settings publication](../decisions/gate-actual-settings-publication-with-the-original-host-session-policy.md)
+  with the original active policy and explicit host-session ownership. Existing
+  atomic storage, concurrent-edit refusal, running-model pins and private settings
+  protection remain authoritative. Workspace and model-switch operations are
+    subsequent work; a saved default alone is not an observed provider switch.
+    Independent specification and quality reviews approve this prerequisite.
+    Its full Rust candidate passed 1,083 tests (22 ignored); final fixture checks
+    and 25 terminal Settings cases passed separately. The [review](../reviews/plugin-config-change.md)
+    binds those candidates and raw results, retains static nonpasses and historical
+    failures, and names the remaining lifecycle and live-provider obligations.
+
+    The verified bounded prerequisite [owns actual Creator model switches](../decisions/own-actual-creator-model-switches-through-the-original-host-session.md)
+    through the original session authority. Native replacements and genuine
+    Claude SDK controls retain gates, actual identity and uncertain outcomes.
+    Independent SPEC and QUALITY approve it. Final development checks passed
+    1,116 Rust tests (36 ignored), 17 installed owner/batch tests, eight external
+    transition cases and 28 terminal cases. The [review](../reviews/plugin-model-switch.md)
+    binds exact evidence and preserves the unexplained earlier compaction failure,
+    nonpassing static diagnostics and remaining lifecycle obligations.
+
 - [ ] Correlate host and backend events once by operation identity; never synthesize an unobserved implicit backend batch.
 - [ ] Exercise the complete lifecycle matrix for success, denial, failure, cancellation and resume. Stop corrections consume existing limits and cannot delay cancellation or imply developer acceptance.
+
+  Remaining combined cases include reopening an interrupted batch without replaying
+  completed effects or observers; cancelling after compaction applies but before
+  deferred Creator delivery, then reopening and delivering once; and an installed
+  Codex PostCompact refusal followed by attempted continuation. The full once/async
+  matrix and stale-child permutations also remain here. Earlier bounded checks
+  do not establish these exact combinations.
 
 ## 11. Public management, distribution and presentation
 
@@ -732,7 +771,7 @@ the busy-control rejection or through plugin/channel text interpreted as prompts
 - [ ] Include `tests/plugin_codex_non_tool_source.py --codex <qualified-managed-binary> --output <new-directory>` for actual command-hook submit/Stop frames, source denial and correction, raw identity/correction correlation and corruption controls. Re-run post-tool and async source cases when the shared peer changes.
 - [ ] Run formatting, clippy, all existing regression tests, installed language services and the complete plugin gate. Commit implementation before Cairn; commit receipts and captured outputs afterward.
 - [ ] Perform specification and quality reviews followed by an adversarial whole-commitment review. Resolve findings as separate implementation actions and rerun affected evidence.
-- [ ] Install and verify the final executable. Follow Cairn until Done; only then integrate the feature branch with `git merge --no-ff` and report the complete commitment.
+- [ ] Install and verify the final executable. Follow Cairn until Done and report the complete commitment. The developer separately authorized merging and pushing verified intermediate progress on 2026-09-13; use `git merge --no-ff`. Such integration does not mark this commitment Done.
 
 ## Requirement coverage
 

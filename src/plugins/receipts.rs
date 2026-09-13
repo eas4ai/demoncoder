@@ -58,6 +58,9 @@ pub struct AdmissionKey {
 pub struct NonToolFacts {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub native_session: Option<u64>,
+    /// Original host lifetime for an explicit Settings control, never source observation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host_session: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub callback: Option<SourceCallback>,
     /// Absent on legacy records; an occurrence ID is never a substitute turn.
@@ -87,7 +90,11 @@ pub struct NonToolFacts {
 }
 impl NonToolFacts {
     pub(crate) fn causal_operation(&self) -> u64 {
-        self.native_turn
+        self.subject
+            .occurrence
+            .host_operation()
+            .or(self.host_session)
+            .or(self.native_turn)
             .or(self.native_session)
             .or_else(|| self.callback.as_ref().map(|c| c.backend_operation))
             .unwrap_or(self.operation)
@@ -140,6 +147,7 @@ pub(crate) struct ObservedCallback {
 #[derive(Clone, Debug, Default)]
 pub(crate) struct LifecycleOrigin {
     pub native_session: Option<u64>,
+    pub host_control: Option<HostControlAuthority>,
     pub native_turn: Option<u64>,
     pub source: Option<ObservedCallback>,
 }
@@ -199,11 +207,65 @@ pub struct NonToolReceipt {
     pub hold: Option<String>,
     pub settled: bool,
     pub correction_admitted: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub publication: Option<ConfigPublication>,
+    /// Executable settings authority is live-memory only and is never restored.
+    #[serde(skip)]
+    pub(crate) host_control: Option<HostControlAuthority>,
+}
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ConfigPublication {
+    Published,
+    Uncertain,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct HostControlAuthority {
+    pub lifetime: u64,
+    pub deadline: std::time::Instant,
+    pub live: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    pub owned: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    pub operation: std::sync::Arc<std::sync::atomic::AtomicU64>,
 }
 /// A real host boundary, never an empty or fabricated ToolCall.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "event")]
 pub enum NonToolOccurrence {
+    ConfigChange {
+        source: String,
+        proposed_digest: String,
+        base_revision: Option<String>,
+        structure: Value,
+    },
+    PreCompact {
+        compaction: Option<u64>,
+        trigger: String,
+        custom_instructions: Option<String>,
+    },
+    PostCompact {
+        compaction: Option<u64>,
+        trigger: String,
+        compact_summary: Option<String>,
+    },
+    PreModelSwitch {
+        model_switch: u64,
+        requested_model: Option<String>,
+        resolved_model: Option<String>,
+        source: String,
+    },
+    PostModelSwitch {
+        model_switch: u64,
+        model: Option<String>,
+        source: String,
+    },
+    PostToolBatch {
+        /// Host batch ID; absent only on an authenticated source batch callback.
+        batch: Option<u64>,
+        /// Host entries reference immutable member operations; source entries retain source facts.
+        tool_calls: Vec<Value>,
+    },
     SessionStart {
         source: crate::session::SessionStart,
     },
@@ -226,8 +288,25 @@ pub enum NonToolOccurrence {
     },
 }
 impl NonToolOccurrence {
+    pub(crate) fn host_operation(&self) -> Option<u64> {
+        match self {
+            Self::PostToolBatch { batch, .. } => *batch,
+            Self::PreCompact { compaction, .. } | Self::PostCompact { compaction, .. } => {
+                *compaction
+            }
+            Self::PreModelSwitch { model_switch, .. }
+            | Self::PostModelSwitch { model_switch, .. } => Some(*model_switch),
+            _ => None,
+        }
+    }
     pub(crate) fn event(&self) -> super::hook_types::HookEvent {
         match self {
+            Self::ConfigChange { .. } => super::hook_types::HookEvent::ConfigChange,
+            Self::PreCompact { .. } => super::hook_types::HookEvent::PreCompact,
+            Self::PostCompact { .. } => super::hook_types::HookEvent::PostCompact,
+            Self::PreModelSwitch { .. } => super::hook_types::HookEvent::PreModelSwitch,
+            Self::PostModelSwitch { .. } => super::hook_types::HookEvent::PostModelSwitch,
+            Self::PostToolBatch { .. } => super::hook_types::HookEvent::PostToolBatch,
             Self::SessionStart { .. } => super::hook_types::HookEvent::SessionStart,
             Self::SessionEnd { .. } => super::hook_types::HookEvent::SessionEnd,
             Self::UserPromptSubmit { .. } => super::hook_types::HookEvent::UserPromptSubmit,

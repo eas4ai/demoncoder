@@ -64,7 +64,7 @@ def main():
                 result = {"requiresOpenaiAuth": True, "account": {"type": "chatgpt", "email": "fixture@example.invalid", "planType": "plus"}}
             elif method == "thread/start":
                 assert message["params"]["sandbox"] == "workspace-write"
-                assert {tool["name"] for tool in message["params"]["dynamicTools"]} == {"read", "write", "edit", "bash"}
+                assert {tool["name"] for tool in message["params"]["dynamicTools"]} == {"read", "write", "edit", "bash", "tool_batch"}
                 result = {"thread": {"id": "fixture-thread"}}
             elif method == "turn/start":
                 request = assignment(message["params"]["input"][0]["text"])

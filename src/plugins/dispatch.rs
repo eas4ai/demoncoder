@@ -20,6 +20,8 @@ pub struct Matcher {
     pub path: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error_category: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub trigger: Option<String>,
 }
 #[derive(Clone, Serialize)]
 pub struct Declaration {
@@ -98,6 +100,7 @@ pub(crate) struct Handler {
     pub registration: Registration,
     path: Option<GlobMatcher>,
     error_category: Option<jsonschema::Validator>,
+    trigger: Option<jsonschema::Validator>,
 }
 pub struct PreToolPlan {
     pub(crate) event: HookEvent,
@@ -226,6 +229,7 @@ impl PreToolPlan {
                 &d.matcher.tool,
                 &d.matcher.path,
                 &d.matcher.error_category,
+                &d.matcher.trigger,
             ]
             .into_iter()
             .flatten()
@@ -292,10 +296,31 @@ impl PreToolPlan {
                         .map_err(|error| anyhow::anyhow!("invalid error category pattern: {error}"))
                 })
                 .transpose()?;
+            ensure!(
+                matches!(event, HookEvent::PreCompact | HookEvent::PostCompact)
+                    || d.matcher.trigger.is_none(),
+                "trigger matcher requires compaction"
+            );
+            let trigger = d
+                .matcher
+                .trigger
+                .as_ref()
+                .map(|pattern| {
+                    jsonschema::options()
+                        .with_pattern_options(
+                            jsonschema::PatternOptions::fancy_regex().backtrack_limit(10_000),
+                        )
+                        .build(&serde_json::json!({"type":"string","pattern":pattern}))
+                        .map_err(|error| {
+                            anyhow::anyhow!("invalid compaction trigger pattern: {error}")
+                        })
+                })
+                .transpose()?;
             handlers.push(Handler {
                 registration,
                 path,
                 error_category,
+                trigger,
             });
         }
         let digest = super::admission::digest(&(event, &declarations))?;
@@ -311,14 +336,24 @@ impl PreToolPlan {
 }
 impl Handler {
     pub(crate) fn matches_non_tool(&self, occurrence: &NonToolOccurrence) -> bool {
-        self.error_category
+        self.trigger
             .as_ref()
             .is_none_or(|pattern| match occurrence {
-                NonToolOccurrence::StopFailure { error, .. } => {
-                    pattern.is_valid(&serde_json::json!(error))
+                NonToolOccurrence::PreCompact { trigger, .. }
+                | NonToolOccurrence::PostCompact { trigger, .. } => {
+                    pattern.is_valid(&serde_json::json!(trigger))
                 }
                 _ => false,
             })
+            && self
+                .error_category
+                .as_ref()
+                .is_none_or(|pattern| match occurrence {
+                    NonToolOccurrence::StopFailure { error, .. } => {
+                        pattern.is_valid(&serde_json::json!(error))
+                    }
+                    _ => false,
+                })
     }
     pub(crate) fn matches(&self, call: &ToolCall) -> bool {
         let m = &self.registration.declaration.matcher;
@@ -475,5 +510,31 @@ impl Declaration {
         );
         self.source = Some(source);
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod matcher_identity_tests {
+    use super::*;
+
+    #[test]
+    fn compaction_trigger_serialization_retains_present_identity() {
+        let absent = Matcher::default();
+        let manual = Matcher {
+            trigger: Some("^manual$".into()),
+            ..Default::default()
+        };
+        let automatic = Matcher {
+            trigger: Some("^auto$".into()),
+            ..Default::default()
+        };
+        assert_eq!(
+            serde_json::to_string(&manual).unwrap(),
+            r#"{"tool":null,"path":null,"trigger":"^manual$"}"#
+        );
+        let digest = |matcher: &Matcher| super::super::admission::digest(matcher).unwrap();
+        assert_ne!(digest(&manual), digest(&absent));
+        assert_ne!(digest(&automatic), digest(&absent));
+        assert_ne!(digest(&manual), digest(&automatic));
     }
 }

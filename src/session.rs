@@ -43,6 +43,16 @@ pub enum TurnEnd {
     CommandsClosed,
 }
 
+pub enum ModelSwitchControl {
+    Refused {
+        reason: String,
+    },
+    Applied {
+        actual_model: String,
+        validation: Option<tokio::sync::OwnedMutexGuard<()>>,
+    },
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SessionStart {
@@ -195,6 +205,22 @@ pub trait Session: Send {
     fn supports_workflow(&self) -> bool {
         false
     }
+    fn live_model_switch_ready(&self) -> bool {
+        false
+    }
+    fn apply_live_model_noop(&mut self, _requested: &Connection) -> Result<Option<String>> {
+        Ok(None)
+    }
+    async fn begin_live_model_switch(
+        &mut self,
+        _requested: &Connection,
+        _events: &EventSink,
+    ) -> Result<ModelSwitchControl> {
+        bail!("current adapter cannot change its live model")
+    }
+    async fn finish_live_model_switch(&mut self, _events: &EventSink) -> Result<()> {
+        bail!("current adapter cannot observe a live model change")
+    }
     fn initial_events(&self) -> Result<Vec<Event>> {
         Ok(Vec::new())
     }
@@ -211,6 +237,13 @@ pub trait Session: Send {
     ) -> Result<()> {
         bail!("this adapter cannot restore its internal conversation")
     }
+    async fn compact(
+        &mut self,
+        _commands: &mut mpsc::Receiver<Command>,
+        _events: &EventSink,
+    ) -> Result<TurnEnd> {
+        bail!("Context compaction is unavailable for this session")
+    }
     async fn turn(
         &mut self,
         prompt: String,
@@ -223,6 +256,34 @@ pub trait Session: Send {
     async fn cancel_background(&mut self) -> Result<()> {
         Ok(())
     }
+}
+
+/// A manual backend command cannot acquire queued Creator prompts while it runs.
+pub(crate) async fn compact_external(
+    session: &mut dyn Session,
+    commands: &mut mpsc::Receiver<Command>,
+    events: &EventSink,
+) -> Result<TurnEnd> {
+    let outcome = {
+        let (sender, mut receiver) = mpsc::channel(4);
+        let work = session.turn("/compact".into(), &mut receiver, events);
+        tokio::pin!(work);
+        loop {
+            tokio::select! {biased;
+                command=commands.recv()=>match command {
+                    Some(Command::Submit{reply,..})=>{let _=reply.send(Err("Context compaction is running; draft retained."));},
+                    Some(Command::Prompt(_))=>events.emit_advisory(Event::Error{message:"Context compaction is running; submit after it finishes.".into()})?,
+                    Some(command @ (Command::Cancel|Command::Shutdown))=>{let _=sender.try_send(command);},
+                    None=>break Ok(TurnEnd::CommandsClosed),
+                },
+                result=&mut work=>break result,
+            }
+        }
+    };
+    if !matches!(outcome, Ok(TurnEnd::Complete)) {
+        session.close().await?;
+    }
+    outcome
 }
 
 pub type Factory = fn(&Connection, &Path) -> Result<Box<dyn Session>>;
@@ -368,14 +429,14 @@ async fn start_lifetime(
     commands: &mut mpsc::Receiver<Command>,
     events: &EventSink,
 ) -> Result<Option<SessionEnd>> {
-    if !session.native_lifetime() {
-        return Ok(None);
-    }
     let started = tokio::time::Instant::now();
     if let Err(error) = session.open_lifetime(SessionStart::Startup, events) {
         let _ = events.emit_advisory(Event::Error {
             message: format!("SessionStart fact could not be retained: {error:#}"),
         });
+    }
+    if !session.native_lifetime() {
+        return Ok(None);
     }
     let mut cancelled = false;
     let startup = async {
@@ -610,9 +671,14 @@ pub async fn run(
             }
         }
         Ok(())
-    }
-              .await;
+      }
+                .await;
     let ended = tokio::time::Instant::now();
+    if let Err(error) = events.cancel_settings_controls() {
+        let _ = events.lifetime_diagnostic(format!(
+            "Settings control cancellation incomplete: {error:#}"
+        ));
+    }
     commands.close();
     while let Ok(command) = commands.try_recv() {
         if let Command::Submit { reply, .. } = command {
@@ -627,14 +693,14 @@ pub async fn run(
         end_reason = selected;
     }
     let observation = match events.end_host_lifetime(end_reason) {
-        Ok(Some(lifetime_events)) => Some(
+        Ok(Some(lifetime_events)) if session.native_lifetime() => Some(
             tokio::time::timeout_at(
                 ended + std::time::Duration::from_secs(2),
                 session.session_end(end_reason, &lifetime_events),
             )
             .await,
         ),
-        Ok(None) => None,
+        Ok(Some(_)) | Ok(None) => None,
         Err(error) => {
             let _ = events.emit_advisory(Event::Error {
                 message: format!("SessionEnd fact could not be retained: {error:#}"),
@@ -672,6 +738,16 @@ pub async fn run(
     {
         let _ =
             events.lifetime_diagnostic(format!("SessionEnd service cleanup incomplete: {error:#}"));
+    }
+    let settings_deadline = ended
+        + if session.native_lifetime() {
+            NATIVE_END_BUDGET
+        } else {
+            std::time::Duration::from_secs(3)
+        };
+    if let Err(error) = events.drain_settings_controls(settings_deadline).await {
+        let _ =
+            events.lifetime_diagnostic(format!("Settings control cleanup incomplete: {error:#}"));
     }
     let close = session.close().await;
     result.and(finalized).and(close)

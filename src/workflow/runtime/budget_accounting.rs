@@ -197,7 +197,12 @@ pub(super) fn is_model(operation: &Operation) -> bool {
     operation.call.is_none()
         && matches!(
             operation.host_invocation,
-            Some(HostInvocation::Model | HostInvocation::Backend)
+            Some(
+                HostInvocation::Model
+                    | HostInvocation::HookModel { .. }
+                    | HostInvocation::Backend
+                    | HostInvocation::HookBackend { .. }
+            )
         )
 }
 

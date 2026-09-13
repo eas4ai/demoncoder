@@ -7,12 +7,15 @@ use crate::{
 use anyhow::{Context, Result, ensure};
 use std::{os::unix::fs::MetadataExt, path::Path};
 
-pub(super) struct Owner<'a> {
+pub(in crate::workflow::runtime) struct Owner<'a> {
     pub identity: &'a Identity,
     pub root: &'a Path,
     pub child: Option<String>,
 }
-pub(super) fn resolve<'a>(record: &'a Record, phase: &str) -> Result<Owner<'a>> {
+pub(in crate::workflow::runtime) fn resolve<'a>(
+    record: &'a Record,
+    phase: &str,
+) -> Result<Owner<'a>> {
     ensure!(
         !record.recovery_pending,
         "lifecycle owner requires reconciliation"
@@ -101,7 +104,7 @@ pub(super) fn resolve<'a>(record: &'a Record, phase: &str) -> Result<Owner<'a>> 
         child: Some(fingerprint),
     })
 }
-pub(super) fn child_fingerprint(
+pub(in crate::workflow::runtime) fn child_fingerprint(
     record: &Record,
     child: &crate::subagents::state::AgentRecord,
 ) -> Result<String> {
@@ -140,12 +143,39 @@ pub(super) fn child_fingerprint(
             .map(|d| (&d.orchestration, d.backend_limit)),
     ))
 }
-pub(super) fn validate(
+pub(in crate::workflow::runtime) fn validate(
     record: &Record,
     operation: &super::Operation,
     receipt: &super::NonToolReceipt,
 ) -> Result<()> {
     super::super::budget_accounting::active_operation(record, &receipt.facts.session, operation)?;
+    if let Some(id) = receipt.facts.host_session {
+        let authority = receipt
+            .host_control
+            .as_ref()
+            .context("settings control authority is no longer executable")?;
+        ensure!(authority.lifetime == id, "settings host owner differs");
+        let (identity, workspace) =
+            super::super::plugin_session::validate_host_control(record, authority)?;
+        let (_, lifetime) = super::super::plugin_session::lifetime(record, id)?;
+        ensure!(
+            matches!(
+                receipt.facts.subject.occurrence,
+                crate::plugins::receipts::NonToolOccurrence::ConfigChange { .. }
+            ) && operation.phase == "settings"
+                && receipt.facts.role == operation.phase
+                && operation.identity.as_ref() == Some(identity)
+                && receipt.facts.workspace == workspace
+                && receipt.facts.session == lifetime.session
+                && receipt.facts.native_session.is_none()
+                && receipt.facts.native_turn.is_none()
+                && receipt.facts.callback.is_none()
+                && receipt.facts.task.is_none()
+                && receipt.facts.child_owner.is_none(),
+            "settings control owner, identity, workspace or host session changed"
+        );
+        return Ok(());
+    }
     if let Some(id) = receipt.facts.native_session {
         let (identity, workspace) =
             super::super::plugin_session::validate(record, id, &receipt.facts.subject.occurrence)?;
@@ -163,28 +193,103 @@ pub(super) fn validate(
         );
         return Ok(());
     }
+    if let crate::plugins::receipts::NonToolOccurrence::PostToolBatch {
+        batch: Some(id),
+        tool_calls,
+    } = &receipt.facts.subject.occurrence
+    {
+        super::super::tool_batches::validate_observation(
+            record,
+            &operation.phase,
+            *id,
+            tool_calls,
+        )?;
+    }
     if let Some(turn) = receipt.facts.native_turn {
         super::turn::validate(record, turn, &operation.phase)?;
     }
-    let owner = resolve(record, &operation.phase)?;
-    if let Some(callback) = &receipt.facts.callback {
-        validate_backend(
+    let owner = if matches!(
+        receipt.facts.subject.occurrence,
+        crate::plugins::receipts::NonToolOccurrence::PreCompact {
+            compaction: Some(_),
+            ..
+        } | crate::plugins::receipts::NonToolOccurrence::PostCompact {
+            compaction: Some(_),
+            ..
+        }
+    ) {
+        super::super::compaction::validate_occurrence(
             record,
             &operation.phase,
-            owner.identity,
-            callback.backend_operation,
-        )?;
-        validate_source(
-            record,
-            &operation.phase,
-            callback,
             &receipt.facts.subject.occurrence,
+        )?;
+        super::super::compaction::owner(record, &operation.phase)?
+    } else if matches!(
+        receipt.facts.subject.occurrence,
+        crate::plugins::receipts::NonToolOccurrence::PreModelSwitch { .. }
+            | crate::plugins::receipts::NonToolOccurrence::PostModelSwitch { .. }
+    ) {
+        super::super::model_switch::validate_occurrence(
+            record,
             receipt
                 .facts
-                .source
-                .as_ref()
-                .context("source callback input missing")?,
+                .subject
+                .occurrence
+                .host_operation()
+                .context("model switch operation missing")?,
+            &receipt.facts.subject.occurrence,
+            &receipt.plan,
         )?;
+        super::super::model_switch::owner(
+            record,
+            receipt
+                .facts
+                .subject
+                .occurrence
+                .host_operation()
+                .expect("validated"),
+            receipt.facts.subject.occurrence.event(),
+        )?
+    } else {
+        resolve(record, &operation.phase)?
+    };
+    if let Some(callback) = &receipt.facts.callback {
+        let source = receipt
+            .facts
+            .source
+            .as_ref()
+            .context("source callback input missing")?;
+        if matches!(
+            receipt.facts.subject.occurrence,
+            crate::plugins::receipts::NonToolOccurrence::PreModelSwitch { .. }
+                | crate::plugins::receipts::NonToolOccurrence::PostModelSwitch { .. }
+        ) {
+            super::super::model_switch::validate_source(
+                record,
+                receipt
+                    .facts
+                    .subject
+                    .occurrence
+                    .host_operation()
+                    .expect("validated"),
+                callback,
+                source,
+            )?;
+        } else {
+            validate_backend(
+                record,
+                &operation.phase,
+                owner.identity,
+                callback.backend_operation,
+            )?;
+            validate_source(
+                record,
+                &operation.phase,
+                callback,
+                &receipt.facts.subject.occurrence,
+                source,
+            )?;
+        }
     }
     let metadata = std::fs::metadata(owner.root)?;
     ensure!(
@@ -204,7 +309,7 @@ pub(super) fn validate(
     Ok(())
 }
 
-pub(super) fn validate_backend(
+pub(in crate::workflow::runtime) fn validate_backend(
     record: &Record,
     phase: &str,
     identity: &Identity,
@@ -218,7 +323,7 @@ pub(super) fn validate_backend(
     ensure!(
         matches!(
             operation.host_invocation,
-            Some(super::HostInvocation::Backend)
+            Some(super::HostInvocation::Backend | super::HostInvocation::HookBackend { .. })
         ) && operation.phase == phase
             && operation.identity.as_ref().unwrap_or(&record.identity) == identity
             && (phase == "worker" || operation.identity.is_some())
@@ -231,7 +336,7 @@ pub(super) fn validate_backend(
     Ok(())
 }
 
-pub(super) fn validate_source(
+pub(in crate::workflow::runtime) fn validate_source(
     record: &Record,
     phase: &str,
     callback: &crate::plugins::receipts::SourceCallback,

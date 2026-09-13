@@ -506,3 +506,68 @@ fn retired_terminal_notice_never_starts_or_acknowledges_current_command() -> Res
     );
     Ok(())
 }
+
+#[tokio::test]
+async fn source_batch_continuation_requires_exact_sent_occurrence_and_consumes_it_once()
+-> Result<()> {
+    for change in [
+        "allow", "unsent", "empty", "wrong", "plural", "ended", "identity",
+    ] {
+        let mut f = Fixture::new()?;
+        f.callbacks.enable_batches()?;
+        f.submit().await?;
+        f.response("command")?;
+        let mut tools = ToolExecutor::new(f.root.path())?;
+        let mut batch_observer = registration(HookEvent::PostToolBatch);
+        batch_observer.declaration.required_gate = false;
+        tools.register_non_tool_plan(Arc::new(NonToolPlan::new(
+            HookEvent::PostToolBatch,
+            vec![batch_observer],
+        )?))?;
+        let mut request = f.message("PostToolBatch", "batch");
+        let input = request["request"]["input"].as_object_mut().unwrap();
+        input.remove("stop_hook_active");
+        input.remove("last_assistant_message");
+        input.insert("tool_calls".into(),json!([{ "tool_name":"read", "tool_input":{"path":"public"}, "tool_use_id":"settled-member"}]));
+        f.callbacks
+            .handle(&request, Some("source-session"), &f.events, &tools)
+            .await?;
+        if change != "unsent" {
+            f.callbacks.sent(&f.events)?;
+        }
+        let mut message = json!({"type":"stream_event","event":{"type":"message_start"}});
+        match change {
+            "empty" => message["user_message_uuid"] = json!(""),
+            "wrong" => message["user_message_uuid"] = json!("different"),
+            "plural" => message["user_message_uuids"] = json!(["command"]),
+            "ended" => f
+                .runtime
+                .finish_model(f.events.backend_invocation_id().unwrap())?,
+            "identity" => f.runtime.update(|r| {
+                r.identity = crate::workflow::runtime::Identity::from(&serde_json::from_value::<
+                    crate::config::Connection,
+                >(
+                    json!({"adapter":"claude","model":"changed"}),
+                )?);
+                Ok(())
+            })?,
+            _ => {}
+        }
+        let observed = f.callbacks.observe(&message, &f.events);
+        assert_eq!(
+            observed.is_ok(),
+            change == "allow",
+            "{change}: {:?}",
+            observed.err()
+        );
+        if change == "allow" {
+            assert!(!f.callbacks.awaiting_batch && f.callbacks.pending.is_none());
+            f.callbacks.observe(
+                &json!({"type":"stream_event","event":{"type":"message_stop"}}),
+                &f.events,
+            )?;
+            assert!(f.callbacks.observe(&message, &f.events).is_err());
+        }
+    }
+    Ok(())
+}

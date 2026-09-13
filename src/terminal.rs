@@ -755,10 +755,13 @@ async fn run_view(
     let mut panel: Option<settings_panel::Panel> = None;
     let mut input_events = EventStream::new();
     let mut refresh = tokio::time::interval(Duration::from_millis(33));
+    let result = async {
     loop {
         view.poll_commands(commands);
         view.inspection.poll(&mut inspector);
-        if panel.as_mut().is_some_and(|p| p.poll()) {
+        if let Some(open) = panel.as_mut()
+            && open.poll().await
+        {
             panel = None;
         }
         tokio::select! {
@@ -855,6 +858,13 @@ async fn run_view(
             }
         }
     }
+    }
+    .await;
+    if let Some(open) = panel.as_mut() {
+        open.cancel_for_exit();
+    }
+    drop(panel.take());
+    result
 }
 
 fn status_line(view: &View) -> String {
