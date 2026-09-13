@@ -85,7 +85,7 @@ impl Session for NativeSession {
         source: crate::session::SessionStart,
         events: &EventSink,
     ) -> Result<()> {
-        events.begin_host_lifetime(source, self.tools.native_lifetime_plans())?;
+        events.begin_host_lifetime(source, self.tools.host_lifetime_plans())?;
         Ok(())
     }
     async fn session_start(
@@ -108,7 +108,7 @@ impl Session for NativeSession {
         reason: crate::session::SessionEnd,
         events: &EventSink,
     ) -> Result<()> {
-        events.validate_end_policy(reason, &self.tools.native_lifetime_plans())?;
+        events.validate_end_policy(reason, &self.tools.host_lifetime_plans())?;
         self.tools
             .dispatch_non_tool(
                 crate::plugins::receipts::NonToolOccurrence::SessionEnd { reason },

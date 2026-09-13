@@ -7,7 +7,9 @@ import subprocess
 import sys
 import signal
 
-root = Path.cwd()
+workspace = Path.cwd()
+artifact_root = os.environ.pop("DEMONCODER_TEST_BACKEND_ROOT", None)
+root = Path(artifact_root) if artifact_root else workspace
 config = json.loads((root / "backend.json").read_text())
 (root / "relay.pid").write_text(str(os.getpid()))
 def disconnect(*_):

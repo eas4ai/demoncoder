@@ -73,13 +73,9 @@ async fn native_workflow_resume_forwards_one_actual_resume_lifetime() {
     let (root, _state, runtime, events, mut rx) = fixture();
     let calls = Arc::new(AtomicUsize::new(0));
     let mut tools = ToolExecutor::new(root.path()).unwrap();
-    tools
-        .register_non_tool_plan(observation_plan(
-            HookEvent::SessionStart,
-            HandlerKind::Command,
-            calls.clone(),
-        ))
-        .unwrap();
+    let start_plan = observation_plan(HookEvent::SessionStart, HandlerKind::Command, calls.clone());
+    let start_digest = start_plan.plan.digest.clone();
+    tools.register_non_tool_plan(start_plan).unwrap();
     let connection = serde_json::from_value(json!({"adapter":"openai-api"})).unwrap();
     runtime
         .update(|record| {
@@ -111,13 +107,45 @@ async fn native_workflow_resume_forwards_one_actual_resume_lifetime() {
         .operations
         .iter()
         .filter_map(|o| match &o.host_invocation {
-            Some(crate::workflow::runtime::HostInvocation::NativeSession(v)) => Some(v),
+            Some(crate::workflow::runtime::HostInvocation::NativeSession(v)) => Some((o.id, v)),
             _ => None,
         })
         .collect();
     assert_eq!(lifetimes.len(), 1);
-    assert_eq!(lifetimes[0].source, SessionStart::Resume);
-    assert_eq!(lifetimes[0].end, Some(SessionEnd::Shutdown));
+    assert_eq!(lifetimes[0].1.source, SessionStart::Resume);
+    assert_eq!(lifetimes[0].1.end, Some(SessionEnd::Shutdown));
+    assert_eq!(
+        lifetimes[0].1.plans,
+        vec![(HookEvent::SessionStart, start_digest)]
+    );
+    assert!(
+        lifetimes[0]
+            .1
+            .diagnostics
+            .iter()
+            .all(|diagnostic| !diagnostic.contains("SessionStart observation unavailable")),
+        "unexpected startup diagnostic: {:?}",
+        lifetimes[0].1.diagnostics
+    );
+    let starts = record
+        .operations
+        .iter()
+        .filter_map(|operation| match &operation.host_invocation {
+            Some(crate::workflow::runtime::HostInvocation::Lifecycle(receipt))
+                if matches!(
+                    receipt.facts.subject.occurrence,
+                    crate::plugins::receipts::NonToolOccurrence::SessionStart {
+                        source: SessionStart::Resume
+                    }
+                ) =>
+            {
+                Some(receipt)
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(starts.len(), 1);
+    assert_eq!(starts[0].facts.native_session, Some(lifetimes[0].0));
     assert_eq!(calls.load(Ordering::SeqCst), 2);
 }
 

@@ -535,7 +535,7 @@ impl ToolExecutor {
             events,
             self.gate_workspace.clone(),
             (metadata.dev(), metadata.ino()),
-            self,
+            self.hook_host(),
         )
         .await
         .map(Some)
@@ -543,20 +543,24 @@ impl ToolExecutor {
     pub(crate) fn has_non_tool_plan(&self, event: crate::plugins::hook_types::HookEvent) -> bool {
         self.access.non_tools.iter().any(|p| p.plan.event == event)
     }
-    pub(crate) fn native_lifetime_plans(
+    pub(crate) fn host_lifetime_plans(
         &self,
     ) -> Vec<(crate::plugins::hook_types::HookEvent, String)> {
         use crate::plugins::hook_types::HookEvent;
-        [HookEvent::SessionStart, HookEvent::SessionEnd]
-            .into_iter()
-            .filter_map(|event| {
-                self.access
-                    .non_tools
-                    .iter()
-                    .find(|p| p.plan.event == event)
-                    .map(|p| (event, p.plan.digest.clone()))
-            })
-            .collect()
+        [
+            HookEvent::SessionStart,
+            HookEvent::SessionEnd,
+            HookEvent::ConfigChange,
+        ]
+        .into_iter()
+        .filter_map(|event| {
+            self.access
+                .non_tools
+                .iter()
+                .find(|p| p.plan.event == event)
+                .map(|p| (event, p.plan.digest.clone()))
+        })
+        .collect()
     }
     pub fn register_post_tool_plan(
         &mut self,

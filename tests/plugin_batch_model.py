@@ -7,15 +7,28 @@ import http.server
 import json
 from pathlib import Path
 import threading
+import time
 import plugin_external_non_tool as fixture
 root = Path(sys.argv[1])
 adapter = sys.argv[2] if sys.argv[2] in ('claude', 'codex', 'openai-api', 'anthropic-api') else 'claude'
-wrapper = len(sys.argv) > 3 and sys.argv[3] == 'wrapper'
+mode = sys.argv[3] if len(sys.argv) > 3 else ''
+wrapper = mode in ('wrapper', 'owner', 'hold-owner')
+owner_mode = mode in ('owner', 'hold-owner')
 wire_adapter = 'claude' if adapter in ('claude', 'anthropic-api') else 'codex'
 original = fixture.model_response
 def response(wire, sequence, text_case, case):
     rows = original(wire, sequence, text_case, case)
-    if sequence == 1 and wrapper:
+    if owner_mode:
+        with lock:
+            (root / 'model-requests.jsonl').write_text(''.join(json.dumps(r) + '\n' for r in requests))
+        (root / 'request-count').write_text(str(sequence))
+        if mode == 'hold-owner' and sequence == 1:
+            (root / 'request-held').write_text('held')
+            deadline = time.monotonic() + 45
+            while not (root / 'release-owner').exists():
+                assert time.monotonic() < deadline, 'held owner request was not released'
+                time.sleep(0.01)
+    elif sequence == 1 and wrapper:
         arguments = {'calls': [{'tool':'write','arguments':{'path':'proof.txt','content':'first'}}, {'tool':'bash','arguments':{'command':'sleep 0.05'}}, {'tool':'edit','arguments':{'path':'proof.txt','old_text':'first','new_text':'settled host batch'}}]}
         for row in rows:
             if row['type'] == 'content_block_start': row['content_block']['name'] = 'mcp__demoncoder__tool_batch' if adapter == 'claude' else 'tool_batch'
@@ -34,7 +47,14 @@ def response(wire, sequence, text_case, case):
     return rows
 fixture.model_response = response
 requests, errors, lock = [], [], threading.Lock()
-base = fixture.peer_handler(wire_adapter, requests, errors, lock, 'plain', 'mixed-batch')
+base = fixture.peer_handler(
+    wire_adapter,
+    requests,
+    errors,
+    lock,
+    'plain',
+    'pass' if owner_mode else 'mixed-batch',
+)
 class Peer(base):
     def do_POST(self):
         super().do_POST()

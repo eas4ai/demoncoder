@@ -389,8 +389,11 @@ impl ManagedService {
             bootstrap: None,
             hook: None,
         };
-        let owner =
-            runtime.admit_plugin_service_for(operation, invocation.events.plugin_event())?;
+        let owner = runtime.admit_plugin_service_for(
+            operation,
+            invocation.events.plugin_event(),
+            &self.identity,
+        )?;
         let startup = runtime.begin_plugin_service_for(
             operation,
             invocation.events.plugin_event(),

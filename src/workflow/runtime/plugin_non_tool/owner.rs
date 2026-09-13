@@ -149,6 +149,33 @@ pub(in crate::workflow::runtime) fn validate(
     receipt: &super::NonToolReceipt,
 ) -> Result<()> {
     super::super::budget_accounting::active_operation(record, &receipt.facts.session, operation)?;
+    if let Some(id) = receipt.facts.host_session {
+        let authority = receipt
+            .host_control
+            .as_ref()
+            .context("settings control authority is no longer executable")?;
+        ensure!(authority.lifetime == id, "settings host owner differs");
+        let (identity, workspace) =
+            super::super::plugin_session::validate_host_control(record, authority)?;
+        let (_, lifetime) = super::super::plugin_session::lifetime(record, id)?;
+        ensure!(
+            matches!(
+                receipt.facts.subject.occurrence,
+                crate::plugins::receipts::NonToolOccurrence::ConfigChange { .. }
+            ) && operation.phase == "settings"
+                && receipt.facts.role == operation.phase
+                && operation.identity.as_ref() == Some(identity)
+                && receipt.facts.workspace == workspace
+                && receipt.facts.session == lifetime.session
+                && receipt.facts.native_session.is_none()
+                && receipt.facts.native_turn.is_none()
+                && receipt.facts.callback.is_none()
+                && receipt.facts.task.is_none()
+                && receipt.facts.child_owner.is_none(),
+            "settings control owner, identity, workspace or host session changed"
+        );
+        return Ok(());
+    }
     if let Some(id) = receipt.facts.native_session {
         let (identity, workspace) =
             super::super::plugin_session::validate(record, id, &receipt.facts.subject.occurrence)?;
@@ -251,7 +278,7 @@ pub(in crate::workflow::runtime) fn validate_backend(
     ensure!(
         matches!(
             operation.host_invocation,
-            Some(super::HostInvocation::Backend)
+            Some(super::HostInvocation::Backend | super::HostInvocation::HookBackend { .. })
         ) && operation.phase == phase
             && operation.identity.as_ref().unwrap_or(&record.identity) == identity
             && (phase == "worker" || operation.identity.is_some())

@@ -58,6 +58,9 @@ pub struct AdmissionKey {
 pub struct NonToolFacts {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub native_session: Option<u64>,
+    /// Original host lifetime for an explicit Settings control, never source observation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host_session: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub callback: Option<SourceCallback>,
     /// Absent on legacy records; an occurrence ID is never a substitute turn.
@@ -90,6 +93,7 @@ impl NonToolFacts {
         self.subject
             .occurrence
             .host_operation()
+            .or(self.host_session)
             .or(self.native_turn)
             .or(self.native_session)
             .or_else(|| self.callback.as_ref().map(|c| c.backend_operation))
@@ -143,6 +147,7 @@ pub(crate) struct ObservedCallback {
 #[derive(Clone, Debug, Default)]
 pub(crate) struct LifecycleOrigin {
     pub native_session: Option<u64>,
+    pub host_control: Option<HostControlAuthority>,
     pub native_turn: Option<u64>,
     pub source: Option<ObservedCallback>,
 }
@@ -202,11 +207,38 @@ pub struct NonToolReceipt {
     pub hold: Option<String>,
     pub settled: bool,
     pub correction_admitted: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub publication: Option<ConfigPublication>,
+    /// Executable settings authority is live-memory only and is never restored.
+    #[serde(skip)]
+    pub(crate) host_control: Option<HostControlAuthority>,
+}
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ConfigPublication {
+    Published,
+    Uncertain,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct HostControlAuthority {
+    pub lifetime: u64,
+    pub deadline: std::time::Instant,
+    pub live: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    pub owned: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    pub operation: std::sync::Arc<std::sync::atomic::AtomicU64>,
 }
 /// A real host boundary, never an empty or fabricated ToolCall.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "event")]
 pub enum NonToolOccurrence {
+    ConfigChange {
+        source: String,
+        proposed_digest: String,
+        base_revision: Option<String>,
+        structure: Value,
+    },
     PreCompact {
         compaction: Option<u64>,
         trigger: String,
@@ -256,6 +288,7 @@ impl NonToolOccurrence {
     }
     pub(crate) fn event(&self) -> super::hook_types::HookEvent {
         match self {
+            Self::ConfigChange { .. } => super::hook_types::HookEvent::ConfigChange,
             Self::PreCompact { .. } => super::hook_types::HookEvent::PreCompact,
             Self::PostCompact { .. } => super::hook_types::HookEvent::PostCompact,
             Self::PostToolBatch { .. } => super::hook_types::HookEvent::PostToolBatch,

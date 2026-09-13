@@ -702,6 +702,17 @@ This synchronous prerequisite cannot discharge their conformance obligations.
   binds the source and raw evidence, retains earlier failures and static nonpasses,
   and names the combined cases still required by the full lifecycle matrix below.
 - [ ] Implement admitted workspace changes, dynamic watches, settings/model transitions, setup, notifications, task/worktree/child events and real teammate-idle transitions.
+
+    The verified bounded prerequisite [gates actual Settings publication](../decisions/gate-actual-settings-publication-with-the-original-host-session-policy.md)
+  with the original active policy and explicit host-session ownership. Existing
+  atomic storage, concurrent-edit refusal, running-model pins and private settings
+  protection remain authoritative. Workspace and model-switch operations are
+    subsequent work; a saved default alone is not an observed provider switch.
+    Independent specification and quality reviews approve this prerequisite.
+    Its full Rust candidate passed 1,083 tests (22 ignored); final fixture checks
+    and 25 terminal Settings cases passed separately. The [review](../reviews/plugin-config-change.md)
+    binds those candidates and raw results, retains static nonpasses and historical
+    failures, and names the remaining lifecycle and live-provider obligations.
 - [ ] Correlate host and backend events once by operation identity; never synthesize an unobserved implicit backend batch.
 - [ ] Exercise the complete lifecycle matrix for success, denial, failure, cancellation and resume. Stop corrections consume existing limits and cannot delay cancellation or imply developer acceptance.
 

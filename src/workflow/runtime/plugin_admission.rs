@@ -12,7 +12,8 @@ pub(crate) use transport::{TransportInvocation, TransportView};
 pub(crate) struct ServiceOwner {
     fingerprint: String,
     budget: super::BudgetRef,
-    lifetime: Option<u64>,
+    binding: ServiceBinding,
+    service: String,
     pub(crate) role: String,
     deadline: std::time::Instant,
     _capacity: Arc<tokio::sync::OwnedSemaphorePermit>,
@@ -20,36 +21,76 @@ pub(crate) struct ServiceOwner {
     cancelled: Arc<std::sync::atomic::AtomicBool>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ServiceBinding {
+    Task,
+    NativeSession(u64),
+    HostControl(u64),
+}
+
+impl ServiceBinding {
+    fn lifetime(self) -> Option<u64> {
+        match self {
+            Self::Task => None,
+            Self::NativeSession(id) | Self::HostControl(id) => Some(id),
+        }
+    }
+}
+
+fn service_binding(record: &Record, owner: u64, event: HookEvent) -> Result<ServiceBinding> {
+    let Some(lifetime) = hook_lifetime(record, owner, event)? else {
+        return Ok(ServiceBinding::Task);
+    };
+    Ok(if event == HookEvent::ConfigChange {
+        ServiceBinding::HostControl(lifetime)
+    } else {
+        ServiceBinding::NativeSession(lifetime)
+    })
+}
+
 fn service_fingerprint(
     record: &Record,
     session: &std::path::Path,
     role: &str,
     budget: &super::BudgetRef,
-    lifetime: Option<u64>,
+    binding: ServiceBinding,
+    service: &str,
 ) -> Result<String> {
     let session_id = crate::plugins::admission::digest(&session)?;
-    if let Some(id) = lifetime {
-        super::plugin_session::validate_live(record, id)?;
+    if let ServiceBinding::NativeSession(id) | ServiceBinding::HostControl(id) = binding {
+        let (operation, owner) = match binding {
+            ServiceBinding::NativeSession(_) => {
+                super::plugin_session::validate_live(record, id)?;
+                super::plugin_session::lifetime(record, id)?
+            }
+            ServiceBinding::HostControl(_) => {
+                super::plugin_session::validate_host_lifetime(record, id)?
+            }
+            ServiceBinding::Task => unreachable!(),
+        };
         ensure!(
-            role == "native-session"
+            ((binding == ServiceBinding::NativeSession(id) && role == "native-session")
+                || (binding == ServiceBinding::HostControl(id) && role == "settings"))
                 && matches!(budget, super::BudgetRef::SessionHooks { .. })
                 && super::budget_accounting::inherited(record, id)? == *budget,
-            "MCP native service requires its original session allowance"
+            "MCP host service requires its original session allowance"
         );
         let allocation = super::budget_accounting::active(record, &session_id, budget)?
             .context("MCP session allowance missing")?;
-        let (_, owner) = super::plugin_session::lifetime(record, id)?;
         return crate::plugins::admission::digest(&(
             session,
             &record.workspace,
-            &record.identity,
+            &operation.identity,
             id,
             owner.workspace,
+            &owner.session,
+            &owner.plans,
             budget,
             allocation.started_ms,
             allocation.deadline_ms,
             &allocation.limits,
             role,
+            service,
         ));
     }
     ensure!(
@@ -82,6 +123,7 @@ fn service_fingerprint(
         allocation.deadline_ms,
         &allocation.limits,
         role,
+        service,
         assignment.map(|a| {
             (
                 &a.id,
@@ -121,7 +163,12 @@ pub(super) fn validate_model_admission(
             .filter(|op| op.phase == phase
                 && matches!(
                     op.host_invocation,
-                    Some(super::HostInvocation::Model | super::HostInvocation::Backend)
+                    Some(
+                        super::HostInvocation::Model
+                            | super::HostInvocation::HookModel { .. }
+                            | super::HostInvocation::Backend
+                            | super::HostInvocation::HookBackend { .. }
+                    )
                 ))
             .count()
             < hook.maximum as usize,
@@ -173,6 +220,14 @@ pub(super) fn validate_model_budget(
 
 /// Map each exact invoking occurrence to its existing reusable session owner.
 fn hook_lifetime(record: &Record, owner: u64, event: HookEvent) -> Result<Option<u64>> {
+    if event == HookEvent::ConfigChange {
+        return Ok(Some(
+            super::plugin_non_tool::active(record, owner, event)?
+                .facts
+                .host_session
+                .context("settings host lifetime missing")?,
+        ));
+    }
     if matches!(event, HookEvent::SessionStart | HookEvent::SessionEnd) {
         return Ok(Some(
             super::plugin_non_tool::active(record, owner, event)?
@@ -387,6 +442,7 @@ impl SharedRuntime {
         &self,
         operation: u64,
         event: HookEvent,
+        service: &str,
     ) -> Result<ServiceOwner> {
         let runtime = self
             .0
@@ -407,16 +463,19 @@ impl SharedRuntime {
             .context("MCP operation missing")?
             .phase
             .clone();
-        let lifetime = hook_lifetime(&runtime.record, operation, event)?;
-        if lifetime.is_some() {
-            role = "native-session".into();
+        let binding = service_binding(&runtime.record, operation, event)?;
+        match binding {
+            ServiceBinding::NativeSession(_) => role = "native-session".into(),
+            ServiceBinding::HostControl(_) => role = "settings".into(),
+            ServiceBinding::Task => {}
         }
         let fingerprint = service_fingerprint(
             &runtime.record,
             runtime.store.directory(),
             &role,
             &budget,
-            lifetime,
+            binding,
+            service,
         )?;
         let remaining = allocation.remaining_ms()?;
         ensure!(remaining > 0, "MCP owner expired");
@@ -428,7 +487,8 @@ impl SharedRuntime {
                 anyhow::anyhow!("MCP service capacity exhausted (8); stop an existing service")
             })?;
         let cancelled = Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let native_cleanup = lifetime
+        let native_cleanup = binding
+            .lifetime()
             .map(|id| -> Result<_> {
                 let (_, owner) = super::plugin_session::lifetime(&runtime.record, id)?;
                 owner
@@ -441,7 +501,8 @@ impl SharedRuntime {
         Ok(ServiceOwner {
             fingerprint,
             budget,
-            lifetime,
+            binding,
+            service: service.into(),
             role,
             deadline: std::time::Instant::now() + std::time::Duration::from_millis(remaining),
             _capacity: Arc::new(capacity),
@@ -468,7 +529,8 @@ impl SharedRuntime {
                 runtime.store.directory(),
                 &owner.role,
                 &owner.budget,
-                owner.lifetime
+                owner.binding,
+                &owner.service,
             )? == owner.fingerprint,
             "MCP service owner changed"
         );
@@ -501,18 +563,18 @@ impl SharedRuntime {
             super::budget_accounting::inherited(&record, operation)? == owner.budget,
             "MCP invoking budget differs from its connection"
         );
-        let lifetime = hook_lifetime(&record, operation, event)?;
+        let binding = service_binding(&record, operation, event)?;
         ensure!(
-            lifetime == owner.lifetime
-                && (if lifetime.is_some() {
-                    owner.role == "native-session"
-                } else {
-                    record
+            binding == owner.binding
+                && match binding {
+                    ServiceBinding::NativeSession(_) => owner.role == "native-session",
+                    ServiceBinding::HostControl(_) => owner.role == "settings",
+                    ServiceBinding::Task => record
                         .operations
                         .iter()
                         .find(|o| o.id == operation)
-                        .is_some_and(|o| o.phase == owner.role)
-                }),
+                        .is_some_and(|o| o.phase == owner.role),
+                },
             "MCP invoking owner differs from its connection"
         );
         Ok(remaining.min(self.validate_plugin_service(owner)?))
@@ -591,7 +653,8 @@ pub(super) fn active_for_event(
             )
         } else if matches!(
             event,
-            HookEvent::PostToolBatch
+            HookEvent::ConfigChange
+                | HookEvent::PostToolBatch
                 | HookEvent::PreCompact
                 | HookEvent::PostCompact
                 | HookEvent::UserPromptSubmit

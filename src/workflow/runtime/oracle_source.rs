@@ -67,7 +67,11 @@ impl OracleSource {
                 && matches!(
                     host.host_invocation,
                     Some(
-                        HostInvocation::Model | HostInvocation::Backend | HostInvocation::Commands
+                        HostInvocation::Model
+                            | HostInvocation::HookModel { .. }
+                            | HostInvocation::Backend
+                            | HostInvocation::HookBackend { .. }
+                            | HostInvocation::Commands
                     )
                 )
                 && host.budget.as_ref() == Some(&self.budget)

@@ -249,6 +249,9 @@ class RoleSettings(unittest.TestCase):
         self.app = None
         self.server.release.set()
         app = self.launch(*flags, "--resume", str(path))
+        app.wait_for(
+            lambda: any(event["type"] == "session_record" for event in app.events())
+        )
         restored = app.record()[1]
         for field in ("model_calls", "tool_calls", "started_ms"):
             self.assertEqual(restored["allocation"][field], saved["allocation"][field])

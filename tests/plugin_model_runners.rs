@@ -638,11 +638,23 @@ async fn external_transports_keep_snapshot_authority_and_charge_backend_invocati
                     .collect::<Vec<_>>();
                 assert_eq!(admissions.len(), expected_calls);
                 if expected_calls > 0 {
+                    let tool = record
+                        .operations
+                        .iter()
+                        .find(|operation| {
+                            operation
+                                .tool_receipt
+                                .as_ref()
+                                .is_some_and(|receipt| receipt.original_call.id == "source")
+                        })
+                        .unwrap();
                     assert!(admissions[0].complete);
                     assert!(matches!(
-                        admissions[0].host_invocation,
-                        Some(demoncoder::workflow::runtime::HostInvocation::Backend)
+                        &admissions[0].host_invocation,
+                        Some(demoncoder::workflow::runtime::HostInvocation::HookBackend { owner })
+                            if *owner == tool.id
                     ));
+                    assert_eq!(&admissions[0].budget, &tool.budget);
                 }
                 if behavior == "allow" {
                     assert_eq!(record.allocation.as_ref().unwrap().usage.reported_input, 13);

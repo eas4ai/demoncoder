@@ -9,6 +9,12 @@ use anyhow::{Context, Result};
 use serde::Serialize;
 use tokio::sync::mpsc;
 
+#[cfg(test)]
+type BlockingNonToolPause = (
+    tokio::sync::oneshot::Sender<()>,
+    std::sync::mpsc::Receiver<()>,
+);
+
 #[derive(Clone, Copy, Debug, Default, Serialize)]
 pub struct ContextUsage {
     pub used: Option<u64>,
@@ -157,6 +163,7 @@ impl Drop for HostLifetimeGuard {
 pub struct EventSink {
     host_lifetime: Arc<Mutex<Option<HostLifetime>>>,
     native_session_scope: Option<u64>,
+    host_control: Option<crate::plugins::receipts::HostControlAuthority>,
     source_lifecycle: Option<crate::plugins::receipts::ObservedCallback>,
     native_turn: Option<u64>,
     oracle_source: Option<crate::workflow::runtime::OracleSource>,
@@ -174,6 +181,8 @@ pub struct EventSink {
     hook_model: Option<crate::workflow::runtime::plugin_admission::ModelAdmission>,
     plugin_event: crate::plugins::hook_types::HookEvent,
     tool_representation: crate::plugins::receipts::ToolRepresentation,
+    #[cfg(test)]
+    non_tool_post_insert_pause: Arc<Mutex<Option<BlockingNonToolPause>>>,
 }
 
 #[derive(Clone)]
@@ -262,6 +271,23 @@ impl EventSink {
         }
         Ok(())
     }
+
+    pub(crate) fn cancel_settings_controls(&self) -> Result<()> {
+        if let Some(runtime) = &self.runtime {
+            runtime.cancel_settings_controls()?;
+        }
+        Ok(())
+    }
+
+    pub(crate) async fn drain_settings_controls(
+        &self,
+        deadline: tokio::time::Instant,
+    ) -> Result<()> {
+        if let Some(runtime) = &self.runtime {
+            runtime.drain_settings_controls(deadline).await?;
+        }
+        Ok(())
+    }
     pub fn new(
         connection: String,
         sender: mpsc::Sender<Envelope>,
@@ -285,6 +311,7 @@ impl EventSink {
         Ok(Self {
             host_lifetime: Default::default(),
             native_session_scope: None,
+            host_control: None,
             source_lifecycle: None,
             native_turn: None,
             oracle_source: None,
@@ -302,7 +329,32 @@ impl EventSink {
             hook_model: None,
             plugin_event: crate::plugins::hook_types::HookEvent::PreToolUse,
             tool_representation: Default::default(),
+            #[cfg(test)]
+            non_tool_post_insert_pause: Default::default(),
         })
+    }
+
+    #[cfg(test)]
+    pub(crate) fn pause_next_after_non_tool_insert(
+        &self,
+    ) -> (
+        tokio::sync::oneshot::Receiver<()>,
+        std::sync::mpsc::Sender<()>,
+    ) {
+        let (entered_tx, entered_rx) = tokio::sync::oneshot::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        *self.non_tool_post_insert_pause.lock().unwrap() = Some((entered_tx, release_rx));
+        (entered_rx, release_tx)
+    }
+
+    #[cfg(test)]
+    fn wait_after_non_tool_insert(&self) {
+        if let Some((entered, release)) = self.non_tool_post_insert_pause.lock().unwrap().take() {
+            let _ = entered.send(());
+            release
+                .recv()
+                .expect("release blocked lifecycle operation insertion");
+        }
     }
 
     pub(crate) fn with_submitted_prompt(&self, text: String) -> Self {
@@ -407,6 +459,36 @@ impl EventSink {
             runtime: Some(runtime.upgrade()?),
             ..self.clone()
         }))
+    }
+
+    /// Create one bounded Settings occurrence from the already-open host lifetime.
+    /// The lifetime remains the funding owner; this token only bounds this save.
+    pub(crate) fn settings_control_events(
+        &self,
+        deadline: std::time::Instant,
+        live: Arc<std::sync::atomic::AtomicBool>,
+        owned: Arc<std::sync::atomic::AtomicBool>,
+        operation: Arc<std::sync::atomic::AtomicU64>,
+    ) -> Result<Self> {
+        let retained = self
+            .host_lifetime
+            .lock()
+            .map_err(|_| anyhow::anyhow!("host lifetime lock failed"))?
+            .clone()
+            .context("settings policy is active but its host lifetime is not ready")?;
+        Ok(Self {
+            host_control: Some(crate::plugins::receipts::HostControlAuthority {
+                lifetime: retained.operation,
+                deadline,
+                live,
+                owned,
+                operation,
+            }),
+            native_session_scope: None,
+            phase: "settings".into(),
+            runtime: Some(retained.runtime.upgrade()?),
+            ..self.clone()
+        })
     }
     pub(crate) fn validate_end_policy(
         &self,
@@ -683,6 +765,7 @@ impl EventSink {
         Self {
             host_lifetime: Default::default(),
             native_session_scope: None,
+            host_control: None,
             prompt_origin: None,
             source_lifecycle: None,
             native_turn: None,
@@ -704,6 +787,8 @@ impl EventSink {
             hook_model: self.hook_model.clone(),
             plugin_event: self.plugin_event,
             tool_representation: self.tool_representation.clone(),
+            #[cfg(test)]
+            non_tool_post_insert_pause: Default::default(),
         }
     }
 
@@ -1025,6 +1110,7 @@ impl EventSink {
             self.identity.as_ref(),
             crate::plugins::receipts::LifecycleOrigin {
                 native_session: self.native_session_scope,
+                host_control: self.host_control.clone(),
                 native_turn: self.native_turn,
                 source: self.source_lifecycle.clone(),
             },
@@ -1032,6 +1118,8 @@ impl EventSink {
             plan,
             declarations,
         )?;
+        #[cfg(test)]
+        self.wait_after_non_tool_insert();
         Ok((
             Self {
                 tool_operation: Some(facts.operation),

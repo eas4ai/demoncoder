@@ -27,3 +27,8 @@ mod worktree_access;
 pub mod settings;
 
 pub mod plugins;
+#[cfg(test)]
+extern crate self as demoncoder;
+#[cfg(test)]
+#[path = "../tests/support/config_change_runners.rs"]
+pub(crate) mod config_change_test_support;

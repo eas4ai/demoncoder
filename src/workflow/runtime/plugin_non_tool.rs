@@ -37,12 +37,75 @@ pub(super) fn active(record: &Record, id: u64, event: HookEvent) -> Result<&NonT
 }
 
 impl SharedRuntime {
+    /// Hold the runtime identity/policy boundary while the caller performs the
+    /// short synchronous Settings compare-and-publish transaction.
+    pub(crate) fn publish_config_change(
+        &self,
+        operation: u64,
+        expected: &LifecycleSubject,
+        publish: impl FnOnce() -> Result<crate::settings::SaveStatus>,
+    ) -> Result<crate::settings::SaveStatus> {
+        let mut runtime = self
+            .0
+            .lock()
+            .map_err(|_| anyhow::anyhow!("runtime lock failed"))?;
+        ensure!(
+            !runtime.failed,
+            "session persistence failed; execution is held until recovery"
+        );
+        let record = &mut runtime.record;
+        let operation = record
+            .operations
+            .iter()
+            .find(|candidate| candidate.id == operation)
+            .context("settings gate receipt missing")?;
+        let receipt = operation
+            .non_tool_receipt()
+            .context("settings gate receipt missing")?;
+        owner::validate(record, operation, receipt)?;
+        ensure!(
+            receipt.settled
+                && receipt.hold.is_none()
+                && receipt.publication.is_none()
+                && receipt.facts.subject == *expected
+                && receipt.facts.subject.occurrence.event() == HookEvent::ConfigChange,
+            "settings proposal was denied, unsettled, or changed after inspection"
+        );
+        let operation_id = operation.id;
+        let result = publish()?;
+        let publication = match result {
+            crate::settings::SaveStatus::Applied => ConfigPublication::Published,
+            crate::settings::SaveStatus::AppliedUncertain(_)
+            | crate::settings::SaveStatus::PublicationUncertain(_) => ConfigPublication::Uncertain,
+        };
+        record
+            .operations
+            .iter_mut()
+            .find(|candidate| candidate.id == operation_id)
+            .and_then(Operation::non_tool_receipt_mut)
+            .expect("validated settings receipt")
+            .publication = Some(publication);
+        let persistence = serde_json::to_value(&*record)
+            .map_err(anyhow::Error::from)
+            .and_then(|payload| runtime.store.write(&payload));
+        if let Err(error) = persistence {
+            runtime.failed = true;
+            return Ok(crate::settings::SaveStatus::AppliedUncertain(format!(
+                "settings were applied but their policy receipt could not be recorded; restart the session and inspect the saved revision before continuing: {error}"
+            )));
+        }
+        Ok(result)
+    }
+
     fn non_tool_admission<T>(
         &self,
         event: HookEvent,
         f: impl FnOnce(&mut Record) -> Result<T>,
     ) -> Result<T> {
-        if matches!(event, HookEvent::SessionStart | HookEvent::SessionEnd) {
+        if matches!(
+            event,
+            HookEvent::SessionStart | HookEvent::SessionEnd | HookEvent::ConfigChange
+        ) {
             self.update(f)
         } else {
             self.admission(f)
@@ -220,6 +283,60 @@ impl SharedRuntime {
             Ok(())
         })
     }
+
+    /// A replaced or cancelled Settings owner cannot publish. Once every runner
+    /// has drained, retain known local outcomes and close the occurrence only
+    /// when no effect is uncertain; unknown effects continue to require recovery.
+    pub(crate) fn settle_cancelled_settings_control(&self, id: u64) -> Result<()> {
+        self.update(|record| {
+            let causal_work_unfinished = record.operations.iter().any(|operation| {
+                operation.settings_causal_owner() == Some(id) && operation.needs_reconciliation()
+            });
+            let operation = record
+                .operations
+                .iter_mut()
+                .find(|operation| operation.id == id)
+                .context("settings control operation missing")?;
+            if operation.complete || operation.reconciled {
+                return Ok(());
+            }
+            let receipt = operation
+                .non_tool_receipt_mut()
+                .context("settings control receipt missing")?;
+            let authority = receipt
+                .host_control
+                .as_ref()
+                .context("settings control authority missing")?;
+            ensure!(
+                receipt.facts.subject.occurrence.event() == HookEvent::ConfigChange
+                    && authority
+                        .operation
+                        .load(std::sync::atomic::Ordering::Acquire)
+                        == id
+                    && receipt.facts.host_session == Some(authority.lifetime)
+                    && !authority.live.load(std::sync::atomic::Ordering::Acquire)
+                    && receipt.publication.is_none(),
+                "settings control is still live, published, or belongs to another operation"
+            );
+            if receipt
+                .hooks
+                .iter()
+                .all(|hook| hook.outcome.is_some() && !hook.uncertain_effects)
+                && receipt.source_delivery.is_none()
+                && !causal_work_unfinished
+            {
+                receipt.settled = true;
+                if receipt.hold.is_none() {
+                    receipt.hold = Some("Settings attempt invalidated before publication".into());
+                }
+                super::plugin_once::settle_hooks(&mut receipt.hooks, &receipt.proposals, &[]);
+                operation.complete = true;
+            } else {
+                record.recovery_pending = true;
+            }
+            Ok(())
+        })
+    }
     pub(crate) fn admit_non_tool_correction(&self, id: u64) -> Result<()> {
         self.admission(|target| {
             let mut record = target.clone();
@@ -294,6 +411,7 @@ impl SharedRuntime {
             identity,
             LifecycleOrigin {
                 native_session: None,
+                host_control: None,
                 native_turn,
                 source: None,
             },
@@ -315,6 +433,11 @@ impl SharedRuntime {
         let host_operation = occurrence.host_operation();
         let native_turn = origin.native_turn;
         let native_session = origin.native_session;
+        let host_control = origin.host_control.clone();
+        ensure!(
+            host_control.is_some() == matches!(occurrence, NonToolOccurrence::ConfigChange { .. }),
+            "ConfigChange requires exact host control authority"
+        );
         ensure!(
             native_session.is_some()
                 == matches!(
@@ -324,7 +447,8 @@ impl SharedRuntime {
             "native lifetime event requires exact session authority"
         );
         ensure!(
-            native_session.is_none() || (native_turn.is_none() && origin.source.is_none()),
+            native_session.is_none()
+                || (native_turn.is_none() && origin.source.is_none() && host_control.is_none()),
             "native session cannot borrow turn or source authority"
         );
         ensure!(
@@ -333,7 +457,7 @@ impl SharedRuntime {
             "StopFailure requires its original native turn"
         );
         ensure!(
-            native_turn.is_none() || origin.source.is_none(),
+            native_turn.is_none() || (origin.source.is_none() && host_control.is_none()),
             "lifecycle has conflicting native and source owners"
         );
         let session = self.plugin_session()?;
@@ -355,7 +479,26 @@ impl SharedRuntime {
             "lifecycle declarations exceed bound"
         );
         self.non_tool_admission(occurrence.event(), |record| {
-            let owner = if let Some(id) = native_session {
+            let owner = if let Some(authority) = &host_control {
+                ensure!(
+                    phase == "settings",
+                    "settings control belongs to another phase"
+                );
+                let (identity, _workspace) =
+                    super::plugin_session::validate_host_control(record, authority)?;
+                let (_, lifetime) = super::plugin_session::lifetime(record, authority.lifetime)?;
+                ensure!(
+                    lifetime.plans.iter().any(|(event, digest)| {
+                        *event == HookEvent::ConfigChange && digest == &plan
+                    }),
+                    "settings hook policy differs from the original host session"
+                );
+                owner::Owner {
+                    identity,
+                    root: &record.workspace,
+                    child: None,
+                }
+            } else if let Some(id) = native_session {
                 ensure!(
                     phase == "native-session",
                     "native lifetime cannot authorize child or worker phase"
@@ -504,9 +647,12 @@ impl SharedRuntime {
             let id = record.operations.len() as u64 + 1;
             let facts = NonToolFacts {
                 native_session,
+                host_session: host_control.as_ref().map(|authority| authority.lifetime),
                 callback: origin.source.as_ref().map(|s| s.correlation.clone()),
                 native_turn,
-                provenance: if origin.source.is_some() {
+                provenance: if host_control.is_some() {
+                    Some("explicit_host_control_v1".into())
+                } else if origin.source.is_some() {
                     Some("authenticated_source_callback_v1".into())
                 } else if host_operation.is_some() {
                     Some("explicit_host_operation_v1".into())
@@ -528,7 +674,11 @@ impl SharedRuntime {
                 source: origin.source.as_ref().map(|s| s.input.clone()),
                 session: session.clone(),
                 operation: id,
-                task: record.task.as_ref().map(|t| t.id),
+                task: if host_control.is_some() {
+                    None
+                } else {
+                    record.task.as_ref().map(|t| t.id)
+                },
                 role: phase.into(),
                 subject: LifecycleSubject {
                     version: 1,
@@ -551,6 +701,8 @@ impl SharedRuntime {
                 hold: None,
                 settled: false,
                 correction_admitted: false,
+                publication: None,
+                host_control: host_control.clone(),
             };
             let compact_lifetime = if matches!(
                 occurrence,
@@ -572,6 +724,7 @@ impl SharedRuntime {
             };
             let source = compact_lifetime
                 .or(host_operation)
+                .or_else(|| host_control.as_ref().map(|authority| authority.lifetime))
                 .or(native_session)
                 .or(native_turn)
                 .or_else(|| {
@@ -584,6 +737,17 @@ impl SharedRuntime {
                 Some(source) => super::budget_accounting::inherited(record, source)?,
                 None => super::budget_accounting::capture(record, &session),
             };
+            if let Some(authority) = &host_control {
+                authority
+                    .operation
+                    .compare_exchange(
+                        0,
+                        id,
+                        std::sync::atomic::Ordering::AcqRel,
+                        std::sync::atomic::Ordering::Acquire,
+                    )
+                    .map_err(|_| anyhow::anyhow!("settings control already owns an operation"))?;
+            }
             record.operations.push(Operation {
                 id,
                 budget: Some(budget),
@@ -766,6 +930,31 @@ impl SharedRuntime {
                 .hooks[index] = hook;
             Ok(())
         })
+    }
+}
+
+#[cfg(test)]
+impl SharedRuntime {
+    pub(crate) fn fail_config_change_receipt_sync_when(
+        &self,
+        predicate: fn(&serde_json::Value) -> bool,
+    ) {
+        self.0
+            .lock()
+            .unwrap()
+            .store
+            .fail_directory_sync_when(predicate);
+    }
+
+    pub(crate) fn fail_config_change_receipt_before_rename_when(
+        &self,
+        predicate: fn(&serde_json::Value) -> bool,
+    ) {
+        self.0
+            .lock()
+            .unwrap()
+            .store
+            .fail_before_rename_when(predicate);
     }
 }
 

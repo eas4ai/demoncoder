@@ -196,6 +196,14 @@ impl std::fmt::Display for PublicationUncertain {
 impl std::error::Error for PublicationUncertain {}
 
 pub(crate) fn save(path: &Path, config: &Config) -> Result<()> {
+    save_with_directory_sync(path, config, File::sync_all)
+}
+
+fn save_with_directory_sync(
+    path: &Path,
+    config: &Config,
+    sync_directory: impl FnOnce(&File) -> std::io::Result<()>,
+) -> Result<()> {
     let parent = path
         .parent()
         .filter(|parent| !parent.as_os_str().is_empty())
@@ -215,9 +223,18 @@ pub(crate) fn save(path: &Path, config: &Config) -> Result<()> {
     file.persist(path)
         .map_err(|_| anyhow::anyhow!("commit private settings transaction"))?;
     File::open(parent)
-        .and_then(|directory| directory.sync_all())
+        .and_then(|directory| sync_directory(&directory))
         .map_err(|_| PublicationUncertain)?;
     Ok(())
+}
+
+#[cfg(test)]
+pub(crate) fn save_with_failed_directory_sync(path: &Path, config: &Config) -> Result<()> {
+    save_with_directory_sync(path, config, |_| {
+        Err(std::io::Error::other(
+            "injected settings directory sync failure after rename",
+        ))
+    })
 }
 
 #[cfg(test)]

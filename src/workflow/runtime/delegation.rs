@@ -338,7 +338,10 @@ pub(super) fn begin_backend_record(
         tool_receipt: None,
         budget: Some(budget),
         usage_receipt: None,
-        host_invocation: Some(super::HostInvocation::Backend),
+        host_invocation: Some(match hook {
+            Some(hook) => super::HostInvocation::HookBackend { owner: hook.owner },
+            None => super::HostInvocation::Backend,
+        }),
         complete: false,
         reconciled: false,
         usage_reported: false,

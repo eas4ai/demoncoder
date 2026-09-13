@@ -403,14 +403,14 @@ async fn start_lifetime(
     commands: &mut mpsc::Receiver<Command>,
     events: &EventSink,
 ) -> Result<Option<SessionEnd>> {
-    if !session.native_lifetime() {
-        return Ok(None);
-    }
     let started = tokio::time::Instant::now();
     if let Err(error) = session.open_lifetime(SessionStart::Startup, events) {
         let _ = events.emit_advisory(Event::Error {
             message: format!("SessionStart fact could not be retained: {error:#}"),
         });
+    }
+    if !session.native_lifetime() {
+        return Ok(None);
     }
     let mut cancelled = false;
     let startup = async {
@@ -645,9 +645,14 @@ pub async fn run(
             }
         }
         Ok(())
-    }
-              .await;
+      }
+                .await;
     let ended = tokio::time::Instant::now();
+    if let Err(error) = events.cancel_settings_controls() {
+        let _ = events.lifetime_diagnostic(format!(
+            "Settings control cancellation incomplete: {error:#}"
+        ));
+    }
     commands.close();
     while let Ok(command) = commands.try_recv() {
         if let Command::Submit { reply, .. } = command {
@@ -662,14 +667,14 @@ pub async fn run(
         end_reason = selected;
     }
     let observation = match events.end_host_lifetime(end_reason) {
-        Ok(Some(lifetime_events)) => Some(
+        Ok(Some(lifetime_events)) if session.native_lifetime() => Some(
             tokio::time::timeout_at(
                 ended + std::time::Duration::from_secs(2),
                 session.session_end(end_reason, &lifetime_events),
             )
             .await,
         ),
-        Ok(None) => None,
+        Ok(Some(_)) | Ok(None) => None,
         Err(error) => {
             let _ = events.emit_advisory(Event::Error {
                 message: format!("SessionEnd fact could not be retained: {error:#}"),
@@ -707,6 +712,16 @@ pub async fn run(
     {
         let _ =
             events.lifetime_diagnostic(format!("SessionEnd service cleanup incomplete: {error:#}"));
+    }
+    let settings_deadline = ended
+        + if session.native_lifetime() {
+            NATIVE_END_BUDGET
+        } else {
+            std::time::Duration::from_secs(3)
+        };
+    if let Err(error) = events.drain_settings_controls(settings_deadline).await {
+        let _ =
+            events.lifetime_diagnostic(format!("Settings control cleanup incomplete: {error:#}"));
     }
     let close = session.close().await;
     result.and(finalized).and(close)

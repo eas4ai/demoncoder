@@ -491,6 +491,122 @@ impl SharedRuntime {
             .await;
         }
     }
+
+    pub(crate) fn cancel_settings_controls(&self) -> Result<()> {
+        let record = self.record()?;
+        for (operation, receipt) in record.operations.iter().filter_map(|operation| {
+            operation
+                .non_tool_receipt()
+                .map(|receipt| (operation, receipt))
+        }) {
+            if receipt.facts.subject.occurrence.event()
+                == crate::plugins::hook_types::HookEvent::ConfigChange
+                && let Some(authority) = &receipt.host_control
+            {
+                ensure!(
+                    receipt.facts.host_session == Some(authority.lifetime)
+                        && authority
+                            .operation
+                            .load(std::sync::atomic::Ordering::Acquire)
+                            == operation.id,
+                    "settings control operation ownership differs from its receipt"
+                );
+                authority
+                    .live
+                    .store(false, std::sync::atomic::Ordering::Release);
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) async fn drain_settings_controls(
+        &self,
+        deadline: tokio::time::Instant,
+    ) -> Result<()> {
+        let record = self.record()?;
+        let mut operations = std::collections::BTreeSet::new();
+        for operation in &record.operations {
+            let Some(receipt) = operation.non_tool_receipt() else {
+                continue;
+            };
+            if receipt.facts.subject.occurrence.event()
+                == crate::plugins::hook_types::HookEvent::ConfigChange
+                && let Some(authority) = &receipt.host_control
+            {
+                ensure!(
+                    receipt.facts.host_session == Some(authority.lifetime)
+                        && authority
+                            .operation
+                            .load(std::sync::atomic::Ordering::Acquire)
+                            == operation.id,
+                    "settings control operation ownership differs from its receipt"
+                );
+                operations.insert(operation.id);
+            }
+        }
+        self.drain_runner_operations(&operations, deadline).await
+    }
+
+    pub(crate) async fn drain_settings_control(
+        &self,
+        operation: u64,
+        deadline: tokio::time::Instant,
+    ) -> Result<()> {
+        let record = self.record()?;
+        let receipt = record
+            .operations
+            .iter()
+            .find(|candidate| candidate.id == operation)
+            .and_then(super::Operation::non_tool_receipt)
+            .context("settings control operation missing")?;
+        let authority = receipt
+            .host_control
+            .as_ref()
+            .context("settings control authority missing")?;
+        ensure!(
+            receipt.facts.subject.occurrence.event()
+                == crate::plugins::hook_types::HookEvent::ConfigChange
+                && receipt.facts.host_session == Some(authority.lifetime)
+                && authority
+                    .operation
+                    .load(std::sync::atomic::Ordering::Acquire)
+                    == operation,
+            "settings control operation ownership differs from its receipt"
+        );
+        self.drain_runner_operations(&std::collections::BTreeSet::from([operation]), deadline)
+            .await
+    }
+
+    async fn drain_runner_operations(
+        &self,
+        operations: &std::collections::BTreeSet<u64>,
+        deadline: tokio::time::Instant,
+    ) -> Result<()> {
+        let tracker = self.once_live()?;
+        loop {
+            let live = {
+                let mut tracker = tracker
+                    .lock()
+                    .map_err(|_| anyhow::anyhow!("runner cleanup owner lock failed"))?;
+                tracker.runners.retain(|_, lease| lease.strong_count() > 0);
+                tracker
+                    .runners
+                    .keys()
+                    .any(|key| operations.contains(&key.operation))
+            };
+            if !live {
+                return Ok(());
+            }
+            ensure!(
+                tokio::time::Instant::now() < deadline,
+                "settings control cleanup deadline exhausted; effects may be unknown"
+            );
+            tokio::time::sleep_until(
+                deadline.min(tokio::time::Instant::now() + std::time::Duration::from_millis(5)),
+            )
+            .await;
+        }
+    }
 }
 pub(super) fn track_live(
     tracker: &LiveHooks,

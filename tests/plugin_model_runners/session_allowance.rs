@@ -596,13 +596,33 @@ async fn session_allowance_native_timeout_settles_original_unknown_usage() {
         let record = fixture.record();
         let grant = record.session_hook_allowance.as_ref().unwrap();
         assert!(grant.allocation.usage.unknown_input && grant.allocation.usage.unknown_output);
-        assert!(
-            record
-                .operations
-                .iter()
-                .filter(|o| matches!(o.host_invocation, Some(HostInvocation::Model)))
-                .all(|o| o.complete)
-        );
+        let owner = record
+            .operations
+            .iter()
+            .find(|operation| {
+                matches!(
+                    &operation.host_invocation,
+                    Some(HostInvocation::Lifecycle(receipt))
+                        if matches!(
+                            receipt.facts.subject.occurrence,
+                            NonToolOccurrence::SessionEnd { .. }
+                        )
+                )
+            })
+            .unwrap();
+        let models = record
+            .operations
+            .iter()
+            .filter(|operation| {
+                matches!(
+                    operation.host_invocation,
+                    Some(HostInvocation::HookModel { owner: hook_owner }) if hook_owner == owner.id
+                )
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(models.len(), 1);
+        assert!(models[0].complete);
+        assert_eq!(&models[0].budget, &owner.budget);
         assert!(
             lifecycle_hooks(&record)
                 .iter()
@@ -784,12 +804,18 @@ async fn session_allowance_cancelled_external_hook_reaps_and_settles_while_retai
         assert!(task.await.unwrap_err().is_cancelled());
         tokio::time::timeout(Duration::from_secs(4), async {
             loop {
-                let settled = fixture
-                    .record()
+                let record = fixture.record();
+                let backends = record
                     .operations
                     .iter()
-                    .filter(|o| matches!(o.host_invocation, Some(HostInvocation::Backend)))
-                    .all(|o| o.complete);
+                    .filter(|operation| {
+                        matches!(
+                            operation.host_invocation,
+                            Some(HostInvocation::HookBackend { .. })
+                        )
+                    })
+                    .collect::<Vec<_>>();
+                let settled = backends.len() == 1 && backends[0].complete;
                 let reaped = messages
                     .iter()
                     .filter_map(|v| v["pid"].as_u64())
@@ -808,7 +834,33 @@ async fn session_allowance_cancelled_external_hook_reaps_and_settles_while_retai
         .expect("cancelled model runner leaked owned process, directory or unsettled usage");
         assert!(began.elapsed() < Duration::from_secs(4));
         let record = fixture.record();
-        let grant = record.session_hook_allowance.unwrap();
+        let owner = record
+            .operations
+            .iter()
+            .find(|operation| {
+                matches!(
+                    &operation.host_invocation,
+                    Some(HostInvocation::Lifecycle(receipt))
+                        if matches!(
+                            receipt.facts.subject.occurrence,
+                            NonToolOccurrence::SessionStart { .. }
+                        )
+                )
+            })
+            .unwrap();
+        let backend = record
+              .operations
+              .iter()
+              .find(|operation| {
+                  matches!(
+                      operation.host_invocation,
+                      Some(HostInvocation::HookBackend { owner: hook_owner }) if hook_owner == owner.id
+                  )
+              })
+              .unwrap();
+        assert!(backend.complete);
+        assert_eq!(&backend.budget, &owner.budget);
+        let grant = record.session_hook_allowance.as_ref().unwrap();
         assert_eq!(grant.allocation.model_calls, 1);
         assert_eq!(grant.backend_invocations, 1);
         assert!(grant.allocation.usage.unknown_input && grant.allocation.usage.unknown_output);
@@ -872,7 +924,12 @@ async fn session_allowance_external_missing_or_empty_grant_never_admits_backend_
             assert_eq!(record.allocation.as_ref().unwrap().model_calls, 0);
             assert!(!record.operations.iter().any(|o| matches!(
                 o.host_invocation,
-                Some(HostInvocation::Backend | HostInvocation::Model)
+                Some(
+                    HostInvocation::Backend
+                        | HostInvocation::Model
+                        | HostInvocation::HookBackend { .. }
+                        | HostInvocation::HookModel { .. }
+                )
             )));
             if let Some(grant) = record.session_hook_allowance {
                 assert_eq!(grant.backend_invocations, 0);
@@ -1110,7 +1167,12 @@ async fn compaction_stopped_task_keeps_original_epoch_and_never_falls_back_to_se
                 after
                     .operations
                     .iter()
-                    .filter(|o| matches!(o.host_invocation, Some(HostInvocation::Model)))
+                    .filter(|o| {
+                        matches!(
+                            o.host_invocation,
+                            Some(HostInvocation::Model | HostInvocation::HookModel { .. })
+                        )
+                    })
                     .all(|o| matches!(o.budget, Some(BudgetRef::Task { .. })))
             );
         }
@@ -1299,7 +1361,12 @@ async fn automatic_postcompact_model_rejection_uses_original_bounded_task_correc
         after
             .operations
             .iter()
-            .filter(|o| matches!(o.host_invocation, Some(HostInvocation::Model)))
+            .filter(|o| {
+                matches!(
+                    o.host_invocation,
+                    Some(HostInvocation::Model | HostInvocation::HookModel { .. })
+                )
+            })
             .all(|o| matches!(o.budget, Some(BudgetRef::Task { .. })))
     );
     let checkpoint = session.checkpoint().unwrap().to_string();
@@ -1462,7 +1529,7 @@ async fn check_compaction_trigger_funding(
     } else if trigger == "manual" {
         assert_eq!(session.checkpoint().unwrap(), checkpoint_before, "{case}");
     }
-    let model_count = |record: &Record| {
+    let ordinary_model_count = |record: &Record| {
         record
             .operations
             .iter()
@@ -1470,10 +1537,66 @@ async fn check_compaction_trigger_funding(
             .count()
     };
     assert_eq!(
-        model_count(&after) - model_count(&before),
-        usize::from(applied) + usize::from(trigger == "auto" && !matching) + usize::from(spend_pre),
+        ordinary_model_count(&after) - ordinary_model_count(&before),
+        usize::from(applied) + usize::from(trigger == "auto" && !matching),
         "{case}: manual never continues; matching post hold never continues"
     );
+    let hook_model_count = |record: &Record| {
+        record
+            .operations
+            .iter()
+            .filter(|operation| {
+                matches!(
+                    operation.host_invocation,
+                    Some(HostInvocation::HookModel { .. })
+                )
+            })
+            .count()
+    };
+    assert_eq!(
+        hook_model_count(&after) - hook_model_count(&before),
+        usize::from(spend_pre),
+        "{case}: only the funded PreCompact hook may spend a hook model request"
+    );
+    if spend_pre {
+        let precompact = after
+            .operations
+            .iter()
+            .find(|operation| {
+                matches!(
+                    &operation.host_invocation,
+                    Some(HostInvocation::Lifecycle(receipt))
+                        if matches!(
+                            receipt.facts.subject.occurrence,
+                            NonToolOccurrence::PreCompact { .. }
+                        )
+                )
+            })
+            .unwrap();
+        let hook_model = after
+            .operations
+            .iter()
+            .find(|operation| {
+                matches!(
+                    operation.host_invocation,
+                    Some(HostInvocation::HookModel { owner }) if owner == precompact.id
+                )
+            })
+            .unwrap();
+        let session = after
+            .operations
+            .iter()
+            .find_map(|operation| match &operation.host_invocation {
+                Some(HostInvocation::NativeSession(lifetime)) => Some(&lifetime.session),
+                _ => None,
+            })
+            .unwrap();
+        assert!(matches!(
+            &hook_model.budget,
+            Some(BudgetRef::SessionHooks { session: owner }) if owner == session
+        ));
+        assert_eq!(&hook_model.budget, &precompact.budget);
+    }
     if let Some(grant) = after.session_hook_allowance.as_ref() {
         assert_eq!(grant.allocation.model_calls, u64::from(spend_pre), "{case}");
         assert_eq!(

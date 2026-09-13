@@ -142,6 +142,13 @@ impl WorkflowSession {
     }
 
     pub fn with_live_settings(mut self, settings: crate::settings::Handle) -> Self {
+        settings.require_control(
+            self.connection
+                .access
+                .non_tools
+                .iter()
+                .any(|plan| plan.plan.event == crate::plugins::hook_types::HookEvent::ConfigChange),
+        );
         self.live_settings = Some(settings);
         self
     }
@@ -170,6 +177,11 @@ impl WorkflowSession {
         if retain_native && let Some(checkpoint) = self.inner.checkpoint() {
             replacement.restore(&checkpoint, &[])?;
         }
+        if let Some(settings) = &self.live_settings {
+            settings.require_control(selection.connection.access.non_tools.iter().any(|plan| {
+                plan.plan.event == crate::plugins::hook_types::HookEvent::ConfigChange
+            }));
+        }
         self.runtime.stop_observers(None, false).await?;
         self.runtime
             .bind_creator(&selection.connection, replacement.checkpoint())?;
@@ -180,6 +192,17 @@ impl WorkflowSession {
         self.inner = replacement;
         self.connection = selection.connection;
         self.connection_label = Some(selection.name);
+        if let Some(settings) = &self.live_settings {
+            settings.activate_control(
+                &self.workspace,
+                &self.connection,
+                &events
+                    .clone()
+                    .with_runtime(self.runtime.clone())
+                    .with_identity(&self.connection),
+                self.runtime.clone(),
+            )?;
+        }
         events.emit(Event::ModelAssignment {
             connection: format!("{} · {}", self.connection_label.as_deref().unwrap_or(&self.connection.adapter), self.connection.adapter),
             model: self.connection.model.clone(),
@@ -712,17 +735,44 @@ impl Session for WorkflowSession {
         self.inner.native_lifetime()
     }
     fn open_lifetime(&mut self, _: crate::session::SessionStart, events: &EventSink) -> Result<()> {
-        self.inner.open_lifetime(
-            if self.resumed {
-                crate::session::SessionStart::Resume
-            } else {
-                crate::session::SessionStart::Startup
-            },
-            &events
-                .clone()
-                .with_runtime(self.runtime.clone())
-                .with_identity(&self.connection),
-        )
+        let source = if self.resumed {
+            crate::session::SessionStart::Resume
+        } else {
+            crate::session::SessionStart::Startup
+        };
+        let scoped = events
+            .clone()
+            .with_runtime(self.runtime.clone())
+            .with_identity(&self.connection);
+        if self.inner.native_lifetime() {
+            self.inner.open_lifetime(source, &scoped)?;
+        } else {
+            let plans = self
+                .connection
+                .access
+                .non_tools
+                .iter()
+                .filter(|plan| {
+                    matches!(
+                        plan.plan.event,
+                        crate::plugins::hook_types::HookEvent::SessionStart
+                            | crate::plugins::hook_types::HookEvent::SessionEnd
+                            | crate::plugins::hook_types::HookEvent::ConfigChange
+                    )
+                })
+                .map(|plan| (plan.plan.event, plan.plan.digest.clone()))
+                .collect();
+            scoped.begin_host_lifetime(source, plans)?;
+        }
+        if let Some(settings) = &self.live_settings {
+            settings.activate_control(
+                &self.workspace,
+                &self.connection,
+                &scoped,
+                self.runtime.clone(),
+            )?;
+        }
+        Ok(())
     }
     async fn session_start(
         &mut self,

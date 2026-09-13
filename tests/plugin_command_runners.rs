@@ -3741,6 +3741,9 @@ print(json.dumps({'systemMessage':json.dumps(x)}))
             let event = receipt.facts.subject.occurrence.clone();
             let mut expected = json!({"session_id":receipt.facts.session,"cwd":fixture.root.path(),"transcript_path":receipt.facts.host_transcript_path,"permission_mode":"default"});
             match event {
+                demoncoder::plugins::receipts::NonToolOccurrence::ConfigChange { .. } => {
+                    panic!("unexpected settings event in ordinary turn fixture")
+                }
                 demoncoder::plugins::receipts::NonToolOccurrence::PreCompact { .. }
                 | demoncoder::plugins::receipts::NonToolOccurrence::PostCompact { .. }
                 | demoncoder::plugins::receipts::NonToolOccurrence::PostToolBatch { .. } => {

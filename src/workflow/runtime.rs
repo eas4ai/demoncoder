@@ -686,15 +686,24 @@ impl SharedRuntime {
         let session = self.plugin_session()?;
         self.update(|r| {
             r.phase = None;
+            let settings_owners = r
+                .operations
+                .iter()
+                .filter(|operation| operation.is_owned_settings_control())
+                .map(|operation| operation.id)
+                .collect::<Vec<_>>();
             // Cancellation does not establish a remote request's outcome or
             // billing. The developer reconciles every incomplete admission.
-            if r.operations
-                .iter()
-                .any(|o| o.needs_reconciliation() && delegation::agent_id(&o.phase).is_none())
-            {
+            if r.operations.iter().any(|o| {
+                o.needs_reconciliation()
+                    && !o.belongs_to_owned_settings_control(&settings_owners)
+                    && delegation::agent_id(&o.phase).is_none()
+            }) {
                 r.recovery_pending = true;
                 budget_accounting::mark_missing(r, &session, |o| {
-                    o.needs_reconciliation() && delegation::agent_id(&o.phase).is_none()
+                    o.needs_reconciliation()
+                        && !o.belongs_to_owned_settings_control(&settings_owners)
+                        && delegation::agent_id(&o.phase).is_none()
                 });
             }
             Ok(())
@@ -841,7 +850,10 @@ impl SharedRuntime {
                 tool_receipt: None,
                 budget: Some(budget),
                 usage_receipt: None,
-                host_invocation: Some(HostInvocation::Model),
+                host_invocation: Some(match hook {
+                    Some(hook) => HostInvocation::HookModel { owner: hook.owner },
+                    None => HostInvocation::Model,
+                }),
                 complete: false,
                 reconciled: false,
                 usage_reported: false,
