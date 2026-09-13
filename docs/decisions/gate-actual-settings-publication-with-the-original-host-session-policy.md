@@ -22,4 +22,4 @@ Prove actual saves and unchanged denied state through the production Settings AP
 
 ## Realized by
 
-(none yet: recorded, not built)
+- e9f25e879551becaa4a8d1b28a72e36fdc262135 Gate Settings publication with the original session policy
