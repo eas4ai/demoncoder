@@ -31,6 +31,11 @@ pub struct ContextUsage {
 #[derive(Clone, Debug, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Event {
+    WorkspaceChanged {
+        previous: String,
+        workspace: String,
+        generation: u64,
+    },
     ModelAssignment {
         connection: String,
         model: Option<String>,
@@ -612,6 +617,111 @@ impl EventSink {
         ))
     }
 
+    pub(crate) fn prepare_workspace_change(
+        &self,
+        selected: &Path,
+    ) -> Result<(
+        crate::workflow::runtime::workspace_change::RootOccurrence,
+        crate::workflow::runtime::workspace_change::WorkspaceCandidate,
+    )> {
+        anyhow::ensure!(
+            self.phase == "worker"
+                && self.native_turn.is_none()
+                && self.hook_model.is_none()
+                && self.invocation.is_none(),
+            "only the outer worker can prepare a workspace replacement"
+        );
+        let runtime = self
+            .runtime
+            .as_ref()
+            .context("workspace replacement requires a durable runtime")?;
+        let retained = self
+            .host_lifetime
+            .lock()
+            .map_err(|_| anyhow::anyhow!("native lifetime lock failed"))?
+            .clone()
+            .context("workspace replacement requires the original native lifetime")?;
+        anyhow::ensure!(
+            retained.runtime.upgrade()?.directory()? == runtime.directory()?,
+            "workspace replacement host lifetime belongs to another runtime"
+        );
+        runtime.prepare_workspace_candidate(selected, retained.operation)
+    }
+
+    pub(crate) fn begin_workspace_change(
+        &self,
+        candidate: &crate::workflow::runtime::workspace_change::WorkspaceCandidate,
+        cwd_plan: Option<String>,
+        handoff: Option<crate::workflow::runtime::workspace_change::WorkspaceHandoff>,
+    ) -> Result<(Self, u64)> {
+        anyhow::ensure!(
+            self.phase == "worker"
+                && self.native_turn.is_none()
+                && self.hook_model.is_none()
+                && self.invocation.is_none(),
+            "only the outer worker can begin a workspace replacement"
+        );
+        let runtime = self
+            .runtime
+            .as_ref()
+            .context("workspace replacement requires a durable runtime")?;
+        let retained = self
+            .host_lifetime
+            .lock()
+            .map_err(|_| anyhow::anyhow!("native lifetime lock failed"))?
+            .clone()
+            .context("workspace replacement requires the original native lifetime")?;
+        anyhow::ensure!(
+            retained.runtime.upgrade()?.directory()? == runtime.directory()?,
+            "workspace replacement host lifetime belongs to another runtime"
+        );
+        let id = runtime.begin_workspace_change(
+            candidate,
+            "developer",
+            retained.operation,
+            cwd_plan,
+            handoff,
+        )?;
+        Ok((
+            Self {
+                native_session_scope: None,
+                phase: "workspace-change".into(),
+                identity: self.identity.clone(),
+                invocation: Some(id),
+                ..self.clone()
+            },
+            id,
+        ))
+    }
+
+    pub(crate) fn validate_workspace_change_request(
+        &self,
+        candidate: &crate::workflow::runtime::workspace_change::WorkspaceCandidate,
+    ) -> Result<()> {
+        anyhow::ensure!(
+            self.phase == "worker"
+                && self.native_turn.is_none()
+                && self.hook_model.is_none()
+                && self.invocation.is_none(),
+            "only the outer worker can validate a workspace replacement"
+        );
+        let runtime = self
+            .runtime
+            .as_ref()
+            .context("workspace replacement requires a durable runtime")?;
+        let retained = self
+            .host_lifetime
+            .lock()
+            .map_err(|_| anyhow::anyhow!("native lifetime lock failed"))?
+            .clone()
+            .context("workspace replacement requires the original native lifetime")?;
+        anyhow::ensure!(
+            retained.runtime.upgrade()?.directory()? == runtime.directory()?,
+            "workspace replacement host lifetime belongs to another runtime"
+        );
+        runtime.validate_workspace_change_request(candidate, "developer", retained.operation)
+    }
+
     /// Create one bounded Settings occurrence from the already-open host lifetime.
     /// The lifetime remains the funding owner; this token only bounds this save.
     pub(crate) fn settings_control_events(
@@ -620,6 +730,8 @@ impl EventSink {
         live: Arc<std::sync::atomic::AtomicBool>,
         owned: Arc<std::sync::atomic::AtomicBool>,
         operation: Arc<std::sync::atomic::AtomicU64>,
+        workspace: crate::workflow::runtime::workspace_change::RootOccurrence,
+        owner_live: Arc<std::sync::atomic::AtomicBool>,
     ) -> Result<Self> {
         let retained = self
             .host_lifetime
@@ -634,6 +746,8 @@ impl EventSink {
                 live,
                 owned,
                 operation,
+                workspace,
+                owner_live,
             }),
             native_session_scope: None,
             phase: "settings".into(),
@@ -1153,6 +1267,15 @@ impl EventSink {
                 )
             })
             .transpose()
+    }
+
+    /// Bind a pending workspace handoff only at the adapter's first provider
+    /// submission boundary. Host controls and pre-submit denials never call it.
+    pub(crate) fn bind_workspace_handoff_provider(&self) -> Result<()> {
+        if let (Some(runtime), Some(invocation)) = (&self.runtime, self.invocation) {
+            runtime.bind_workspace_handoff_provider(invocation)?;
+        }
+        Ok(())
     }
 
     pub(crate) fn for_invocation(&self, invocation: Option<u64>) -> Self {

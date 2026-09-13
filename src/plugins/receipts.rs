@@ -228,6 +228,8 @@ pub(crate) struct HostControlAuthority {
     pub live: std::sync::Arc<std::sync::atomic::AtomicBool>,
     pub owned: std::sync::Arc<std::sync::atomic::AtomicBool>,
     pub operation: std::sync::Arc<std::sync::atomic::AtomicU64>,
+    pub workspace: crate::workflow::runtime::workspace_change::RootOccurrence,
+    pub owner_live: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 /// A real host boundary, never an empty or fabricated ToolCall.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -259,6 +261,11 @@ pub enum NonToolOccurrence {
         model_switch: u64,
         model: Option<String>,
         source: String,
+    },
+    CwdChanged {
+        workspace_change: u64,
+        old_cwd: String,
+        new_cwd: String,
     },
     PostToolBatch {
         /// Host batch ID; absent only on an authenticated source batch callback.
@@ -296,6 +303,9 @@ impl NonToolOccurrence {
             }
             Self::PreModelSwitch { model_switch, .. }
             | Self::PostModelSwitch { model_switch, .. } => Some(*model_switch),
+            Self::CwdChanged {
+                workspace_change, ..
+            } => Some(*workspace_change),
             _ => None,
         }
     }
@@ -306,6 +316,7 @@ impl NonToolOccurrence {
             Self::PostCompact { .. } => super::hook_types::HookEvent::PostCompact,
             Self::PreModelSwitch { .. } => super::hook_types::HookEvent::PreModelSwitch,
             Self::PostModelSwitch { .. } => super::hook_types::HookEvent::PostModelSwitch,
+            Self::CwdChanged { .. } => super::hook_types::HookEvent::CwdChanged,
             Self::PostToolBatch { .. } => super::hook_types::HookEvent::PostToolBatch,
             Self::SessionStart { .. } => super::hook_types::HookEvent::SessionStart,
             Self::SessionEnd { .. } => super::hook_types::HookEvent::SessionEnd,

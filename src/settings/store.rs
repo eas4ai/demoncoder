@@ -58,6 +58,8 @@ struct SettingsControl {
     host: crate::plugins::runners::HookHost,
     workspace_identity: (u64, u64),
     runtime: crate::workflow::runtime::SharedRuntime,
+    root: crate::workflow::runtime::workspace_change::RootOccurrence,
+    live: Arc<AtomicBool>,
 }
 
 struct Attempt(Arc<AtomicBool>);
@@ -289,8 +291,11 @@ impl Handle {
     pub(crate) fn creator(
         &self,
         previous: &crate::config::Connection,
+        workspace: &Path,
     ) -> Result<crate::config::Selection> {
-        let mut selection = self.args.selection_from(&self.current()?)?;
+        let mut selection = self
+            .args
+            .selection_from_admitted_workspace(&self.current()?, workspace)?;
         let oracle = selection.connection.access.oracle.take();
         // Assignment edits cannot change trust, extension tools or launch authority.
         selection.connection.access = previous.access.clone();
@@ -364,6 +369,12 @@ impl Handle {
         );
         let root = Arc::new(File::open(&canonical).context("open settings workspace")?);
         let metadata = root.metadata()?;
+        let durable_root = runtime.workspace_root()?;
+        ensure!(
+            durable_root.path == canonical
+                && (durable_root.device, durable_root.inode) == (metadata.dev(), metadata.ino()),
+            "settings control target differs from current workspace generation"
+        );
         let control = SettingsControl {
             plan,
             events: events.clone(),
@@ -376,12 +387,29 @@ impl Handle {
             ),
             workspace_identity: (metadata.dev(), metadata.ino()),
             runtime,
+            root: durable_root,
+            live: Arc::new(AtomicBool::new(true)),
         };
         let mut state = self
             .control
             .lock()
             .map_err(|_| anyhow::anyhow!("settings policy state unavailable"))?;
+        if let ControlState::Ready(previous) = &*state {
+            previous.live.store(false, Ordering::Release);
+        }
         *state = ControlState::Ready(Arc::new(control));
+        Ok(())
+    }
+
+    pub(crate) fn revoke_control(&self) -> Result<()> {
+        let mut state = self
+            .control
+            .lock()
+            .map_err(|_| anyhow::anyhow!("settings policy state unavailable"))?;
+        if let ControlState::Ready(control) = &*state {
+            control.live.store(false, Ordering::Release);
+        }
+        *state = ControlState::Required;
         Ok(())
     }
 
@@ -474,6 +502,8 @@ impl Handle {
                 attempt.live.clone(),
                 attempt.owned.clone(),
                 attempt.operation.clone(),
+                control.root.clone(),
+                control.live.clone(),
             )?;
             let dispatched = control
                 .plan
@@ -1944,6 +1974,127 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn workflow_model_selection_after_workspace_change_uses_settings_creator_and_tools_in_new_root()
+     {
+        let peer = crate::config_change_test_support::Peer::new(|index, request| {
+            assert_eq!(request["model"], "b-model");
+            let output = if index == 0 {
+                let arguments = serde_json::json!({
+                    "path":"settings-model-root-proof.txt",
+                    "content":"selected-model-wrote-in-b"
+                })
+                .to_string();
+                vec![serde_json::json!({
+                    "type":"response.completed",
+                    "response":{
+                        "output":[{
+                            "type":"function_call",
+                            "call_id":"settings-model-root-write",
+                            "name":"write",
+                            "arguments":arguments
+                        }],
+                        "usage":{
+                            "input_tokens":1,
+                            "output_tokens":1,
+                            "input_tokens_details":{"cached_tokens":0}
+                        }
+                    }
+                })]
+            } else {
+                vec![serde_json::json!({
+                    "type":"response.completed",
+                    "response":{
+                        "output":[],
+                        "usage":{
+                            "input_tokens":1,
+                            "output_tokens":1,
+                            "input_tokens_details":{"cached_tokens":0}
+                        }
+                    }
+                })]
+            };
+            (
+                "text/event-stream".into(),
+                output
+                    .iter()
+                    .map(|event| format!("data: {event}\n\n"))
+                    .collect(),
+            )
+        })
+        .await;
+        let roots = tempfile::tempdir().unwrap();
+        let a = roots.path().join("a");
+        let b = roots.path().join("b selected by workspace control");
+        std::fs::create_dir(&a).unwrap();
+        std::fs::create_dir(&b).unwrap();
+        let (handle, _) = fixture(&a);
+        let endpoint = format!("{}/v1/responses", peer.endpoint);
+        let mut initial = handle.draft().unwrap();
+        for connection in initial.config.connections.values_mut() {
+            connection.adapter = "openai-api".into();
+            connection.endpoint = Some(endpoint.clone());
+            connection.api_key = Some("same-account-key".into());
+            connection.max_output_tokens = Some(512);
+        }
+        initial.config.connections.get_mut("a").unwrap().model = Some("a-model".into());
+        initial.config.connections.get_mut("b").unwrap().model = Some("b-model".into());
+        configure(&mut initial, "a", "a-model");
+        handle.save(&mut initial).await.unwrap();
+        let current = handle.current().unwrap().connections["a"].clone();
+        let mut running =
+            crate::config_change_test_support::start_actual_control_without_grant_for_connection(
+                &handle,
+                &a,
+                current.clone(),
+            )
+            .await;
+
+        running.submit(&format!("/workspace {}", b.display())).await;
+        running.collect_turn_events("complete").await;
+        assert_eq!(
+            running.runtime.workspace_root().unwrap().path,
+            b.canonicalize().unwrap()
+        );
+
+        let mut changed = handle.draft().unwrap();
+        configure(&mut changed, "b", "b-model");
+        handle.save(&mut changed).await.unwrap();
+        let mut expected_connection = handle.current().unwrap().connections["b"].clone();
+        let oracle = expected_connection.access.oracle.take();
+        expected_connection.access = current.access.clone();
+        expected_connection.access.oracle = oracle;
+        let expected_identity = crate::workflow::runtime::Identity::from(&expected_connection);
+        let retired_a = roots.path().join("retired-a");
+        std::fs::rename(&a, &retired_a).unwrap();
+        running
+            .submit("use the saved Creator model and write the proof")
+            .await;
+        running.collect_turn_events("complete").await;
+
+        assert_eq!(
+            std::fs::read_to_string(b.join("settings-model-root-proof.txt")).unwrap(),
+            "selected-model-wrote-in-b"
+        );
+        assert!(!retired_a.join("settings-model-root-proof.txt").exists());
+        let requests = peer.requests();
+        assert_eq!(
+            requests.len(),
+            2,
+            "unexpected provider sequence: {requests:?}"
+        );
+        assert!(
+            serde_json::to_string(&requests[0])
+                .unwrap()
+                .contains("use the saved Creator model and write the proof")
+        );
+        assert_eq!(
+            running.runtime.record().unwrap().identity,
+            expected_identity
+        );
+        running.shutdown().await;
+    }
+
+    #[tokio::test]
     async fn inherited_roles_follow_creator_while_overrides_and_authority_remain_distinct() {
         let root = tempfile::tempdir().unwrap();
         let (handle, _) = fixture(root.path());
@@ -2495,7 +2646,10 @@ mod tests {
                 .unwrap()
                 .contains("credential-snapshot-model")
         );
-        let creator = handle.creator(&previous).unwrap().connection;
+        let creator = handle
+            .creator(&previous, &handle.args.workspace)
+            .unwrap()
+            .connection;
         assert_eq!(
             creator.access.credential_paths,
             previous.access.credential_paths
@@ -2805,6 +2959,158 @@ mod tests {
     #[tokio::test]
     async fn aborted_waiter_cannot_release_workspace_or_hide_receipt_failure() {
         assert_receipt_failure_recovery(ReceiptFault::BeforeRename, None, true).await;
+    }
+
+    #[tokio::test]
+    async fn workspace_change_quiesces_captured_settings_before_ledger_and_rejects_aba_owner() {
+        let parent = tempfile::tempdir().unwrap();
+        let a = parent.path().join("a");
+        let b = parent.path().join("b with spaces;literal");
+        std::fs::create_dir(&a).unwrap();
+        std::fs::create_dir(&b).unwrap();
+        let (handle, path) = fixture(&a);
+        let original = std::fs::read(&path).unwrap();
+        let entered = Arc::new(tokio::sync::Notify::new());
+        let release = Arc::new(tokio::sync::Notify::new());
+        let effects = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let plan = config_change_plan(Arc::new(HeldAllowConfigChange {
+            entered: entered.clone(),
+            release: release.clone(),
+            effects: effects.clone(),
+        }));
+        let mut running = start_control(&handle, &a, plan).await;
+        let original_control = match &*handle.control.lock().unwrap() {
+            ControlState::Ready(control) => control.clone(),
+            _ => panic!("initial Settings owner unavailable"),
+        };
+        assert_eq!(original_control.root.generation, 0);
+
+        let mut draft = handle.draft().unwrap();
+        configure(&mut draft, "a", "must-never-publish-from-a");
+        let save = handle.start_save(draft);
+        entered.notified().await;
+        let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
+        running
+            .command_tx
+            .send(Command::Submit {
+                text: format!("/workspace {}", b.display()),
+                reply: reply_tx,
+            })
+            .await
+            .unwrap();
+        reply_rx.await.unwrap().unwrap();
+        tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                if matches!(&*handle.control.lock().unwrap(), ControlState::Required) {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("workspace change did not revoke A Settings authority");
+        assert!(
+            !running
+                .runtime
+                .record()
+                .unwrap()
+                .operations
+                .iter()
+                .any(|operation| {
+                    matches!(
+                        operation.host_invocation,
+                        Some(HostInvocation::WorkspaceChange(_))
+                    )
+                }),
+            "workspace owner was recorded before captured Settings work quiesced"
+        );
+        release.notify_one();
+        let (outcome, cleanup) = save.finish().await;
+        cleanup.unwrap();
+        let error = outcome.unwrap_err();
+        assert!(
+            error.to_string().contains("no longer executable")
+                || error.to_string().contains("owner changed")
+                || error.to_string().contains("cancel"),
+            "unexpected stale Settings result: {error:#}"
+        );
+        assert_eq!(effects.load(Ordering::SeqCst), 1);
+        let first_events = tokio::time::timeout(Duration::from_secs(3), async {
+            let mut observed = Vec::new();
+            loop {
+                let event = running
+                    ._event_rx
+                    .recv()
+                    .await
+                    .expect("workspace event stream closed")
+                    .event;
+                if matches!(event, Event::WorkspaceChanged { generation: 1, .. }) {
+                    return observed;
+                }
+                observed.push(format!("{event:?}"));
+            }
+        })
+        .await
+        .unwrap_or_else(|_| {
+            panic!(
+                "first workspace replacement timed out; record={}",
+                serde_json::to_string(&running.runtime.record().unwrap()).unwrap()
+            )
+        });
+        assert_eq!(
+            running.runtime.workspace_root().unwrap().path,
+            b.canonicalize().unwrap()
+        );
+        assert_eq!(std::fs::read(&path).unwrap(), original);
+        assert!(!original_control.live.load(Ordering::Acquire));
+
+        let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
+        running
+            .command_tx
+            .send(Command::Submit {
+                text: format!("/workspace {}", a.display()),
+                reply: reply_tx,
+            })
+            .await
+            .unwrap();
+        reply_rx.await.unwrap().unwrap();
+        tokio::time::timeout(Duration::from_secs(3), async {
+            loop {
+                let event = running
+                    ._event_rx
+                    .recv()
+                    .await
+                    .expect("workspace event stream closed")
+                    .event;
+                if matches!(event, Event::WorkspaceChanged { generation: 2, .. }) {
+                    break;
+                }
+            }
+        })
+        .await
+        .unwrap_or_else(|_| {
+            panic!(
+                "second workspace replacement timed out; first_events={first_events:?}; record={}",
+                serde_json::to_string(&running.runtime.record().unwrap()).unwrap()
+            )
+        });
+        let current = running.runtime.workspace_root().unwrap();
+        assert_eq!(current.path, a.canonicalize().unwrap());
+        assert_eq!(current.generation, 2);
+        let rebound = match &*handle.control.lock().unwrap() {
+            ControlState::Ready(control) => control.clone(),
+            _ => panic!("generation-2 Settings owner unavailable"),
+        };
+        assert_eq!(rebound.root, current);
+        assert!(rebound.live.load(Ordering::Acquire));
+        assert!(!Arc::ptr_eq(&original_control, &rebound));
+        assert!(!original_control.live.load(Ordering::Acquire));
+        assert_eq!(
+            std::fs::read(&path).unwrap(),
+            original,
+            "stale A Settings attempt published across A→B→A"
+        );
+        running.shutdown().await.unwrap();
     }
 
     #[test]

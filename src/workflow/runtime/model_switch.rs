@@ -97,8 +97,14 @@ pub(super) fn validate_original_lifetime_current(
     record: &Record,
     lifetime_id: u64,
 ) -> Result<(u64, u64)> {
-    let (_, lifetime) =
-        original_lifetime_before(record, lifetime_id, u64::MAX, &record.identity, false)?;
+    let (_, lifetime) = original_lifetime_before_with_root(
+        record,
+        lifetime_id,
+        u64::MAX,
+        &record.identity,
+        false,
+        false,
+    )?;
     Ok(lifetime.workspace)
 }
 
@@ -112,7 +118,27 @@ fn original_lifetime_before<'a>(
     &'a Operation,
     &'a super::plugin_session::NativeSessionLifetime,
 )> {
-    let (operation, lifetime) = super::plugin_session::validate_host_lifetime(record, lifetime_id)?;
+    original_lifetime_before_with_root(record, lifetime_id, before, target, require_open, true)
+}
+
+fn original_lifetime_before_with_root<'a>(
+    record: &'a Record,
+    lifetime_id: u64,
+    before: u64,
+    target: &Identity,
+    require_open: bool,
+    require_physical_root: bool,
+) -> Result<(
+    &'a Operation,
+    &'a super::plugin_session::NativeSessionLifetime,
+)> {
+    let (operation, lifetime) = if require_physical_root {
+        super::plugin_session::validate_host_lifetime(record, lifetime_id)?
+    } else {
+        let owner = super::plugin_session::validate_host_authority(record, lifetime_id)?;
+        super::workspace_change::validate_lifetime_lineage(record, lifetime_id)?;
+        owner
+    };
     let mut identity = operation
         .identity
         .clone()

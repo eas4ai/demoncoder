@@ -10,8 +10,13 @@
 
 ## Status and execution rules
 
+The developer limits compilation to 8 jobs. Set `CARGO_BUILD_JOBS=8` for every
+Cargo build, check and test command, including child commands and review repairs.
+Record the limit in retained command evidence; keep a single Cargo owner.
+
 - Complete: Immutable import foundation, backend compaction qualification probes, wire validation, result decoding, gate snapshots, durable tool receipts, pre-tool final-candidate admission, the confined command-runner/snapshot-materialization prerequisite, bounded PreToolUse prompt/agent runners, the admitted HTTP runner prerequisite, managed MCP service/hook admission, durable synchronous one-shot activation and recovery, and owned asynchronous observers with parent and child rewake.
 - **In progress:** Complete lifecycle dispatch.
+  Admitted workspace replacement is now qualified with preserved original session authority, exact handoff ownership and terminal visibility. Composite regression covers 1,168 passing core Rust tests, installed backend cases and terminal checks; see [the workspace review](../reviews/plugin-workspace-change.md). Dynamic watch replacement and DirectoryAdded remain pending in this lifecycle work.
 - Pending: Integrate state, recovery, services and all package components.
 - Pending: Exercise the complete public management and coding workflows.
 - Pending: Run full conformance, installed/live cases, adversarial review and Cairn checks.

@@ -8,6 +8,9 @@ use crate::plugins::{
 
 pub(super) struct NativeOwner {
     pub(super) lifetime: u64,
+    /// A host-owned CwdChanged command borrows the original SessionHooks
+    /// lifetime while remaining bound to this exact applied workspace change.
+    pub(super) workspace_change: Option<u64>,
     authority: Arc<plugin_session::NativeSessionAuthority>,
     view: GateWorkspace,
 }
@@ -27,18 +30,50 @@ pub(super) struct Identity {
 impl Identity {
     pub(super) fn capture(record: &Record, invocation: &HookInvocation) -> Result<Self> {
         let budget = budget_accounting::inherited(record, invocation.key.operation)?;
-        let native = invocation
-            .lifecycle
-            .as_ref()
-            .and_then(|facts| facts.native_session);
-        let native = native
+        let lifecycle = invocation.lifecycle.as_ref();
+        let native_lifetime = lifecycle.and_then(|facts| facts.native_session);
+        let workspace_change = lifecycle.and_then(|facts| {
+            matches!(
+                facts.subject.occurrence,
+                NonToolOccurrence::CwdChanged { .. }
+            )
+            .then(|| facts.subject.occurrence.host_operation())
+            .flatten()
+        });
+        let lifetime = match (native_lifetime, workspace_change) {
+            (Some(lifetime), None) => Some(lifetime),
+            (None, Some(operation)) => Some(super::super::workspace_change::hook_lifetime(
+                record, operation,
+            )?),
+            (None, None) => None,
+            (Some(_), Some(_)) => anyhow::bail!(
+                "observer occurrence cannot combine native-session and workspace-change owners"
+            ),
+        };
+        let native = lifetime
             .map(|lifetime| -> Result<_> {
-                ensure!(
-                    invocation.declaration.dialect == HookDialect::Native
-                        && invocation.declaration.runner == HandlerKind::Command
-                        && matches!(budget, BudgetRef::SessionHooks { .. }),
-                    "native asynchronous command requires its original explicit session allowance"
-                );
+                ensure!(matches!(budget, BudgetRef::SessionHooks { .. }),
+                    "session observer requires its original explicit session allowance");
+                if let Some(operation) = workspace_change {
+                    ensure!(
+                        invocation.declaration.dialect == HookDialect::Claude
+                            && invocation.declaration.runner == HandlerKind::Command,
+                        "CwdChanged observer transfer is only used by a supported Claude command"
+                    );
+                    let occurrence = &lifecycle.expect("workspace lifecycle").subject.occurrence;
+                    super::super::workspace_change::validate_occurrence(
+                        record,
+                        operation,
+                        occurrence,
+                        &invocation.key.plan,
+                    )?;
+                } else {
+                    ensure!(
+                        invocation.declaration.dialect == HookDialect::Native
+                            && invocation.declaration.runner == HandlerKind::Command,
+                        "native asynchronous command requires its original explicit session allowance"
+                    );
+                }
                 let view = GateWorkspace::open_with_credentials(
                     &invocation.host.workspace,
                     &invocation.host.credentials,
@@ -62,6 +97,7 @@ impl Identity {
                     .context("native host capability missing")?;
                 Ok(NativeOwner {
                     lifetime,
+                    workspace_change,
                     authority,
                     view,
                 })
@@ -153,7 +189,7 @@ impl Identity {
         let Some(native) = &self.native else {
             return fingerprint(record, &self.key.role);
         };
-        plugin_session::validate_live(record, native.lifetime)?;
+        plugin_session::validate_host_lifetime(record, native.lifetime)?;
         let (_, lifetime) = plugin_session::lifetime(record, native.lifetime)?;
         ensure!(
             lifetime
@@ -170,28 +206,63 @@ impl Identity {
         let receipt = operation
             .non_tool_receipt()
             .context("observer native occurrence missing")?;
-        ensure!(!operation.reconciled && receipt.hold.is_none()
-            && operation.phase == "native-session" && self.key.role == "native-session"
-            && operation.identity.as_ref() == Some(&record.identity)
-            && receipt.facts.native_session == Some(native.lifetime)
-            && receipt.facts.native_turn.is_none() && receipt.facts.callback.is_none()
-            && receipt.facts.child_owner.is_none()
-            && receipt.facts.session == self.key.session
-            && receipt.facts.workspace == self.key.workspace
-            && Some(&receipt.facts.subject) == self.key.lifecycle.as_ref()
-            && self.key.source_operation == native.lifetime
-            && budget_accounting::inherited(record, native.lifetime)? == self.budget
-            && lifetime.plans.iter().any(|(event, plan)| event.as_str() == self.key.event && plan == &self.key.plan),
-            "observer native lifetime or occurrence identity changed");
         ensure!(
-            match &receipt.facts.subject.occurrence {
-                NonToolOccurrence::SessionStart { source } =>
-                    lifetime.end.is_none() && lifetime.source == *source,
-                NonToolOccurrence::SessionEnd { reason } => lifetime.end == Some(*reason),
-                _ => false,
-            },
-            "observer occurrence no longer owns execution"
+            !operation.reconciled
+                && receipt.hold.is_none()
+                && receipt.facts.native_turn.is_none()
+                && receipt.facts.callback.is_none()
+                && receipt.facts.child_owner.is_none()
+                && receipt.facts.session == self.key.session
+                && receipt.facts.workspace == self.key.workspace
+                && Some(&receipt.facts.subject) == self.key.lifecycle.as_ref(),
+            "observer session lifetime or occurrence identity changed"
         );
+        if let Some(workspace_change) = native.workspace_change {
+            ensure!(
+                operation.phase == "workspace-change"
+                    && self.key.role == "workspace-change"
+                    && receipt.facts.native_session.is_none()
+                    && receipt.facts.subject.occurrence.host_operation() == Some(workspace_change)
+                    && self.key.source_operation == workspace_change
+                    && budget_accounting::inherited(record, workspace_change)? == self.budget,
+                "CwdChanged observer lost its exact applied workspace owner"
+            );
+            super::super::workspace_change::validate_occurrence(
+                record,
+                workspace_change,
+                &receipt.facts.subject.occurrence,
+                &self.key.plan,
+            )?;
+            let current = super::super::workspace_change::current_root(record)?;
+            ensure!(
+                current.generation > 0 && (current.device, current.inode) == self.key.workspace,
+                "CwdChanged observer belongs to a replaced workspace occurrence"
+            );
+        } else {
+            ensure!(
+                operation.phase == "native-session"
+                    && self.key.role == "native-session"
+                    && operation.identity.as_ref() == Some(&record.identity)
+                    && receipt.facts.native_session == Some(native.lifetime)
+                    && self.key.source_operation == native.lifetime
+                    && budget_accounting::inherited(record, native.lifetime)? == self.budget
+                    && lifetime
+                        .plans
+                        .iter()
+                        .any(|(event, plan)| event.as_str() == self.key.event
+                            && plan == &self.key.plan),
+                "observer native lifetime or occurrence identity changed"
+            );
+            ensure!(
+                match &receipt.facts.subject.occurrence {
+                    NonToolOccurrence::SessionStart { source } =>
+                        lifetime.end.is_none() && lifetime.source == *source,
+                    NonToolOccurrence::SessionEnd { reason } => lifetime.end == Some(*reason),
+                    _ => false,
+                },
+                "observer occurrence no longer owns execution"
+            );
+        }
         crate::plugins::admission::digest(&(
             &record.workspace,
             &record.identity,

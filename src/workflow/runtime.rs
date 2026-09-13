@@ -18,6 +18,7 @@ pub mod plugin_session;
 pub mod session_budget;
 pub(crate) mod tool_batches;
 mod tool_operations;
+pub(crate) mod workspace_change;
 pub(crate) use tool_operations::ToolAdmission;
 pub use tool_operations::ToolReceipt;
 pub use tool_operations::{HostInvocation, PluginServiceOutcome};
@@ -177,6 +178,10 @@ pub struct Operation {
 pub struct Message {
     pub role: String,
     pub text: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provenance: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub root: Option<PathBuf>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -453,6 +458,7 @@ impl SharedRuntime {
             (store, record, false)
         };
         if resumed {
+            workspace_change::interrupt_restored(&mut record);
             plugin_observer::interrupt_restored(&mut record);
             for agent in &mut record.agents {
                 if agent.status.active() {
@@ -1056,6 +1062,15 @@ fn append_message(record: &mut Record, role: &str, text: &str) -> Result<()> {
     record.messages.push(Message {
         role: role.into(),
         text: text.into(),
+        provenance: Some(
+            if role == "developer" {
+                "developer_input"
+            } else {
+                "provider_output"
+            }
+            .into(),
+        ),
+        root: Some(record.workspace.clone()),
     });
     Ok(())
 }

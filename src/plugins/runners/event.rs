@@ -258,6 +258,12 @@ fn non_tool_input(
                     value["model"] = json!(model);
                     value["source"] = json!(source);
                 }
+                NonToolOccurrence::CwdChanged {
+                    old_cwd, new_cwd, ..
+                } => {
+                    value["old_cwd"] = json!(old_cwd);
+                    value["new_cwd"] = json!(new_cwd);
+                }
                 NonToolOccurrence::PostToolBatch { batch, tool_calls } => {
                     value["tool_calls"] = json!(match batch {
                         Some(id) => invocation.events.plugin_context()?.0.batch_input(*id)?,
@@ -420,6 +426,16 @@ fn translated_non_tool_input(
         NonToolOccurrence::PreModelSwitch { .. } | NonToolOccurrence::PostModelSwitch { .. } => {
             anyhow::bail!("model switch source translation requires an actual callback")
         }
+        NonToolOccurrence::CwdChanged {
+            old_cwd, new_cwd, ..
+        } => {
+            ensure!(
+                dialect == HookDialect::Claude,
+                "Codex has no source CwdChanged event"
+            );
+            input["old_cwd"] = json!(old_cwd);
+            input["new_cwd"] = json!(new_cwd);
+        }
         NonToolOccurrence::PostToolBatch { batch, tool_calls } => {
             ensure!(
                 dialect == HookDialect::Claude,
@@ -573,6 +589,9 @@ fn translated_source_input(
         }
         NonToolOccurrence::PreModelSwitch { .. } | NonToolOccurrence::PostModelSwitch { .. } => {
             anyhow::bail!("model switch source translation requires its exact callback input")
+        }
+        NonToolOccurrence::CwdChanged { .. } => {
+            anyhow::bail!("CwdChanged is a host operation, not a source callback")
         }
         NonToolOccurrence::PostToolBatch { batch, tool_calls } => {
             ensure!(

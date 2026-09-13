@@ -7,7 +7,7 @@ use crate::{
     highlight::Source,
     selection::Selection,
     session::{Command, PromptAdmission},
-    status::{DisplayOptions, GitPoller, GitStatus, context_text, usage_text},
+    status::{DisplayOptions, GitPoller, GitStatus, GitStatusUpdate, context_text, usage_text},
 };
 use anyhow::{Context, Result, bail};
 use crossterm::{
@@ -46,6 +46,7 @@ struct View {
     active_connection: Option<String>,
     context: ContextUsage,
     git: Option<Result<GitStatus, String>>,
+    workspace_generation: u64,
     busy: bool,
     activity_tick: u64,
     selection: Option<Selection>,
@@ -140,6 +141,14 @@ impl ToolActivity {
 }
 
 impl View {
+    fn accept_git_status(&mut self, update: GitStatusUpdate) {
+        if self.options.workspace.as_deref() == Some(update.workspace.as_path())
+            && self.workspace_generation == update.generation
+        {
+            self.git = Some(update.status);
+        }
+    }
+
     fn request_cancellation(&mut self, clear_idle_input: bool) {
         // Child activity notices may be omitted under terminal backpressure.
         // Cancellation belongs to the owner, regardless of displayed state.
@@ -340,6 +349,20 @@ impl View {
 
     fn event(&mut self, envelope: Envelope) {
         match envelope.event {
+            Event::WorkspaceChanged {
+                previous,
+                workspace,
+                generation,
+            } => {
+                self.options.workspace = Some(std::path::PathBuf::from(&workspace));
+                self.workspace_generation = generation;
+                self.git = None;
+                self.note(
+                    Role::Notice,
+                    "Workspace changed",
+                    &format!("{previous} → {workspace} · generation {generation}"),
+                );
+            }
             Event::ModelAssignment {
                 connection,
                 model,
@@ -744,7 +767,7 @@ async fn run_view(
     settings: Option<crate::settings::Handle>,
 ) -> Result<()> {
     let (git_tx, mut git_rx) = mpsc::channel(1);
-    let _git = GitPoller::start(options.workspace.clone(), git_tx);
+    let git = GitPoller::start(options.workspace.clone(), git_tx);
     let mut view = View {
         options,
         status: "Connecting".into(),
@@ -765,12 +788,15 @@ async fn run_view(
             panel = None;
         }
         tokio::select! {
-            Some(status) = git_rx.recv() => view.git = Some(status),
+            Some(status) = git_rx.recv() => view.accept_git_status(status),
             event = events.recv() => match event {
                 Some(event) => {
                     // Admission precedes turn events in the runtime. Consume it
                     // first even when this select woke on the event channel.
                     view.poll_commands(commands);
+                    if let Event::WorkspaceChanged { workspace, generation, .. } = &event.event {
+                        git.replace(Some(std::path::PathBuf::from(workspace)), *generation);
+                    }
                     view.event(event);
                 },
                 None => bail!("session runtime stopped"),
@@ -879,18 +905,20 @@ fn status_line(view: &View) -> String {
         Some(Err(_)) => "Git unavailable · diff ?".into(),
         None => "Git ? · diff ?".into(),
     };
-    let mut text = format!(
-        "Model {} · {} · {} · {}",
+    format!(
+        "Workspace {} · Model {} · {} · {} · {}",
+        visible_text(
+            &view
+                .options
+                .workspace
+                .as_ref()
+                .map_or_else(|| "unselected".into(), |path| path.display().to_string())
+        ),
         visible_text(view.options.model.as_deref().unwrap_or("backend-default")),
         context_text(view.context, view.options.context_window),
         git,
         view.inspection.counts()
-    );
-    if !view.usage.is_empty() {
-        text.push_str(" · ");
-        text.push_str(&view.usage);
-    }
-    text
+    )
 }
 
 fn draw(view: &mut View, connection: &str, frame: &mut ratatui::Frame<'_>) {
@@ -900,13 +928,14 @@ fn draw(view: &mut View, connection: &str, frame: &mut ratatui::Frame<'_>) {
         .width
         .saturating_sub(if area.width >= 8 { 3 } else { 0 });
     let task_status = view.inspection.task_line();
-    let [header, task_row, notice, body, editor, usage, help] = Layout::vertical([
+    let [header, task_row, notice, body, editor, status, usage, help] = Layout::vertical([
         Constraint::Length(1),
         Constraint::Length(u16::from(task_status.is_some())),
         Constraint::Length(u16::from(view.chat.expired())),
         Constraint::Min(1),
         Constraint::Length(3),
         Constraint::Length(1),
+        Constraint::Length(u16::from(!view.usage.is_empty())),
         Constraint::Length(1),
     ])
     .areas(area);
@@ -981,8 +1010,15 @@ fn draw(view: &mut View, connection: &str, frame: &mut ratatui::Frame<'_>) {
     }
     frame.render_widget(
         Paragraph::new(status_line(view)).style(Style::default().fg(Color::DarkGray)),
-        usage,
+        status,
     );
+    if !view.usage.is_empty() {
+        frame.render_widget(
+            Paragraph::new(format!("Usage · {}", view.usage))
+                .style(Style::default().fg(Color::DarkGray)),
+            usage,
+        );
+    }
     frame.render_widget(
         Paragraph::new(if view.inspection.open {
             "Tab target · Left/Right pages · PgUp/Dn scroll · F5 refresh · F2/Esc close · Ctrl-C cancel"
@@ -1112,6 +1148,44 @@ mod tests {
     }
 
     #[test]
+    fn stale_git_status_from_replaced_workspace_is_not_presented() {
+        let mut view = View {
+            options: DisplayOptions {
+                workspace: Some(std::path::PathBuf::from("/selected-b")),
+                ..DisplayOptions::default()
+            },
+            ..View::default()
+        };
+        view.accept_git_status(GitStatusUpdate {
+            workspace: std::path::PathBuf::from("/old-a"),
+            generation: 0,
+            status: Ok(GitStatus {
+                branch: "stale-a-branch".into(),
+                dirty: 7,
+                diff: Some((11, 13)),
+            }),
+        });
+        assert!(view.git.is_none());
+        assert!(!status_line(&view).contains("stale-a-branch"));
+
+        view.options.workspace = Some(std::path::PathBuf::from("/old-a"));
+        view.workspace_generation = 2;
+        view.accept_git_status(GitStatusUpdate {
+            workspace: std::path::PathBuf::from("/old-a"),
+            generation: 0,
+            status: Ok(GitStatus {
+                branch: "stale-first-a".into(),
+                dirty: 17,
+                diff: None,
+            }),
+        });
+        assert!(
+            view.git.is_none(),
+            "an A→B→A path must still reject the first A snapshot"
+        );
+    }
+
+    #[test]
     fn selection_survives_final_receipt_resize_and_reselection() {
         let mut view = View::default();
         deliver(
@@ -1236,7 +1310,15 @@ mod tests {
             },
         );
         assert!(status_line(&view).contains("Ctx 123/1000"));
-        assert!(status_line(&view).contains("in 0"));
+        let buffer = render(&mut view, 180, 25);
+        assert!(
+            buffer
+                .content
+                .iter()
+                .map(|cell| cell.symbol())
+                .collect::<String>()
+                .contains("Usage · in 0")
+        );
         assert!(!status_line(&view).contains("cost"));
         deliver(
             &mut view,
@@ -1278,7 +1360,65 @@ mod tests {
         );
         deliver(&mut view, Event::TurnStarted);
         assert!(status_line(&view).contains("Ctx ?/?"));
-        assert!(!status_line(&view).contains(" · in "));
+        assert!(view.usage.is_empty());
+        assert!(
+            !render(&mut view, 180, 25)
+                .content
+                .iter()
+                .map(|cell| cell.symbol())
+                .collect::<String>()
+                .contains("Usage ·")
+        );
+    }
+
+    #[test]
+    fn wide_status_keeps_workspace_model_and_usage_visible() {
+        let workspace = "/tmp/tmpz7cdnedm/workspace";
+        let mut view = View {
+            options: DisplayOptions {
+                model: Some("fixture-model".into()),
+                workspace: Some(workspace.into()),
+                ..DisplayOptions::default()
+            },
+            context: ContextUsage {
+                used: Some(12_017),
+                capacity: None,
+                estimated: true,
+            },
+            git: Some(Err("unavailable".into())),
+            ..View::default()
+        };
+        deliver(
+            &mut view,
+            Event::Usage {
+                input: Some(17),
+                output: Some(12_000),
+                cached: None,
+                cost_usd: None,
+            },
+        );
+        view.inspection.update(Ok(crate::inspection::Snapshot {
+            summary: crate::inspection::Summary::default(),
+            page: None,
+        }));
+
+        let buffer = render(&mut view, 160, 35);
+        let rows = (0..35)
+            .map(|y| {
+                (0..160)
+                    .map(|x| buffer[(x, y)].symbol())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>();
+        assert!(
+            rows.iter()
+                .any(|row| row.contains(&format!("Workspace {workspace}")))
+        );
+        assert!(rows.iter().any(|row| row.contains("Model fixture-model")));
+        assert!(rows.iter().any(|row| row.contains("Ctx ~12017/?")));
+        assert!(rows.iter().any(|row| row.contains("Git unavailable")));
+        assert!(rows.iter().any(|row| row.contains("agents 0 active")));
+        assert!(rows.iter().any(|row| row.contains("out 12000")));
     }
 
     #[test]

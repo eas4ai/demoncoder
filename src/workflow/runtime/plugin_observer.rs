@@ -521,7 +521,9 @@ impl SharedRuntime {
         );
         let identity = Arc::new(session::Identity::capture(&runtime.record, invocation)?);
         ensure!(
-            identity.native.is_none() || config.declared && !config.rewake,
+            identity.native.as_ref().is_none_or(|owner| {
+                owner.workspace_change.is_some() || config.declared && !config.rewake
+            }),
             "native session requires declared async without source-only rewake"
         );
         ensure!(

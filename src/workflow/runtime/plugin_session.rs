@@ -20,6 +20,8 @@ pub struct NativeSessionLifetime {
     pub version: u32,
     pub session: String,
     pub workspace: (u64, u64),
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace_path: Option<std::path::PathBuf>,
     pub source: SessionStart,
     pub plans: Vec<(crate::plugins::hook_types::HookEvent, String)>,
     pub end: Option<SessionEnd>,
@@ -102,6 +104,16 @@ pub(super) fn validate_host_lifetime(
     record: &Record,
     id: u64,
 ) -> Result<(&Operation, &NativeSessionLifetime)> {
+    let owner = validate_host_authority(record, id)?;
+    let current = super::workspace_change::validate_lifetime_lineage(record, id)?;
+    super::workspace_change::validate_physical_root(&current)?;
+    Ok(owner)
+}
+
+pub(super) fn validate_host_authority(
+    record: &Record,
+    id: u64,
+) -> Result<(&Operation, &NativeSessionLifetime)> {
     let (operation, owner) = lifetime(record, id)?;
     ensure!(
         !record.recovery_pending && !operation.reconciled,
@@ -128,11 +140,6 @@ pub(super) fn validate_host_lifetime(
             .is_some_and(|authority| authority.live.load(Ordering::Acquire)),
         "native host lifetime is not live"
     );
-    let metadata = std::fs::metadata(&record.workspace)?;
-    ensure!(
-        (metadata.dev(), metadata.ino()) == owner.workspace,
-        "native session workspace identity changed"
-    );
     Ok((operation, owner))
 }
 
@@ -144,10 +151,16 @@ pub(super) fn validate_host_control<'a>(
     ensure!(
         authority.deadline > Instant::now()
             && authority.live.load(Ordering::Acquire)
+            && authority.owner_live.load(Ordering::Acquire)
             && owner.authority.is_some(),
         "settings control expired, was cancelled, or belongs to another host session"
     );
-    Ok((&record.identity, owner.workspace))
+    let current = super::workspace_change::current_root(record)?;
+    ensure!(
+        current == authority.workspace,
+        "settings control belongs to a replaced workspace generation"
+    );
+    Ok((&record.identity, (current.device, current.inode)))
 }
 
 pub(super) fn validate<'a>(
@@ -156,10 +169,16 @@ pub(super) fn validate<'a>(
     occurrence: &NonToolOccurrence,
 ) -> Result<(&'a Identity, (u64, u64))> {
     let identity = if matches!(occurrence, NonToolOccurrence::SessionEnd { .. }) {
-        (
-            &record.identity,
-            super::model_switch::validate_original_lifetime_current(record, id)?,
-        )
+        let workspace = super::model_switch::validate_original_lifetime_current(record, id)?;
+        let (_, owner) = lifetime(record, id)?;
+        let original_path = owner.workspace_path.as_ref().unwrap_or(&record.workspace);
+        let metadata = std::fs::metadata(original_path)
+            .context("original SessionEnd workspace is unavailable")?;
+        ensure!(
+            (metadata.dev(), metadata.ino()) == workspace,
+            "original SessionEnd workspace identity was replaced; observation is unavailable"
+        );
+        (&record.identity, workspace)
     } else {
         validate_live(record, id)?
     };
@@ -255,6 +274,7 @@ impl SharedRuntime {
                     version: 1,
                     session: session.clone(),
                     workspace: (metadata.dev(), metadata.ino()),
+                    workspace_path: Some(record.workspace.clone()),
                     source,
                     plans: plans.clone(),
                     end: None,

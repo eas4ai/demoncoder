@@ -372,6 +372,7 @@ impl NativeSession {
             }
             let admission = events.begin_model()?;
             let invocation_events = events.for_invocation(admission);
+            invocation_events.bind_workspace_handoff_provider()?;
             let mut session_context = invocation_events.native_observer_context()?;
             if let Some(delivery) = &session_context
                 && !invocation_events.prepare_native_observer_context(delivery)?

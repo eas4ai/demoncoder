@@ -62,7 +62,8 @@ async fn main() -> Result<()> {
             runtime.clone(),
             resumed,
         )?
-        .with_live_settings(live_settings.clone()),
+        .with_live_settings(live_settings.clone())
+        .with_manager(manager.clone()),
     );
     let session: Box<dyn session::Session> = match manager {
         Some(manager) => Box::new(demoncoder::subagents::session::DelegatingSession::new(

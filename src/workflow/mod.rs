@@ -8,6 +8,9 @@ pub mod state;
 pub mod store;
 pub mod workspace;
 
+#[cfg(test)]
+mod workspace_change_tests;
+
 pub(crate) const BUSY_CONTROL: &str =
     "Task controls require stopped work; draft retained. Cancel or wait for the current operation.";
 
@@ -34,6 +37,7 @@ pub(crate) fn is_control(text: &str) -> bool {
                     | "/agent-validate"
                     | "/agent-integrate"
                     | "/agent-reconcile"
+                    | "/workspace"
             )
         )
 }
@@ -52,6 +56,11 @@ use crate::{
     tools::{ToolCall, ToolExecutor},
 };
 use state::{CheckReceipt, Task};
+
+#[cfg(test)]
+const WORKSPACE_CLOSE_GRACE: std::time::Duration = std::time::Duration::from_secs(2);
+#[cfg(not(test))]
+const WORKSPACE_CLOSE_GRACE: std::time::Duration = crate::session::NATIVE_END_BUDGET;
 
 #[derive(Clone, Default)]
 pub struct Settings {
@@ -78,6 +87,7 @@ pub struct WorkflowSession {
     live_settings: Option<crate::settings::Handle>,
     connection_label: Option<String>,
     admitted_creator: Option<crate::config::Selection>,
+    manager: Option<std::sync::Arc<crate::subagents::manager::Manager>>,
 }
 
 fn same_runtime_policy(
@@ -231,6 +241,7 @@ impl WorkflowSession {
             resume_inspected: !resumed,
             live_settings: None,
             admitted_creator: None,
+            manager: None,
         })
     }
 
@@ -244,6 +255,265 @@ impl WorkflowSession {
         );
         self.live_settings = Some(settings);
         self
+    }
+
+    pub fn with_manager(
+        mut self,
+        manager: Option<std::sync::Arc<crate::subagents::manager::Manager>>,
+    ) -> Self {
+        self.manager = manager;
+        self
+    }
+
+    async fn replace_workspace(
+        &mut self,
+        selected: &str,
+        commands: &mut mpsc::Receiver<Command>,
+        events: &EventSink,
+    ) -> Result<TurnEnd> {
+        ensure!(
+            !selected.is_empty() && selected.len() <= 16 * 1024,
+            "/workspace requires a path of 1 to 16384 bytes"
+        );
+        let selected = std::path::Path::new(selected);
+        let selected = if selected.is_absolute() {
+            selected.to_path_buf()
+        } else {
+            self.workspace.join(selected)
+        };
+        let scoped = events
+            .clone()
+            .with_runtime(self.runtime.clone())
+            .with_identity(&self.connection);
+        let (current, candidate) = scoped.prepare_workspace_change(&selected)?;
+        if candidate.occurrence().path == current.path
+            && candidate.occurrence().device == current.device
+            && candidate.occurrence().inode == current.inode
+        {
+            events
+                .emit(Event::Text {
+                    text: format!("\nWorkspace already selected: {}\n", current.path.display()),
+                })
+                .await?;
+            return Ok(TurnEnd::Complete);
+        }
+        // Opening the replacement proves the selected root can construct the real
+        // provider and its root-bound tool policy before any old-root teardown.
+        let mut replacement =
+            crate::adapters::builtins()?.open(&self.connection, &candidate.occurrence().path)?;
+        let checkpoint = self.inner.checkpoint();
+        let native_continuity = self.inner.supports_workflow();
+        let handoff = if native_continuity {
+            if !self.runtime.record()?.messages.is_empty() {
+                let checkpoint = checkpoint.as_ref().context("native provider cannot expose the checkpoint required for workspace continuity")?;
+                replacement.restore(checkpoint, &[])?;
+            }
+            None
+        } else {
+            Some(self.runtime.workspace_handoff()?)
+        };
+        let cwd_plan = self
+            .connection
+            .access
+            .non_tools
+            .iter()
+            .find(|plan| plan.plan.event == crate::plugins::hook_types::HookEvent::CwdChanged)
+            .cloned();
+        let cwd_observer = if cwd_plan.is_some() {
+            let gate = std::sync::Arc::new(
+                crate::plugins::gate_snapshot::GateWorkspace::open_with_credentials(
+                    &candidate.occurrence().path,
+                    &self.connection.access.credential_paths,
+                )?,
+            );
+            let host = crate::plugins::runners::HookHost::new(
+                candidate.host_descriptor()?,
+                candidate.occurrence().path.clone(),
+                gate.frozen_credentials(),
+                self.connection.access.supervisor.clone(),
+            );
+            Some((gate, host))
+        } else {
+            None
+        };
+        scoped.validate_workspace_change_request(&candidate)?;
+        if let Some(manager) = &self.manager {
+            manager.begin_workspace_transition(&current)?;
+        }
+        if let Some(settings) = &self.live_settings {
+            if let Err(error) = settings.revoke_control() {
+                if let Some(manager) = &self.manager {
+                    manager.cancel_workspace_transition(&current)?;
+                }
+                return Err(error)
+                    .context("revoke old Settings authority before workspace admission");
+            }
+            if let Err(error) = self
+                .runtime
+                .quiesce_settings_controls(
+                    tokio::time::Instant::now() + crate::session::NATIVE_END_BUDGET,
+                )
+                .await
+            {
+                if let Some(manager) = &self.manager {
+                    manager.cancel_workspace_transition(&current)?;
+                }
+                self.runtime.hold()?;
+                return Err(error)
+                    .context("old Settings authority did not quiesce before workspace admission");
+            }
+        }
+        let (workspace_events, operation) = match scoped.begin_workspace_change(
+            &candidate,
+            cwd_plan.as_ref().map(|plan| plan.plan.digest.clone()),
+            handoff,
+        ) {
+            Ok(admitted) => admitted,
+            Err(error) => {
+                if let Some(settings) = &self.live_settings {
+                    settings.require_control(self.connection.access.non_tools.iter().any(|plan| {
+                        plan.plan.event == crate::plugins::hook_types::HookEvent::ConfigChange
+                    }));
+                    if let Err(restore) = settings.activate_control(
+                        &current.path,
+                        &self.connection,
+                        &scoped,
+                        self.runtime.clone(),
+                    ) {
+                        self.runtime.hold()?;
+                        if let Some(manager) = &self.manager {
+                            manager.cancel_workspace_transition(&current)?;
+                        }
+                        return Err(error).context(format!("workspace admission refused and restoring old Settings authority failed: {restore:#}"));
+                    }
+                }
+                if let Some(manager) = &self.manager {
+                    manager.cancel_workspace_transition(&current)?;
+                }
+                return Err(error);
+            }
+        };
+        self.runtime.begin_workspace_change_teardown(operation)?;
+        self.runtime.stop_observers(None, false).await?;
+        let mut requested_end = None;
+        let close_result = {
+            let close = self.inner.close();
+            tokio::pin!(close);
+            let close_deadline = tokio::time::sleep(WORKSPACE_CLOSE_GRACE);
+            tokio::pin!(close_deadline);
+            loop {
+                tokio::select! { biased;
+                    _ = &mut close_deadline => break None,
+                    command = commands.recv(), if requested_end.is_none() => match command {
+                        Some(Command::Cancel) => { requested_end = Some(TurnEnd::Cancelled); close_deadline.as_mut().reset(tokio::time::Instant::now() + WORKSPACE_CLOSE_GRACE); },
+                        Some(Command::Shutdown) => { requested_end = Some(TurnEnd::Shutdown); close_deadline.as_mut().reset(tokio::time::Instant::now() + WORKSPACE_CLOSE_GRACE); },
+                        None => { requested_end = Some(TurnEnd::CommandsClosed); close_deadline.as_mut().reset(tokio::time::Instant::now() + WORKSPACE_CLOSE_GRACE); },
+                        Some(Command::Submit { reply, .. }) => { let _ = reply.send(Err("Workspace replacement is closing the old provider; draft retained.")); },
+                        Some(Command::Prompt(_)) => events.emit_advisory(Event::Error { message: "Workspace replacement is closing the old provider; submit after it settles.".into() })?,
+                    },
+                    result = &mut close => break Some(result),
+                }
+            }
+        };
+        if close_result.is_none() {
+            self.runtime.interrupt_workspace_change(operation)?;
+            return match requested_end {
+                Some(end) => Ok(end),
+                None => Err(anyhow::anyhow!(
+                    "old provider close exceeded the workspace replacement grace; old root retained and teardown held"
+                )),
+            };
+        }
+        if let Err(error) = close_result.expect("checked close outcome") {
+            self.runtime.interrupt_workspace_change(operation)?;
+            return Err(error)
+                .context("old provider close is uncertain; workspace replacement will not replay");
+        }
+        if let Some(end) = requested_end {
+            self.runtime.interrupt_workspace_change(operation)?;
+            return Ok(end);
+        }
+        if let Err(error) = self.runtime.apply_workspace_change(operation, &candidate) {
+            self.runtime.interrupt_workspace_change(operation)?;
+            return Err(error).context("selected workspace changed after old-provider teardown; replacement held without replay");
+        }
+        let previous = std::mem::replace(&mut self.inner, replacement);
+        if self.native_lifetime && self.native_lifetime_owner.is_none() {
+            self.native_lifetime_owner = Some(previous);
+        }
+        self.workspace = candidate.occurrence().path.clone();
+        self.task = None;
+        let mut post_failures = Vec::new();
+        if let Err(error) = self.runtime.reopen_observer_admission("workspace-change") {
+            post_failures.push(format!(
+                "new-root observer admission failed after workspace application: {error:#}"
+            ));
+        }
+        if let Some(manager) = &self.manager
+            && let Err(error) = manager.install_workspace(&current, candidate.occurrence().clone())
+        {
+            post_failures.push(format!(
+                "Manager installation failed after workspace application: {error:#}"
+            ));
+        }
+        if let Some(settings) = &self.live_settings {
+            settings.require_control(self.connection.access.non_tools.iter().any(|plan| {
+                plan.plan.event == crate::plugins::hook_types::HookEvent::ConfigChange
+            }));
+            if let Err(error) = settings.activate_control(
+                &self.workspace,
+                &self.connection,
+                &scoped,
+                self.runtime.clone(),
+            ) {
+                post_failures.push(format!(
+                    "Settings installation failed after workspace application: {error:#}"
+                ));
+            }
+        }
+        let mut hold = None;
+        if let Some(plan) = cwd_plan {
+            let (gate, host) = cwd_observer.expect("prepared CwdChanged observer");
+            let occurrence = crate::plugins::receipts::NonToolOccurrence::CwdChanged {
+                workspace_change: operation,
+                old_cwd: current.path.display().to_string(),
+                new_cwd: self.workspace.display().to_string(),
+            };
+            match plan
+                .dispatch(
+                    occurrence,
+                    &workspace_events,
+                    gate,
+                    (candidate.occurrence().device, candidate.occurrence().inode),
+                    host,
+                )
+                .await
+            {
+                Ok(outcome) => hold = outcome.hold,
+                Err(error) => {
+                    hold = Some(format!(
+                        "CwdChanged observation failed after workspace application: {error:#}"
+                    ))
+                }
+            }
+        }
+        if !post_failures.is_empty() {
+            post_failures.extend(hold.take());
+            hold = Some(post_failures.join("; "));
+        }
+        self.runtime.end_workspace_change(operation, hold.clone())?;
+        events
+            .emit(Event::WorkspaceChanged {
+                previous: current.path.display().to_string(),
+                workspace: self.workspace.display().to_string(),
+                generation: candidate.occurrence().generation,
+            })
+            .await?;
+        if let Some(reason) = hold {
+            self.runtime.hold()?;
+            anyhow::bail!(reason);
+        }
+        Ok(TurnEnd::Complete)
     }
 
     async fn refresh_creator(
@@ -618,6 +888,12 @@ impl WorkflowSession {
             }
             self.resume_inspected = true;
         }
+        if prompt == "/workspace" {
+            anyhow::bail!("/workspace requires an explicit path");
+        }
+        if let Some(selected) = prompt.strip_prefix("/workspace ") {
+            return self.replace_workspace(selected, commands, events).await;
+        }
         if let Some(explanation) = prompt.strip_prefix("/reconcile ") {
             let digest = if self.task.is_some() {
                 Some(self.snapshot().await?.digest)
@@ -770,7 +1046,7 @@ impl WorkflowSession {
                 Ok(TurnEnd::Complete)
             }
             "/workflow-help" => {
-                events.emit(Event::Text { text: "\n/task OBJECTIVE starts a task. /verify runs selected --check commands. /review requests the --reviewer connection. /correct uses a bounded correction round. /accept accepts current verified and reviewed files. /task-status shows evidence status. /abandon ends a task without acceptance.\n".into() }).await?;
+                events.emit(Event::Text { text: "\n/task OBJECTIVE starts a task. /verify runs selected --check commands. /review requests the --reviewer connection. /correct uses a bounded correction round. /accept accepts current verified and reviewed files. /task-status shows evidence status. /abandon ends a task without acceptance. /workspace PATH explicitly replaces the workspace while idle and reconciled; relative paths start at the current workspace, and the path is literal.\n".into() }).await?;
                 Ok(TurnEnd::Complete)
             }
             _ => self.work(prompt, false, commands, events).await,
@@ -807,7 +1083,8 @@ impl WorkflowSession {
         commands: &mut mpsc::Receiver<Command>,
         events: &EventSink,
     ) -> Result<TurnEnd> {
-        let submitted_events = events.with_submitted_prompt(prompt.clone());
+        let developer_prompt = prompt.clone();
+        let submitted_events = events.with_submitted_prompt(developer_prompt.clone());
         let events = &submitted_events;
         let runtime = self.runtime.clone();
         let root = self.workspace.clone();
@@ -840,10 +1117,22 @@ impl WorkflowSession {
             task.start_work(correction)?;
         }
         self.runtime.save_task(&self.task, self.next_id, None)?;
-        self.runtime.begin_phase("worker", Some(&prompt))?;
+        self.runtime
+            .begin_phase("worker", Some(&developer_prompt))?;
         if let Some(context) = context {
             self.runtime.retain_learning_context(context)?;
         }
+        // A retained conversation is input for the next explicit model turn.
+        // Host controls remain host controls and cannot consume or receive it.
+        let handoff = if is_control(&developer_prompt) {
+            None
+        } else {
+            self.runtime.begin_workspace_handoff_delivery()?
+        };
+        let prompt = match &handoff {
+            Some((_, framing)) => format!("{framing}{prompt}"),
+            None => prompt,
+        };
         let result = if self.task.is_some() || self.runtime.record()?.delegation.is_some() {
             tokio::time::timeout(
                 self.runtime.remaining()?,
@@ -855,6 +1144,12 @@ impl WorkflowSession {
         } else {
             self.inner.turn(prompt, commands, events).await
         };
+        if let Some((operation, _)) = handoff {
+            self.runtime.finish_workspace_handoff_delivery(
+                operation,
+                matches!(&result, Ok(TurnEnd::Complete)),
+            )?;
+        }
         // Post-tool correction is admitted by the durable loop owner. Refresh
         // before any outer save so local task state cannot erase that correction.
         let authoritative = self.runtime.record()?;
@@ -1128,7 +1423,7 @@ impl Session for WorkflowSession {
             || (starts_task && task.as_ref().is_none_or(|task| task.accepted.is_some())))
             && let Some(settings) = &self.live_settings
         {
-            self.admitted_creator = Some(settings.creator(&self.connection)?);
+            self.admitted_creator = Some(settings.creator(&self.connection, &self.workspace)?);
         }
         Ok(())
     }

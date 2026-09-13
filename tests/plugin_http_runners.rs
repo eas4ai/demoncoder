@@ -193,6 +193,36 @@ fn register(
         Arc::new(plugins::inspect(source.path(), &plugins::ImportOptions::default()).unwrap());
     HttpRunner::registration(package, d, config, revalidation)
 }
+struct TimedRunner {
+    inner: Arc<dyn HookRunner>,
+    finished: Arc<Mutex<Option<std::time::Instant>>>,
+}
+#[async_trait::async_trait]
+impl HookRunner for TimedRunner {
+    fn observer_config(&self) -> Option<plugins::observer::ObserverConfig> {
+        self.inner.observer_config()
+    }
+    fn bound_event(&self) -> Option<HookEvent> {
+        self.inner.bound_event()
+    }
+    async fn prepare(&self, invocation: &HookInvocation) -> anyhow::Result<()> {
+        self.inner.prepare(invocation).await
+    }
+    fn mutates_workspace(&self) -> bool {
+        self.inner.mutates_workspace()
+    }
+    fn side_effect_free(&self) -> bool {
+        self.inner.side_effect_free()
+    }
+    async fn run(
+        &self,
+        invocation: &HookInvocation,
+    ) -> anyhow::Result<demoncoder::plugins::receipts::RawOutcome> {
+        let outcome = self.inner.run(invocation).await;
+        *self.finished.lock().unwrap() = Some(std::time::Instant::now());
+        outcome
+    }
+}
 struct Peer {
     endpoint: String,
     requests: Arc<Mutex<Vec<(String, serde_json::Value)>>>,
@@ -573,27 +603,108 @@ async fn streamed_response_bounds_do_not_trust_content_length() {
 #[tokio::test]
 async fn one_deadline_bounds_slow_headers_and_continuous_body() {
     let _lock = FIXTURES.lock().await;
+    const CONFIGURED_TIMEOUT_MS: u64 = 120;
+    // The slowest retained normal-concurrency request-to-receipt measure was
+    // 162.33 ms. The runner finishes before that durable receipt; 250 ms is the
+    // configured 120 ms plus 130 ms of explicit scheduling tolerance and remains
+    // far below the one-second violating control. This is not a product SLA.
+    const MAX_ACCEPTED_TO_RUNNER_FINISH_MS: u64 = 250;
     for body in [false, true] {
+        let (accepted_by_peer, accepted) = std::sync::mpsc::sync_channel(1);
+        let completed = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let completed_by_peer = completed.clone();
+        let (release_before_peer, released) = std::sync::mpsc::channel();
         let peer = Peer::new(move |stream| {
             use std::io::Write;
+            accepted_by_peer.send(std::time::Instant::now()).unwrap();
             if body {
                 let _ = write!(stream, "HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n");
-                for _ in 0..30 {
-                    if stream.write_all(b" ").is_err() {
-                        break;
-                    }
-                    std::thread::sleep(Duration::from_millis(20));
-                }
-            } else {
-                std::thread::sleep(Duration::from_millis(400));
             }
+            loop {
+                if body {
+                    let _ = stream.write_all(b" ");
+                }
+                match released.recv_timeout(Duration::from_millis(20)) {
+                    Ok(()) | Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+                }
+            }
+            completed_by_peer.store(true, std::sync::atomic::Ordering::SeqCst);
         });
+        // Declared after `peer`, so unwinding drops this sender before Peer::drop joins
+        // the deliberately blocked handler.
+        let release = release_before_peer;
         let mut c = HttpConfig::new(peer.endpoint.clone());
-        c.timeout_ms = 120;
-        let started = std::time::Instant::now();
-        let record = check(&peer, c, false).await;
-        assert!(started.elapsed() < Duration::from_millis(350));
-        assert!(hooks(&record)[0].uncertain_effects);
+        c.timeout_ms = CONFIGURED_TIMEOUT_MS;
+        let fixture = Fixture::new();
+        let mut registration = register(native(), c, None).unwrap();
+        let runner_finished = Arc::new(Mutex::new(None));
+        registration.runner = Arc::new(TimedRunner {
+            inner: registration.runner,
+            finished: runner_finished.clone(),
+        });
+        let executor = fixture.executor(vec![registration], false);
+        let turn_started = std::time::Instant::now();
+        let bounded = tokio::time::timeout(
+            Duration::from_secs(2),
+            fixture.run(executor, vec![call("result")]),
+        )
+        .await;
+        let results = bounded.expect("HTTP fixture exceeded its test-only two-second hang guard");
+        let turn_elapsed = turn_started.elapsed();
+        let wrote = fixture.root.path().join("result").exists();
+        let request_count = peer.count();
+        let record = fixture.record();
+        let hook = hooks(&record)[0];
+        let accepted_at = accepted
+            .recv_timeout(Duration::from_secs(1))
+            .expect("HTTP peer did not report request acceptance");
+        let runner_finished_at = runner_finished
+            .lock()
+            .unwrap()
+            .expect("HTTP runner did not report completion");
+        let request_elapsed = runner_finished_at.duration_since(accepted_at);
+        eprintln!(
+            "HTTP deadline body={body} request_to_runner_finish={request_elapsed:?} turn_to_receipt={turn_elapsed:?} outcome={:?}",
+            hook.outcome
+        );
+        // The reqwest total timeout and the runner's outer total timeout share the
+        // configured deadline and can win the same poll. The peer remains blocked,
+        // so a transport failure here cannot originate from peer completion.
+        let exact_timeout = matches!(
+            (&hook.outcome, body),
+            (
+                Some(demoncoder::plugins::receipts::RawOutcome::Failure { reason }),
+                false
+            ) if reason == "HTTP hook timed out; remote effects may be unknown"
+                || reason == "HTTP hook transport failed; remote effects may be unknown"
+        ) || matches!(
+            (&hook.outcome, body),
+            (
+                Some(demoncoder::plugins::receipts::RawOutcome::Failure { reason }),
+                true
+            ) if reason == "HTTP hook timed out; remote effects may be unknown"
+                || reason == "HTTP hook response transport failed"
+        );
+        let completed_before_receipt = completed.load(std::sync::atomic::Ordering::SeqCst);
+        drop(release);
+        assert!(!results[0].success, "{results:?}");
+        assert!(!wrote);
+        assert_eq!(request_count, 1);
+        assert!(
+            exact_timeout,
+            "body={body} returned the wrong outcome: {:?}",
+            hook.outcome
+        );
+        assert!(hook.uncertain_effects);
+        assert!(
+            request_elapsed < Duration::from_millis(MAX_ACCEPTED_TO_RUNNER_FINISH_MS),
+            "body={body} runner finish {request_elapsed:?} exceeded configured {CONFIGURED_TIMEOUT_MS} ms plus 130 ms test scheduling tolerance"
+        );
+        assert!(
+            !completed_before_receipt,
+            "body={body} completed the peer exchange before retaining its deadline outcome"
+        );
     }
 }
 

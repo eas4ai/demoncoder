@@ -343,6 +343,7 @@ impl Claude {
                 ordinary.begin(&user, origin, events)?;
             }
             deadline.during(process.send(user.clone())).await?;
+            events.bind_workspace_handoff_provider()?;
             if let Some(delivery) = &observer_delivery {
                 events.complete_observer_context(delivery)?;
             }

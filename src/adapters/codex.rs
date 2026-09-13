@@ -408,6 +408,7 @@ impl Codex {
             }
             let ordinary_turn = request["method"] == "turn/start";
             deadline.during(process.send(request)).await?;
+            events.bind_workspace_handoff_provider()?;
             if let Some(delivery) = &observer_delivery {
                 events.complete_observer_context(delivery)?;
             }

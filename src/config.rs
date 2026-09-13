@@ -315,6 +315,12 @@ pub struct Selection {
     pub workspace: PathBuf,
 }
 
+#[derive(Clone, Copy)]
+enum SelectionWorkspace<'a> {
+    Startup,
+    Admitted(&'a Path),
+}
+
 impl Args {
     pub fn session_hook_limits(&self) -> Result<Option<crate::workflow::allocation::Limits>> {
         match (
@@ -503,6 +509,22 @@ impl Args {
     }
 
     pub(crate) fn selection_from(&self, config: &Config) -> Result<Selection> {
+        self.selection_from_workspace(config, SelectionWorkspace::Startup)
+    }
+
+    pub(crate) fn selection_from_admitted_workspace(
+        &self,
+        config: &Config,
+        workspace: &Path,
+    ) -> Result<Selection> {
+        self.selection_from_workspace(config, SelectionWorkspace::Admitted(workspace))
+    }
+
+    fn selection_from_workspace(
+        &self,
+        config: &Config,
+        selected_workspace: SelectionWorkspace<'_>,
+    ) -> Result<Selection> {
         let name = self
             .connection
             .clone()
@@ -546,12 +568,18 @@ impl Args {
             connection.max_output_tokens = Some(limit);
         }
         connection.validate()?;
-        let workspace = self.workspace.canonicalize().context("resolve workspace")?;
+        let workspace = match selected_workspace {
+            SelectionWorkspace::Startup => &self.workspace,
+            SelectionWorkspace::Admitted(workspace) => workspace,
+        }
+        .canonicalize()
+        .context("resolve workspace")?;
         if !workspace.is_dir() {
             bail!("workspace must be a directory");
         }
         anyhow::ensure!(
-            self.yolo
+            matches!(selected_workspace, SelectionWorkspace::Admitted(_))
+                || self.yolo
                 || self.trust_workspace
                 || config
                     .trusted_workspaces

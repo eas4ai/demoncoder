@@ -269,6 +269,18 @@ fn hook_lifetime(record: &Record, owner: u64, event: HookEvent) -> Result<Option
                 .context("session model lifetime missing")?,
         ));
     }
+    if event == HookEvent::CwdChanged {
+        let receipt = super::plugin_non_tool::active(record, owner, event)?;
+        return Ok(Some(super::workspace_change::hook_lifetime(
+            record,
+            receipt
+                .facts
+                .subject
+                .occurrence
+                .host_operation()
+                .context("workspace change hook owner missing")?,
+        )?));
+    }
     if matches!(event, HookEvent::PreCompact | HookEvent::PostCompact) {
         let receipt = super::plugin_non_tool::active(record, owner, event)?;
         return super::compaction::hook_lifetime(
@@ -728,6 +740,7 @@ pub(super) fn active_for_event(
         } else if matches!(
             event,
             HookEvent::ConfigChange
+                | HookEvent::CwdChanged
                 | HookEvent::PostToolBatch
                 | HookEvent::PreCompact
                 | HookEvent::PostCompact
